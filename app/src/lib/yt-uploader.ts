@@ -61,19 +61,59 @@ export async function uploadToYouTube(
       `[yt-upload] PUT bytes ${offset}-${end - 1}/${blob.size} (last=${isLast})`,
     );
 
-    let res: Response;
+    let res: Response | null = null;
     try {
       res = await fetch(init.sessionUri, {
         method: "PUT",
         headers: {
-          // Browser computes Content-Length itself; explicitly setting it is a no-op
+          // Browser computes Content-Length itself
           "Content-Range": `bytes ${offset}-${end - 1}/${blob.size}`,
         },
         body: chunk,
         signal,
       });
     } catch (err) {
-      console.error("[yt-upload] PUT fetch threw", err);
+      console.warn("[yt-upload] PUT threw", err);
+      // CORS blocks the FINAL response of a YouTube resumable upload
+      // (intermediate 308s come through fine, but the 200 doesn't carry
+      // ACAO headers). The bytes still landed on YouTube — we just need
+      // to ask the server to query upload status and grab the videoId.
+      if (isLast) {
+        console.log(
+          "[yt-upload] last chunk PUT failed at the response read; polling server for videoId",
+        );
+        for (let attempt = 0; attempt < 15; attempt++) {
+          await new Promise((r) => setTimeout(r, attempt === 0 ? 500 : 2000));
+          const statusRes = await fetch("/api/youtube/upload-status", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sessionUri: init.sessionUri,
+              totalSize: blob.size,
+            }),
+          });
+          if (!statusRes.ok) continue;
+          const data = (await statusRes.json()) as {
+            status: string;
+            videoId?: string | null;
+            message?: string;
+          };
+          console.log(
+            `[yt-upload] poll attempt ${attempt + 1} status=${data.status} videoId=${data.videoId ?? "(none)"}`,
+          );
+          if (data.status === "complete" && data.videoId) {
+            videoId = data.videoId;
+            break;
+          }
+          if (data.status === "error") {
+            throw new Error(`YouTube rejected upload: ${data.message ?? "unknown"}`);
+          }
+        }
+        if (videoId) break;
+        throw new Error(
+          "Upload succeeded but couldn't retrieve videoId after 30s",
+        );
+      }
       throw new Error(`PUT failed: ${(err as Error).message}`);
     }
 
