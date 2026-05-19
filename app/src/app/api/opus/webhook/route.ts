@@ -1,83 +1,78 @@
 import { NextResponse } from "next/server";
+import { getClipProject } from "@/lib/opusclip";
+import { getJob, updateJob } from "@/lib/opus-job-store";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { b2, bucket, guessMimeType } from "@/lib/b2";
-import { getJob, updateJob } from "@/lib/opus-job-store";
 
-// OpusClip webhook payload: depends on their docs, this is a best-guess shape.
-// Adjust the field names below if your OpusClip docs show different names.
-interface OpusWebhookBody {
-  job_id?: string;
-  id?: string;
-  status: string;
-  clips?: Array<{
-    url: string;
-    duration?: number;
-    title?: string;
-    aspect?: string;
-  }>;
-  metadata?: { videoKey?: string; userId?: string; projectId?: string };
-  error?: string;
-}
+// OpusClip POSTs a webhook when a clip-project finishes (if WEBHOOK was
+// included in conclusionActions). Shape isn't documented in what you sent
+// me — we treat the webhook as a "go fetch the project state and import
+// clips" trigger rather than trusting fields in the body.
 
 export async function POST(req: Request) {
-  const body = (await req.json()) as OpusWebhookBody;
-  const jobId = body.job_id ?? body.id;
-  if (!jobId) return NextResponse.json({ error: "missing_job_id" }, { status: 400 });
+  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+  const projectId =
+    (body.projectId as string | undefined) ??
+    (body.id as string | undefined) ??
+    (body.clipProjectId as string | undefined);
 
-  const stored = await getJob(jobId);
-  if (!stored) {
-    console.warn("[opus webhook] unknown job", jobId);
+  if (!projectId) {
+    console.warn("[opus webhook] missing projectId", body);
     return NextResponse.json({ received: true, known: false });
   }
 
-  if (body.status === "failed" || body.status === "error") {
-    await updateJob(jobId, {
-      status: "failed",
-      error: body.error ?? "OpusClip job failed",
+  const stored = await getJob(projectId);
+  if (!stored) {
+    console.warn("[opus webhook] unknown job", projectId);
+    return NextResponse.json({ received: true, known: false });
+  }
+
+  try {
+    const remote = await getClipProject(projectId);
+    if (remote.status !== "ready" || remote.clips.length === 0) {
+      await updateJob(projectId, { status: remote.status === "failed" ? "failed" : "processing" });
+      return NextResponse.json({ received: true, ready: false });
+    }
+
+    const projectPrefix = stored.videoKey.replace(/\/[^/]+$/, "");
+    let delivered = 0;
+    for (const [i, clip] of remote.clips.entries()) {
+      try {
+        const r = await fetch(clip.uriForExport);
+        if (!r.ok) continue;
+        const safeTitle = (clip.title || `clip_${i + 1}`)
+          .replace(/[^\w-]+/g, "_")
+          .slice(0, 60);
+        const ext =
+          clip.uriForExport.split(".").pop()?.split("?")[0]?.toLowerCase() ??
+          "mp4";
+        const name = `clip_${stored.stylePreset}_${i + 1}_${safeTitle}.${ext}`;
+        const key = `${projectPrefix}/clips/${name}`;
+        const buffer = new Uint8Array(await r.arrayBuffer());
+        await b2.send(
+          new PutObjectCommand({
+            Bucket: bucket,
+            Key: key,
+            Body: buffer,
+            ContentType: guessMimeType(name),
+          }),
+        );
+        delivered += 1;
+      } catch (err) {
+        console.error("[opus webhook] clip save failed", err);
+      }
+    }
+
+    await updateJob(projectId, {
+      status: "succeeded",
+      clipsDelivered: delivered,
       finishedAt: Date.now(),
     });
-    return NextResponse.json({ received: true });
+    return NextResponse.json({ received: true, delivered });
+  } catch (err) {
+    return NextResponse.json(
+      { received: true, error: (err as Error).message },
+      { status: 500 },
+    );
   }
-
-  if (body.status !== "completed" && body.status !== "success") {
-    await updateJob(jobId, { status: "processing" });
-    return NextResponse.json({ received: true });
-  }
-
-  // Download each clip and upload to B2 under {userId}/{projectId}/clips/
-  const clips = body.clips ?? [];
-  let delivered = 0;
-
-  for (const [i, clip] of clips.entries()) {
-    try {
-      const res = await fetch(clip.url);
-      if (!res.ok) {
-        console.error("[opus] failed to fetch clip", clip.url, res.status);
-        continue;
-      }
-      const buffer = new Uint8Array(await res.arrayBuffer());
-      const ext = clip.url.split(".").pop()?.split("?")[0] ?? "mp4";
-      const name = `clip_${stored.stylePreset}_${i + 1}.${ext}`;
-      const key = `${stored.videoKey.replace(/\/[^/]+$/, "")}/clips/${name}`;
-      await b2.send(
-        new PutObjectCommand({
-          Bucket: bucket,
-          Key: key,
-          Body: buffer,
-          ContentType: guessMimeType(name),
-        }),
-      );
-      delivered += 1;
-    } catch (err) {
-      console.error("[opus] clip save failed", err);
-    }
-  }
-
-  await updateJob(jobId, {
-    status: "succeeded",
-    clipsDelivered: delivered,
-    finishedAt: Date.now(),
-  });
-
-  return NextResponse.json({ received: true, delivered });
 }

@@ -1,16 +1,21 @@
 import { NextResponse } from "next/server";
 import { decodeFileId, publicUrl } from "@/lib/b2";
-import { createClips, type CreateClipsRequest } from "@/lib/opusclip";
+import { createClipProject } from "@/lib/opusclip";
 import { recordJob } from "@/lib/opus-job-store";
 import { getSession } from "@/lib/session";
 
 interface RequestBody {
   fileId: string;
-  styleTemplateId: CreateClipsRequest["styleTemplateId"];
-  aspectRatio: CreateClipsRequest["aspectRatio"];
-  count: CreateClipsRequest["count"];
-  durationRange: CreateClipsRequest["durationRange"];
-  branding: CreateClipsRequest["branding"];
+  styleTemplateId: "onpod-bold" | "minimal" | "viral";
+  aspectRatio: "9:16" | "1:1" | "16:9";
+  count: number | "auto";
+  durationRange: "15-30" | "30-60" | "60-90";
+  branding: "onpod-default" | "none" | "custom";
+}
+
+function parseDurationRange(r: RequestBody["durationRange"]): [number, number] {
+  const [a, b] = r.split("-").map((n) => parseInt(n, 10));
+  return [a || 0, b || 90];
 }
 
 export async function POST(req: Request) {
@@ -35,21 +40,26 @@ export async function POST(req: Request) {
   const sourceUrl = publicUrl(key);
   const origin = new URL(req.url).origin;
   const webhookUrl = `${origin}/api/opus/webhook`;
+  const notifyEmail = process.env.OPUSCLIP_NOTIFY_EMAIL ?? user.email;
+  const brandTemplateId =
+    body.branding === "none"
+      ? undefined
+      : process.env.OPUSCLIP_BRAND_TEMPLATE_ID;
 
   try {
-    const { jobId } = await createClips({
-      sourceUrl,
-      styleTemplateId: body.styleTemplateId,
-      aspectRatio: body.aspectRatio,
-      count: body.count,
-      durationRange: body.durationRange,
-      branding: body.branding,
+    const { projectId: opusProjectId } = await createClipProject({
+      videoUrl: sourceUrl,
+      notifyEmail,
+      clipDurationSeconds: parseDurationRange(body.durationRange),
+      topicKeywords: [""],
+      genre: "Auto",
+      brandTemplateId,
       webhookUrl,
-      metadata: { videoKey: key, userId: user.id, projectId },
+      sourceLang: "auto",
     });
 
     await recordJob({
-      jobId,
+      jobId: opusProjectId,
       userId: user.id,
       videoKey: key,
       projectId,
@@ -59,7 +69,7 @@ export async function POST(req: Request) {
       clipsDelivered: 0,
     });
 
-    return NextResponse.json({ jobId, status: "queued" });
+    return NextResponse.json({ jobId: opusProjectId, status: "queued" });
   } catch (err) {
     return NextResponse.json(
       { error: "opus_error", message: (err as Error).message },
