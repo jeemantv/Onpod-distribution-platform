@@ -12,20 +12,22 @@ export function TopNav({
   backLabel?: string;
 }) {
   return (
-    <header className="sticky top-0 z-50 flex items-center justify-between px-8 py-4 border-b border-[rgba(255,255,255,0.08)] bg-[rgba(10,10,11,0.85)] backdrop-blur-xl">
-      <div className="flex items-center gap-6">
+    <header className="sticky top-0 z-50 flex items-center justify-between px-4 sm:px-8 py-3 sm:py-4 border-b border-[rgba(255,255,255,0.08)] bg-[rgba(10,10,11,0.85)] backdrop-blur-xl gap-2">
+      <div className="flex items-center gap-3 sm:gap-6 min-w-0">
         {backHref ? (
           <Link
             href={backHref}
-            className="text-text-muted hover:text-text text-[13px] flex items-center gap-2"
+            aria-label={backLabel ?? "Back"}
+            className="text-text-muted hover:text-text flex items-center gap-2 shrink-0"
           >
-            ← {backLabel ?? "Back"}
+            <span className="text-[18px] sm:text-[13px]">←</span>
+            <span className="hidden sm:inline text-[13px]">{backLabel ?? "Back"}</span>
           </Link>
         ) : null}
         <Logo />
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
         <button
           aria-label="Notifications"
           className="w-9 h-9 rounded-full bg-bg-elev border border-border hover:border-border-strong flex items-center justify-center text-text-muted hover:text-text"
@@ -46,7 +48,7 @@ export function TopNav({
           </svg>
         </Link>
         <div
-          className="w-[34px] h-[34px] rounded-full flex items-center justify-center font-semibold text-[13px]"
+          className="w-9 h-9 rounded-full flex items-center justify-center font-semibold text-[13px]"
           style={{ background: user.avatarColor }}
           title={`${user.firstName} ${user.lastName}`}
         >

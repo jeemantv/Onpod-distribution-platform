@@ -248,29 +248,31 @@ export function FilePortal({
 
   return (
     <>
-      <div className="flex items-center gap-2 mb-5 bg-bg-elev border border-border rounded-[12px] p-1 w-fit">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setActiveTab(t.key)}
-            className={`px-4 py-2 rounded-[8px] text-[13px] font-medium flex items-center gap-2 transition ${
-              activeTab === t.key ? "bg-bg-elev-3 text-text" : "text-text-muted hover:text-text"
-            }`}
-          >
-            {t.label}
-            <span
-              className={`text-[11px] px-[7px] py-[2px] rounded-full ${
-                activeTab === t.key ? "bg-accent text-white" : "bg-[rgba(255,255,255,0.08)]"
+      <div className="-mx-4 sm:mx-0 mb-5 overflow-x-auto">
+        <div className="flex items-center gap-2 bg-bg-elev border border-border rounded-[12px] p-1 w-fit min-w-min px-4 sm:px-1 sm:mx-0">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setActiveTab(t.key)}
+              className={`px-3 sm:px-4 py-2 rounded-[8px] text-[12px] sm:text-[13px] font-medium flex items-center gap-2 transition shrink-0 ${
+                activeTab === t.key ? "bg-bg-elev-3 text-text" : "text-text-muted hover:text-text"
               }`}
             >
-              {counts[t.key]}
-            </span>
-          </button>
-        ))}
+              {t.label}
+              <span
+                className={`text-[11px] px-[7px] py-[2px] rounded-full ${
+                  activeTab === t.key ? "bg-accent text-white" : "bg-[rgba(255,255,255,0.08)]"
+                }`}
+              >
+                {counts[t.key]}
+              </span>
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="flex items-center justify-between mb-5 gap-4 flex-wrap">
-        <div className="relative flex-1 max-w-[360px]">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-5 gap-3 sm:gap-4">
+        <div className="relative w-full sm:max-w-[360px]">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim">
             <circle cx="11" cy="11" r="8" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -282,21 +284,21 @@ export function FilePortal({
             className="w-full pl-10 pr-3 py-2.5 bg-bg-elev border border-border rounded-[12px] text-[13px] focus:outline-none focus:border-border-strong"
           />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={selectAllInTab}
             title="⌘A"
-            className="px-3.5 py-2 rounded-[8px] bg-bg-elev border border-border hover:border-border-strong text-[13px]"
+            className="px-3 py-2 rounded-[8px] bg-bg-elev border border-border hover:border-border-strong text-[12px] sm:text-[13px]"
           >
             Select all
           </button>
           <button
             onClick={() => setModal({ kind: "request-approval" })}
-            className="px-3.5 py-2 rounded-[8px] bg-bg-elev border border-border hover:border-border-strong text-[13px]"
+            className="px-3 py-2 rounded-[8px] bg-bg-elev border border-border hover:border-border-strong text-[12px] sm:text-[13px]"
           >
             Request approval
           </button>
-          <button className="px-3.5 py-2 rounded-[8px] bg-bg-elev border border-border hover:border-border-strong text-[13px]">
+          <button className="px-3 py-2 rounded-[8px] bg-bg-elev border border-border hover:border-border-strong text-[12px] sm:text-[13px]">
             Download all
           </button>
           <UploadButton projectId={projectId} />
@@ -317,44 +319,48 @@ export function FilePortal({
                 if (!selected.has(f.id)) setSelected(new Set([f.id]));
                 setContextMenu({ x: e.clientX, y: e.clientY });
               }}
-              className={`flex items-center gap-4 px-5 py-4 border rounded-lg transition ${rowStyle(f, selected.has(f.id))}`}
+              className={`flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 px-4 sm:px-5 py-3 sm:py-4 border rounded-lg transition ${rowStyle(f, selected.has(f.id))}`}
             >
-              <input
-                type="checkbox"
-                checked={selected.has(f.id)}
-                onChange={(e) => toggleSelect(f.id, e.target.checked)}
-                className="accent-accent w-4 h-4 shrink-0"
-                aria-label={`Select ${f.name}`}
-              />
-              <FileIcon mime={f.mimeType} />
-              <div className="flex-1 min-w-0">
-                <div className="font-medium text-[14px] truncate">{f.name}</div>
-                <div className="text-[12px] text-text-muted mt-1 flex items-center gap-2 flex-wrap">
-                  <span>{formatBytes(f.sizeBytes)}</span>
-                  <span>·</span>
-                  <span>{new Date(f.uploadedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
-                  <FileStatusBadges file={f} />
+              <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                <input
+                  type="checkbox"
+                  checked={selected.has(f.id)}
+                  onChange={(e) => toggleSelect(f.id, e.target.checked)}
+                  className="accent-accent w-4 h-4 shrink-0"
+                  aria-label={`Select ${f.name}`}
+                />
+                <FileIcon mime={f.mimeType} />
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-[13px] sm:text-[14px] truncate">{f.name}</div>
+                  <div className="text-[11px] sm:text-[12px] text-text-muted mt-1 flex items-center gap-2 flex-wrap">
+                    <span>{formatBytes(f.sizeBytes)}</span>
+                    <span>·</span>
+                    <span>{new Date(f.uploadedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+                    <FileStatusBadges file={f} />
+                  </div>
                 </div>
               </div>
 
-              {needsApproval(f) ? (
-                <ApprovalToggle
-                  value={f.approvalStatus}
-                  onChange={(next) => updateApproval(f.id, next)}
-                />
-              ) : null}
+              <div className="flex items-center gap-2 justify-end sm:gap-3 -mx-1 sm:mx-0 overflow-x-auto sm:overflow-visible px-1 sm:px-0">
+                {needsApproval(f) ? (
+                  <ApprovalToggle
+                    value={f.approvalStatus}
+                    onChange={(next) => updateApproval(f.id, next)}
+                  />
+                ) : null}
 
-              <FileActionButtons
-                file={f}
-                aiReady={!!aiReady[f.id]}
-                aiProgress={aiProgress[f.id]}
-                onAI={() => startAI(f.id)}
-                onYouTube={() => setModal({ kind: "youtube", fileId: f.id })}
-                onSpotify={() => setModal({ kind: "spotify", fileId: f.id })}
-                onOpus={() => setModal({ kind: "opus", fileId: f.id })}
-                onPreview={() => setModal({ kind: "preview", fileId: f.id })}
-                onDownload={() => downloadFile(f.id, f.name)}
-              />
+                <FileActionButtons
+                  file={f}
+                  aiReady={!!aiReady[f.id]}
+                  aiProgress={aiProgress[f.id]}
+                  onAI={() => startAI(f.id)}
+                  onYouTube={() => setModal({ kind: "youtube", fileId: f.id })}
+                  onSpotify={() => setModal({ kind: "spotify", fileId: f.id })}
+                  onOpus={() => setModal({ kind: "opus", fileId: f.id })}
+                  onPreview={() => setModal({ kind: "preview", fileId: f.id })}
+                  onDownload={() => downloadFile(f.id, f.name)}
+                />
+              </div>
             </li>
           ))
         )}

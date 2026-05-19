@@ -36,15 +36,15 @@ export default async function AccountPage() {
   return (
     <>
       <TopNav user={user} />
-      <main className="max-w-[1280px] mx-auto px-8 py-10 pb-32">
-      <div className="flex items-start justify-between mb-8 flex-wrap gap-5">
+      <main className="max-w-[1280px] mx-auto px-4 sm:px-8 py-6 sm:py-10 pb-32">
+      <div className="flex items-start justify-between mb-6 sm:mb-8 flex-wrap gap-4 sm:gap-5">
         <div>
-          <h1 className="display text-[42px]">Your sessions</h1>
+          <h1 className="display text-[32px] sm:text-[42px]">Your sessions</h1>
           <p className="text-text-muted text-[13px] mt-1">
             All your OnPod recordings, grouped by year.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="inline-flex items-center gap-2 px-3 py-1.5 bg-[rgba(20,184,166,0.1)] text-accent-2 rounded-full text-[12px] font-medium">
             <span className="w-[6px] h-[6px] rounded-full bg-current" />
             {user.plan === "unlimited" ? "Unlimited admin" : `${user.plan} plan`}
@@ -76,7 +76,7 @@ export default async function AccountPage() {
                     <li key={p.id}>
                       <Link
                         href={`/account/projects/${p.id}`}
-                        className="group flex items-center gap-4 px-5 py-4 bg-bg-elev border border-border rounded-lg hover:border-border-strong hover:bg-bg-elev-2 transition"
+                        className="group flex items-center gap-3 sm:gap-4 px-4 sm:px-5 py-3 sm:py-4 bg-bg-elev border border-border rounded-lg hover:border-border-strong hover:bg-bg-elev-2 transition"
                       >
                         <FolderCheckbox projectId={p.id} />
                         <div className="w-10 h-10 rounded-md bg-bg-elev-3 flex items-center justify-center text-text-muted shrink-0">
@@ -85,17 +85,17 @@ export default async function AccountPage() {
                           </svg>
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-3 flex-wrap">
-                            <span className="font-medium text-[14px]">
+                          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                            <span className="font-medium text-[13px] sm:text-[14px]">
                               {formatRecorded(p.recordedAt)} — {LOCATION_LABEL[p.location]}
                             </span>
                             <StatusPill status={p.status} />
                           </div>
-                          <p className="text-[12px] text-text-muted mt-1">
+                          <p className="text-[11px] sm:text-[12px] text-text-muted mt-1">
                             {LOCATION_LABEL[p.location]} studio · {p.cameraCount} cameras · {p.duration} · {fileCount} files
                           </p>
                         </div>
-                        <span className="text-text-dim group-hover:text-text">
+                        <span className="text-text-dim group-hover:text-text shrink-0">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <polyline points="9 18 15 12 9 6" />
                           </svg>

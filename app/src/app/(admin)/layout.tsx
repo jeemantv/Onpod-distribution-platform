@@ -18,8 +18,21 @@ export default function AdminLayout({
   return (
     <>
       <TopNav user={user} />
+      <nav className="md:hidden sticky top-[57px] z-40 -mb-px bg-bg/95 backdrop-blur border-b border-border overflow-x-auto">
+        <div className="flex items-center gap-1 px-4 py-2 min-w-min">
+          {NAV.map((n) => (
+            <Link
+              key={n.href}
+              href={n.href}
+              className="px-3 py-1.5 rounded-[8px] text-[12px] text-text-muted hover:text-text hover:bg-bg-elev-2 shrink-0"
+            >
+              {n.label}
+            </Link>
+          ))}
+        </div>
+      </nav>
       <div className="flex">
-        <aside className="w-[220px] shrink-0 border-r border-border min-h-[calc(100vh-65px)] p-4 sticky top-[65px] self-start">
+        <aside className="hidden md:block w-[220px] shrink-0 border-r border-border min-h-[calc(100vh-65px)] p-4 sticky top-[65px] self-start">
           <nav className="flex flex-col gap-1">
             {NAV.map((n) => (
               <Link
@@ -32,7 +45,9 @@ export default function AdminLayout({
             ))}
           </nav>
         </aside>
-        <main className="flex-1 min-w-0 px-8 py-10">{children}</main>
+        <main className="flex-1 min-w-0 px-4 md:px-8 py-6 md:py-10">
+          {children}
+        </main>
       </div>
     </>
   );

@@ -29,43 +29,48 @@ export function Modal({
     };
   }, [onClose]);
 
+  // On mobile: full-screen. On sm+: centered with width caps.
   const widths = {
-    sm: "max-w-[480px]",
-    md: "max-w-[640px]",
-    lg: "max-w-[860px]",
-    xl: "max-w-[1080px]",
+    sm: "sm:max-w-[480px]",
+    md: "sm:max-w-[640px]",
+    lg: "sm:max-w-[860px]",
+    xl: "sm:max-w-[1080px]",
   };
 
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6 overflow-y-auto"
+      className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex sm:items-center sm:justify-center sm:p-6 overflow-y-auto"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`relative w-full ${widths[size]} my-8 bg-bg-elev border border-border rounded-xl shadow-modal flex flex-col max-h-[calc(100vh-4rem)]`}
+        className={`relative w-full ${widths[size]} sm:my-8 bg-bg-elev border border-border sm:rounded-xl shadow-modal flex flex-col h-[100dvh] sm:h-auto sm:max-h-[calc(100vh-4rem)]`}
       >
-        <div className="flex items-start justify-between p-6 border-b border-border">
-          <div>
-            <h2 className="display text-[26px] leading-tight">{title}</h2>
+        <div className="flex items-start justify-between p-4 sm:p-6 border-b border-border shrink-0">
+          <div className="min-w-0 flex-1 pr-2">
+            <h2 className="display text-[22px] sm:text-[26px] leading-tight truncate">
+              {title}
+            </h2>
             {subtitle ? (
-              <p className="text-text-muted text-[13px] mt-1">{subtitle}</p>
+              <p className="text-text-muted text-[12px] sm:text-[13px] mt-1 truncate">
+                {subtitle}
+              </p>
             ) : null}
           </div>
           <button
             onClick={onClose}
             aria-label="Close"
-            className="w-8 h-8 rounded-md text-text-muted hover:text-text hover:bg-bg-elev-2 flex items-center justify-center"
+            className="w-9 h-9 rounded-md text-text-muted hover:text-text hover:bg-bg-elev-2 flex items-center justify-center shrink-0"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
         </div>
-        <div className="p-6 overflow-y-auto flex-1">{children}</div>
+        <div className="p-4 sm:p-6 overflow-y-auto flex-1 min-h-0">{children}</div>
         {footer ? (
-          <div className="p-6 border-t border-border flex items-center justify-end gap-3">
+          <div className="p-4 sm:p-6 border-t border-border flex items-center justify-end gap-2 sm:gap-3 flex-wrap shrink-0">
             {footer}
           </div>
         ) : null}

@@ -92,20 +92,18 @@ export default async function ProjectPage({ params }: { params: { id: string } }
   return (
     <>
       <TopNav user={user} backHref="/account" backLabel="All folders" />
-      <main className="max-w-[1280px] mx-auto px-8 py-10 pb-32">
-        <div className="mb-7">
-          <h1 className="display text-[42px] tracking-wide">
+      <main className="max-w-[1280px] mx-auto px-4 sm:px-8 py-6 sm:py-10 pb-32">
+        <div className="mb-6 sm:mb-7">
+          <h1 className="display text-[28px] sm:text-[42px] tracking-wide leading-tight">
             {LOCATION_LABEL[project.location].toUpperCase()} — {formattedDate}
           </h1>
-          <div className="flex items-center gap-4 mt-2 text-[13px] text-text-muted flex-wrap">
-            <span>Updated {formattedDate}</span>
-            <span>·</span>
+          <div className="flex items-center gap-2 sm:gap-4 mt-2 text-[12px] sm:text-[13px] text-text-muted flex-wrap">
             <span>{files.length} files</span>
             <span>·</span>
             <span>{project.duration}</span>
             <span>·</span>
             <span>{project.cameraCount} cameras</span>
-            <span className="ml-auto inline-flex items-center gap-1.5 px-3 py-1 bg-[rgba(20,184,166,0.1)] text-accent-2 rounded-full text-[12px] font-medium">
+            <span className="sm:ml-auto inline-flex items-center gap-1.5 px-3 py-1 bg-[rgba(20,184,166,0.1)] text-accent-2 rounded-full text-[12px] font-medium">
               <span className="w-[6px] h-[6px] rounded-full bg-current" />
               {user.role === "admin" ? "Studio editor" : "Viewer · downloads enabled"}
             </span>
