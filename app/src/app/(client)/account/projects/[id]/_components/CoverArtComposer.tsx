@@ -51,6 +51,37 @@ export function CoverArtComposer({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<string | null>(existingCoverUrl ?? null);
   const [error, setError] = useState<string | null>(null);
+  const [enhancing, setEnhancing] = useState(false);
+  const [enhanceError, setEnhanceError] = useState<string | null>(null);
+
+  const enhanceBase = async () => {
+    if (!baseUrl) return;
+    setEnhancing(true);
+    setEnhanceError(null);
+    try {
+      let payload: { imageUrl?: string; imageBase64?: string };
+      if (baseUrl.startsWith("data:")) {
+        payload = { imageBase64: baseUrl.split(",")[1] ?? "" };
+      } else {
+        payload = { imageUrl: baseUrl };
+      }
+      const res = await fetch("/api/ai/enhance-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileId, ...payload }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { message?: string }).message ?? `HTTP ${res.status}`);
+      }
+      const body = (await res.json()) as { url: string };
+      setBaseUrl(body.url);
+    } catch (err) {
+      setEnhanceError((err as Error).message);
+    } finally {
+      setEnhancing(false);
+    }
+  };
 
   // Defer expensive props so the title/tag inputs stay responsive
   const deferredTitle = useDeferredValue(title);
