@@ -15,6 +15,7 @@ import {
   listFiles,
   projectPrefix,
 } from "@/lib/b2";
+import { AI_SUFFIX, TRANSCRIPT_SUFFIX } from "@/lib/transcript-store";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,20 @@ export default async function ProjectPage({ params }: { params: { id: string } }
     },
   );
 
-  const files: FileItem[] = b2Objects.map((o) => {
+  // Sidecar JSON files (.transcript.json, .ai.json) shouldn't appear as user files.
+  const aiKeys = new Set(
+    b2Objects.filter((o) => o.key.endsWith(AI_SUFFIX)).map((o) => o.key),
+  );
+  const transcriptKeys = new Set(
+    b2Objects
+      .filter((o) => o.key.endsWith(TRANSCRIPT_SUFFIX))
+      .map((o) => o.key),
+  );
+  const videoObjects = b2Objects.filter(
+    (o) => !o.key.endsWith(AI_SUFFIX) && !o.key.endsWith(TRANSCRIPT_SUFFIX),
+  );
+
+  const files: FileItem[] = videoObjects.map((o) => {
     const name = o.key.split("/").slice(-1)[0] ?? "file";
     return {
       id: encodeFileId(o.key),
@@ -49,7 +63,12 @@ export default async function ProjectPage({ params }: { params: { id: string } }
   });
 
   const aiByFile: Record<string, boolean> = {};
-  for (const f of files) aiByFile[f.id] = !!getAIContentForFile(f.id);
+  for (const f of files) {
+    aiByFile[f.id] =
+      aiKeys.has(f.backblazeKey + AI_SUFFIX) ||
+      !!getAIContentForFile(f.id);
+  }
+  void transcriptKeys;
 
   const formattedDate = new Date(project.recordedAt).toLocaleDateString(
     "en-US",

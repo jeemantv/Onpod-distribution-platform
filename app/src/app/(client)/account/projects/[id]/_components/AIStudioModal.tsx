@@ -1,26 +1,29 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
 import type { FileItem, ArticleFormat } from "@/lib/types";
 
-const SAMPLE = {
-  title:
-    "Why most founders never escape the grind (and what the 1% do differently)",
-  description:
-    "Three seven-figure Canadian founders pull no punches on the mistakes they wish they'd avoided.\n\nWe cover:\n- The single biggest hiring mistake first-time founders make\n- Why your 'product-market fit' is probably a mirage\n- How to know when to fundraise versus bootstrap\n- A surprisingly simple test for whether your business is actually scalable",
-  chapters:
-    "00:00 Intro and guest introductions\n02:15 The biggest hiring mistake\n10:42 PMF as a moving target\n22:08 Fundraise vs bootstrap\n34:21 The scalability test\n45:50 Founder mental health",
-  tags: [
-    "founders","startup","entrepreneurship","bootstrapping","venture capital",
-    "hiring","product market fit","scaling","Canadian startups","Montreal tech",
-    "podcast","business advice","seven figures","founder mistakes",
-  ],
-  hashtags: ["#founders","#startup","#entrepreneurship","#bootstrap","#vc","#scaling","#productmarketfit","#canadianbusiness"],
-  summary: "Three seven-figure founders share the mistakes that almost broke them.",
-  language: "English",
-  transcript:
-    "[00:00] Welcome to Founders Lounge. Today we're talking with three founders who have built seven-figure businesses in Canada. Let's start with the biggest mistake you ever made…",
+interface AIData {
+  title: string;
+  description: string;
+  chapters: string;
+  tags: string[];
+  hashtags: string[];
+  summary: string;
+  language: string;
+  transcript: string;
+}
+
+const EMPTY: AIData = {
+  title: "",
+  description: "",
+  chapters: "",
+  tags: [],
+  hashtags: [],
+  summary: "",
+  language: "",
+  transcript: "",
 };
 
 const TABS = ["metadata", "chapters", "articles", "thumbnails", "transcript"] as const;
@@ -44,21 +47,90 @@ export function AIStudioModal({
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<TabKey>("metadata");
-  const [data, setData] = useState(SAMPLE);
+  const [data, setData] = useState<AIData>(EMPTY);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [articleByFormat, setArticleByFormat] = useState<
     Partial<Record<ArticleFormat, string>>
   >({});
   const [activeArticle, setActiveArticle] = useState<ArticleFormat>("linkedin");
+  const [regeneratingField, setRegeneratingField] = useState<string | null>(null);
 
-  void fileId;
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/transcribe/${fileId}/status?include=data`,
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const body = (await res.json()) as {
+          status: string;
+          transcript?: { transcript: string; language: string };
+          ai?: {
+            title: string;
+            description: string;
+            chapters: string;
+            tags: string[];
+            hashtags: string[];
+            summary: string;
+            language: string;
+          };
+        };
+        if (cancelled) return;
+        if (body.ai || body.transcript) {
+          setData({
+            title: body.ai?.title ?? "",
+            description: body.ai?.description ?? "",
+            chapters: body.ai?.chapters ?? "",
+            tags: body.ai?.tags ?? [],
+            hashtags: body.ai?.hashtags ?? [],
+            summary: body.ai?.summary ?? "",
+            language: body.ai?.language ?? body.transcript?.language ?? "",
+            transcript: body.transcript?.transcript ?? "",
+          });
+        }
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "load failed");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fileId]);
 
-  const regenerate = (field: keyof typeof SAMPLE) => {
-    setData((d) => ({ ...d }));
-    void field;
+  const regenerate = async (field: "title" | "description" | "chapters" | "tags" | "hashtags" | "summary", customPrompt?: string) => {
+    setRegeneratingField(field);
+    try {
+      const res = await fetch(`/api/ai/regenerate-section`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileId, field, customPrompt }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = (await res.json()) as { value: string | string[] };
+      setData((d) => ({ ...d, [field]: body.value }));
+    } catch (err) {
+      alert("Regenerate failed: " + (err as Error).message);
+    } finally {
+      setRegeneratingField(null);
+    }
   };
 
   return (
     <Modal title="AI Studio" subtitle={file.name} onClose={onClose} size="xl">
+      {loading ? (
+        <div className="mb-4 px-3 py-2 rounded-[8px] bg-bg-elev-2 border border-border text-[12px] text-text-muted">
+          Loading content…
+        </div>
+      ) : null}
+      {error ? (
+        <div className="mb-4 px-3 py-2 rounded-[8px] bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.3)] text-[12px] text-[#f87171]">
+          {error}
+        </div>
+      ) : null}
       <div className="flex items-center gap-1 mb-6 bg-bg-elev-2 border border-border rounded-[12px] p-1 w-fit">
         {TABS.map((t) => (
           <button
@@ -83,7 +155,7 @@ export function AIStudioModal({
               onChange={(e) => setData({ ...data, title: e.target.value })}
               className="input"
             />
-            <RegenRow onRegenerate={() => regenerate("title")} />
+            <RegenRow busy={regeneratingField === "title"} onRegenerate={(prompt) => regenerate("title", prompt)} />
           </Field>
 
           <Field label="YouTube description">
@@ -95,7 +167,7 @@ export function AIStudioModal({
               rows={8}
               className="input"
             />
-            <RegenRow onRegenerate={() => regenerate("description")} />
+            <RegenRow busy={regeneratingField === "description"} onRegenerate={(prompt) => regenerate("description", prompt)} />
           </Field>
 
           <Field label={`SEO tags (${data.tags.length})`}>
@@ -158,7 +230,7 @@ export function AIStudioModal({
           <p className="text-[11px] text-text-dim mt-2">
             Format: <code>00:00 Title</code> per line. YouTube auto-detects timestamps after 3+ entries with the first being 00:00.
           </p>
-          <RegenRow onRegenerate={() => regenerate("chapters")} />
+          <RegenRow busy={regeneratingField === "chapters"} onRegenerate={(prompt) => regenerate("chapters", prompt)} />
         </div>
       ) : null}
 
@@ -286,16 +358,35 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function RegenRow({ onRegenerate }: { onRegenerate: () => void }) {
+function RegenRow({
+  busy,
+  onRegenerate,
+}: {
+  busy?: boolean;
+  onRegenerate: (customPrompt?: string) => void;
+}) {
+  const [prompt, setPrompt] = useState("");
   return (
     <div className="flex items-center gap-2 mt-2">
       <input
+        value={prompt}
+        onChange={(e) => setPrompt(e.target.value)}
         placeholder="Custom prompt (e.g. make it more controversial)"
         className="flex-1 px-3 py-2 bg-bg-elev-2 border border-border rounded-[8px] text-[12px]"
       />
-      <button className="btn-secondary">Improve</button>
-      <button onClick={onRegenerate} className="btn-secondary">
-        Regenerate
+      <button
+        disabled={busy || !prompt}
+        onClick={() => onRegenerate(prompt)}
+        className="btn-secondary disabled:opacity-50"
+      >
+        {busy ? "Working…" : "Improve"}
+      </button>
+      <button
+        disabled={busy}
+        onClick={() => onRegenerate(undefined)}
+        className="btn-secondary disabled:opacity-50"
+      >
+        {busy ? "…" : "Regenerate"}
       </button>
     </div>
   );

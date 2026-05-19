@@ -87,28 +87,79 @@ export function FilePortal({
     }
   };
 
-  const startAI = (fileId: string) => {
+  const startAI = async (fileId: string) => {
     if (aiReady[fileId]) {
       setModal({ kind: "ai", fileId });
       return;
     }
     if (aiProgress[fileId] !== undefined) return;
     setAiProgress((p) => ({ ...p, [fileId]: 1 }));
-    const tick = () => {
-      setAiProgress((p) => {
-        const cur = p[fileId] ?? 0;
-        const next = cur + Math.floor(Math.random() * 12) + 6;
-        if (next >= 100) {
-          setAiReady((r) => ({ ...r, [fileId]: true }));
+
+    try {
+      const kickRes = await fetch(`/api/transcribe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileId }),
+      });
+      if (!kickRes.ok) {
+        const text = await kickRes.text();
+        throw new Error(`transcribe ${kickRes.status}: ${text.slice(0, 200)}`);
+      }
+      const kick = (await kickRes.json()) as { status: string };
+      if (kick.status === "ready") {
+        setAiReady((r) => ({ ...r, [fileId]: true }));
+        setAiProgress((p) => {
           const { [fileId]: _gone, ...rest } = p;
           void _gone;
           return rest;
-        }
-        setTimeout(tick, 700);
-        return { ...p, [fileId]: next };
+        });
+        return;
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Failed to start transcription: " + (err as Error).message);
+      setAiProgress((p) => {
+        const { [fileId]: _gone, ...rest } = p;
+        void _gone;
+        return rest;
       });
+      return;
+    }
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/transcribe/${fileId}/status`);
+        const data = (await res.json()) as {
+          status: string;
+          progress: number;
+          error?: string;
+        };
+        if (data.status === "ready") {
+          setAiReady((r) => ({ ...r, [fileId]: true }));
+          setAiProgress((p) => {
+            const { [fileId]: _gone, ...rest } = p;
+            void _gone;
+            return rest;
+          });
+          return;
+        }
+        if (data.status === "error") {
+          alert(`Transcription failed: ${data.error ?? "unknown error"}`);
+          setAiProgress((p) => {
+            const { [fileId]: _gone, ...rest } = p;
+            void _gone;
+            return rest;
+          });
+          return;
+        }
+        setAiProgress((p) => ({ ...p, [fileId]: data.progress }));
+        setTimeout(poll, 5000);
+      } catch (err) {
+        console.error(err);
+        setTimeout(poll, 8000);
+      }
     };
-    setTimeout(tick, 600);
+    setTimeout(poll, 2000);
   };
 
   return (
