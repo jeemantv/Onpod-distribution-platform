@@ -340,24 +340,45 @@ export async function setThumbnail(
   videoId: string,
   imageBytes: Uint8Array,
   contentType: string,
-): Promise<void> {
-  const params = new URLSearchParams({ videoId });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const blob = new Blob([imageBytes as any], { type: contentType });
-  const res = await fetch(
-    `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?${params.toString()}`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": contentType,
+): Promise<{ defaultUrl?: string }> {
+  // uploadType=media is required for this endpoint when sending raw bytes —
+  // otherwise YouTube accepts the call but ignores the body.
+  const params = new URLSearchParams({ videoId, uploadType: "media" });
+  // Copy into a fresh ArrayBuffer so we don't hit SharedArrayBuffer / view
+  // strangeness in the serverless runtime.
+  const buf = new ArrayBuffer(imageBytes.byteLength);
+  new Uint8Array(buf).set(imageBytes);
+
+  // Up to 3 attempts — YouTube sometimes rejects thumbnail.set on a video
+  // that's still in the first seconds of processing.
+  let lastStatus = 0;
+  let lastBody = "";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 2000 * attempt));
+    const res = await fetch(
+      `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?${params.toString()}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": contentType,
+          "Content-Length": String(imageBytes.byteLength),
+        },
+        body: buf,
       },
-      body: blob,
-    },
-  );
-  if (!res.ok) {
-    throw new Error(
-      `thumbnails.set ${res.status}: ${(await res.text()).slice(0, 300)}`,
     );
+    if (res.ok) {
+      const data = (await res.json().catch(() => ({}))) as {
+        items?: Array<{ default?: { url?: string } }>;
+      };
+      return { defaultUrl: data.items?.[0]?.default?.url };
+    }
+    lastStatus = res.status;
+    lastBody = await res.text();
+    // 400 / 403 / 404 won't fix themselves — bail immediately
+    if (res.status < 500 && res.status !== 429) break;
   }
+  throw new Error(
+    `thumbnails.set ${lastStatus}: ${lastBody.slice(0, 400)}`,
+  );
 }

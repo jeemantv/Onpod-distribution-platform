@@ -55,18 +55,35 @@ export async function POST(req: Request) {
       if (body.thumbnailBase64) {
         thumbBytes = new Uint8Array(Buffer.from(body.thumbnailBase64, "base64"));
       } else if (body.thumbnailUrl) {
-        const r = await fetch(body.thumbnailUrl);
-        if (r.ok) {
-          thumbType = r.headers.get("content-type") ?? "image/jpeg";
-          thumbBytes = new Uint8Array(await r.arrayBuffer());
+        const r = await fetch(body.thumbnailUrl, { cache: "no-store" });
+        if (!r.ok) {
+          throw new Error(`thumbnail fetch ${r.status}`);
         }
+        thumbType = r.headers.get("content-type") ?? "image/jpeg";
+        thumbBytes = new Uint8Array(await r.arrayBuffer());
       }
       if (thumbBytes && thumbBytes.length > 0) {
-        await setThumbnail(accessToken, body.videoId, thumbBytes, thumbType);
+        if (thumbBytes.length > 2 * 1024 * 1024) {
+          throw new Error(
+            `thumbnail is ${(thumbBytes.length / 1024 / 1024).toFixed(2)}MB, YouTube max is 2MB`,
+          );
+        }
+        const r = await setThumbnail(
+          accessToken,
+          body.videoId,
+          thumbBytes,
+          thumbType,
+        );
         result.thumbnailSet = true;
+        if (r.defaultUrl) result.thumbnailUrl = r.defaultUrl;
+        result.thumbnailBytes = thumbBytes.length;
+        result.thumbnailType = thumbType;
+      } else {
+        result.thumbnailSkipped = "no thumbnail provided";
       }
     } catch (err) {
       result.thumbnailError = (err as Error).message;
+      console.error("[yt upload-complete] thumbnail set failed", err);
     }
 
     // Add to playlist
