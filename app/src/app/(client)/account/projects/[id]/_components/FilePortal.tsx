@@ -321,7 +321,7 @@ export function FilePortal({
               }}
               className={`flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 px-4 sm:px-5 py-3 sm:py-4 border rounded-lg transition ${rowStyle(f, selected.has(f.id))}`}
             >
-              <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+              <div className="flex items-center gap-3 sm:gap-4 min-w-0 sm:flex-1">
                 <input
                   type="checkbox"
                   checked={selected.has(f.id)}
