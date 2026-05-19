@@ -1,8 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
 import type { FileItem } from "@/lib/types";
+
+interface ShowConfig {
+  slug: string;
+  title: string;
+  description: string;
+  author: string;
+  authorEmail: string;
+  language: string;
+  categoryItunes: string;
+  coverUrl: string;
+}
 
 export function SpotifyModal({
   fileId,
@@ -15,72 +26,132 @@ export function SpotifyModal({
   aiReady: boolean;
   onClose: () => void;
 }) {
-  void fileId;
-  const [step, setStep] = useState<"form" | "xml">("form");
-  const [title, setTitle] = useState(
-    aiReady ? "E47 — Why most founders never escape the grind" : "",
-  );
-  const [description, setDescription] = useState(
-    aiReady
-      ? "Three seven-figure Canadian founders share the mistakes that almost broke them."
-      : "",
-  );
-  const [season, setSeason] = useState("3");
-  const [episode, setEpisode] = useState("47");
+  void aiReady;
+  const [show, setShow] = useState<ShowConfig | null>(null);
+  const [feedUrl, setFeedUrl] = useState<string | null>(null);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [season, setSeason] = useState("");
+  const [episode, setEpisode] = useState("");
+  const [pushing, setPushing] = useState(false);
+  const [success, setSuccess] = useState<{ feedUrl: string; count: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const xml = `<item>
-  <title><![CDATA[${title}]]></title>
-  <description><![CDATA[${description}]]></description>
-  <itunes:summary><![CDATA[${description}]]></itunes:summary>
-  <itunes:author>Jeremy Prudhomme</itunes:author>
-  <itunes:image href="https://onpod.io/cover.png"/>
-  <itunes:duration>00:45:00</itunes:duration>
-  <itunes:explicit>false</itunes:explicit>
-  <itunes:season>${season}</itunes:season>
-  <itunes:episode>${episode}</itunes:episode>
-  <itunes:episodeType>full</itunes:episodeType>
-  <pubDate>${new Date().toUTCString()}</pubDate>
-  <guid isPermaLink="false">onpod-${file.id}-${Date.now()}</guid>
-  <enclosure url="https://feeds.onpod.io/audio/${file.id}.mp3" length="0" type="audio/mpeg"/>
-  <link>https://onpod.io</link>
-</item>`;
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [showRes, statusRes] = await Promise.all([
+        fetch("/api/rss/show"),
+        fetch(`/api/transcribe/${fileId}/status?include=data`),
+      ]);
+      const showBody = (await showRes.json()) as { show: ShowConfig | null };
+      const statusBody = (await statusRes.json().catch(() => ({}))) as {
+        ai?: { title: string; description: string };
+      };
+      if (cancelled) return;
+      if (showBody.show) {
+        setShow(showBody.show);
+        setFeedUrl(`${window.location.origin}/feeds/${showBody.show.slug}.xml`);
+      }
+      if (statusBody.ai) {
+        setTitle(statusBody.ai.title);
+        setDescription(statusBody.ai.description);
+      } else {
+        setTitle(file.name.replace(/\.\w+$/, ""));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fileId, file.name]);
 
-  if (step === "xml") {
+  const saveShow = async (next: ShowConfig) => {
+    const res = await fetch("/api/rss/show", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(next),
+    });
+    const body = (await res.json()) as { show: ShowConfig };
+    setShow(body.show);
+    setFeedUrl(`${window.location.origin}/feeds/${body.show.slug}.xml`);
+  };
+
+  const push = async () => {
+    setPushing(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/rss/push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileId,
+          title,
+          description,
+          season: season ? Number(season) : undefined,
+          episode: episode ? Number(episode) : undefined,
+        }),
+      });
+      if (!res.ok)
+        throw new Error(((await res.json()) as { message?: string }).message ?? `HTTP ${res.status}`);
+      const body = (await res.json()) as { feedUrl: string; episodeCount: number };
+      setSuccess({ feedUrl: body.feedUrl, count: body.episodeCount });
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setPushing(false);
+    }
+  };
+
+  if (success) {
     return (
-      <Modal
-        title="Spotify — RSS item generated"
-        subtitle="Append inside your <channel> tag on your existing feed"
-        onClose={onClose}
-        size="lg"
-        footer={
-          <>
-            <button onClick={() => navigator.clipboard.writeText(xml)} className="px-4 py-2 rounded-[8px] bg-bg-elev-3 border border-border-strong text-[13px]">
-              Copy XML
+      <Modal title="Episode added to feed" subtitle={file.name} onClose={onClose} size="lg">
+        <div className="text-center py-4">
+          <div className="inline-flex w-14 h-14 rounded-full bg-[rgba(16,185,129,0.15)] text-[#34d399] items-center justify-center mb-4">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </div>
+          <p className="text-[14px] mb-2">
+            {success.count} episode{success.count === 1 ? "" : "s"} live in your feed
+          </p>
+          <p className="text-[12px] text-text-muted mb-1">Public feed URL:</p>
+          <code className="block px-3 py-2 bg-bg-elev-2 border border-border rounded-[8px] text-[12px] text-accent-2 break-all">
+            {success.feedUrl}
+          </code>
+          <div className="mt-5 text-left text-[12px] text-text-muted space-y-2">
+            <p className="font-medium text-text">Next steps:</p>
+            <p>
+              1. Open{" "}
+              <a className="text-accent underline" target="_blank" rel="noreferrer" href="https://podcasters.spotify.com">
+                Spotify for Podcasters
+              </a>{" "}
+              → Add show → &quot;I already have a podcast&quot; → paste the feed URL above. Spotify emails a verification code.
+            </p>
+            <p>
+              2. Open{" "}
+              <a className="text-accent underline" target="_blank" rel="noreferrer" href="https://podcastsconnect.apple.com">
+                Apple Podcasts Connect
+              </a>{" "}
+              → New Show → &quot;Add a show with an RSS feed&quot;.
+            </p>
+            <p>
+              3. Repeat once for each directory you want (Overcast, Pocket Casts, Amazon Music, etc.). After this one-time setup, every new episode auto-distributes.
+            </p>
+          </div>
+          <div className="mt-6">
+            <button onClick={onClose} className="px-4 py-2 rounded-[8px] bg-bg-elev-3 border border-border-strong text-[13px]">
+              Close
             </button>
-            <button className="px-5 py-2.5 rounded-[10px] bg-accent text-white text-[13px] font-medium">
-              Download .xml
-            </button>
-          </>
-        }
-      >
-        <div className="mb-4 p-3 rounded-[10px] bg-[rgba(245,158,11,0.08)] border border-[rgba(245,158,11,0.25)] text-[#fbbf24] text-[12px]">
-          Update <code className="bg-black/20 px-1 rounded">enclosure url</code>{" "}
-          with the actual MP3 URL after upload.
+          </div>
         </div>
-        <textarea
-          readOnly
-          value={xml}
-          rows={18}
-          className="w-full px-4 py-3 bg-bg-elev-2 border border-border rounded-[10px] font-mono text-[12px]"
-        />
       </Modal>
     );
   }
 
   return (
     <Modal
-      title="Push to Spotify / Apple Podcasts"
-      subtitle="Generates the RSS <item> XML to append to your feed"
+      title="Push to your podcast feed"
+      subtitle={file.name}
       onClose={onClose}
       size="lg"
       footer={
@@ -89,38 +160,39 @@ export function SpotifyModal({
             Cancel
           </button>
           <button
-            onClick={() => setStep("xml")}
-            className="px-5 py-2.5 rounded-[10px] bg-accent text-white text-[13px] font-medium"
+            disabled={pushing || !title.trim()}
+            onClick={push}
+            className="px-5 py-2.5 rounded-[10px] bg-accent text-white text-[13px] font-medium disabled:opacity-60"
           >
-            Push to RSS feed
+            {pushing ? "Pushing…" : "Push to feed"}
           </button>
         </>
       }
     >
       <div className="mb-5 p-4 bg-bg-elev-2 border border-border rounded-[12px]">
-        <div className="text-[12px] text-text-muted mb-1">Distribution destinations</div>
-        <div className="flex items-center gap-2 flex-wrap text-[12px]">
-          <Dest label="Spotify" />
-          <Dest label="Apple Podcasts" />
-          <Dest label="Overcast" />
-          <Dest label="Pocket Casts" />
-          <span className="text-text-dim">+ ~30 others via RSS</span>
-        </div>
-        <div className="text-[11px] text-text-dim mt-2">
-          Feed URL: <code className="text-accent-2">https://feeds.onpod.io/founders-lounge.xml</code>
-        </div>
+        <div className="text-[12px] text-text-muted mb-2">Your podcast feed URL</div>
+        {feedUrl ? (
+          <code className="block px-3 py-2 bg-bg-elev-3 rounded-[8px] text-[12px] text-accent-2 break-all">
+            {feedUrl}
+          </code>
+        ) : (
+          <div className="text-[12px] text-text-dim">Saving feed config…</div>
+        )}
+        <p className="mt-3 text-[11px] text-text-muted">
+          Paste this URL once into Spotify for Podcasters, Apple Podcasts Connect, Overcast, etc. Every push you make from here updates the feed and all directories pick up new episodes automatically.
+        </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div className="col-span-2">
+      {show ? (
+        <ShowEditor show={show} onChange={(next) => void saveShow({ ...show, ...next })} />
+      ) : null}
+
+      <div className="grid grid-cols-1 gap-4 mt-5">
+        <div>
           <Label>Episode title</Label>
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="input-sp"
-          />
+          <input value={title} onChange={(e) => setTitle(e.target.value)} className="input-sp" />
         </div>
-        <div className="col-span-2">
+        <div>
           <Label>Description</Label>
           <textarea
             value={description}
@@ -129,37 +201,23 @@ export function SpotifyModal({
             className="input-sp"
           />
         </div>
-        <div>
-          <Label>Season</Label>
-          <input value={season} onChange={(e) => setSeason(e.target.value)} className="input-sp" />
-        </div>
-        <div>
-          <Label>Episode</Label>
-          <input value={episode} onChange={(e) => setEpisode(e.target.value)} className="input-sp" />
-        </div>
-        <div>
-          <Label>Audio source</Label>
-          <select className="input-sp">
-            <option>Audio_Master_Stereo.wav (auto-extract)</option>
-            <option>Upload custom MP3</option>
-          </select>
-        </div>
-        <div>
-          <Label>Episode artwork</Label>
-          <select className="input-sp">
-            <option>Episode_Cover_v2.png</option>
-            <option>Use show default</option>
-          </select>
-        </div>
-        <div className="col-span-2">
-          <Label>Publish mode</Label>
-          <select className="input-sp">
-            <option>Push immediately</option>
-            <option>Schedule for later</option>
-            <option>Save as draft</option>
-          </select>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Season</Label>
+            <input value={season} onChange={(e) => setSeason(e.target.value)} className="input-sp" />
+          </div>
+          <div>
+            <Label>Episode number</Label>
+            <input value={episode} onChange={(e) => setEpisode(e.target.value)} className="input-sp" />
+          </div>
         </div>
       </div>
+
+      {error ? (
+        <div className="mt-4 p-3 rounded-[10px] bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.3)] text-[12px] text-[#f87171]">
+          {error}
+        </div>
+      ) : null}
 
       <style jsx>{`
         :global(.input-sp) {
@@ -181,11 +239,82 @@ function Label({ children }: { children: React.ReactNode }) {
   return <label className="block text-[12px] text-text-muted mb-2">{children}</label>;
 }
 
-function Dest({ label }: { label: string }) {
+function ShowEditor({
+  show,
+  onChange,
+}: {
+  show: ShowConfig;
+  onChange: (next: Partial<ShowConfig>) => void;
+}) {
+  const [open, setOpen] = useState(false);
   return (
-    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-bg-elev-3 border border-border text-[12px]">
-      <span className="w-1.5 h-1.5 rounded-full bg-success" />
-      {label}
-    </span>
+    <details
+      open={open}
+      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+      className="bg-bg-elev-2 border border-border rounded-[12px] p-4"
+    >
+      <summary className="text-[13px] cursor-pointer">
+        Show settings — {show.title}
+      </summary>
+      <div className="grid grid-cols-2 gap-3 mt-4">
+        <div className="col-span-2">
+          <Label>Show title</Label>
+          <input
+            defaultValue={show.title}
+            onBlur={(e) => onChange({ title: e.target.value })}
+            className="input-sp"
+          />
+        </div>
+        <div className="col-span-2">
+          <Label>Show description</Label>
+          <textarea
+            defaultValue={show.description}
+            onBlur={(e) => onChange({ description: e.target.value })}
+            rows={3}
+            className="input-sp"
+          />
+        </div>
+        <div>
+          <Label>Author</Label>
+          <input
+            defaultValue={show.author}
+            onBlur={(e) => onChange({ author: e.target.value })}
+            className="input-sp"
+          />
+        </div>
+        <div>
+          <Label>Author email</Label>
+          <input
+            defaultValue={show.authorEmail}
+            onBlur={(e) => onChange({ authorEmail: e.target.value })}
+            className="input-sp"
+          />
+        </div>
+        <div>
+          <Label>Language (ISO)</Label>
+          <input
+            defaultValue={show.language}
+            onBlur={(e) => onChange({ language: e.target.value })}
+            className="input-sp"
+          />
+        </div>
+        <div>
+          <Label>iTunes category</Label>
+          <input
+            defaultValue={show.categoryItunes}
+            onBlur={(e) => onChange({ categoryItunes: e.target.value })}
+            className="input-sp"
+          />
+        </div>
+        <div className="col-span-2">
+          <Label>Cover art URL (1400×1400 minimum, JPG/PNG)</Label>
+          <input
+            defaultValue={show.coverUrl}
+            onBlur={(e) => onChange({ coverUrl: e.target.value })}
+            className="input-sp"
+          />
+        </div>
+      </div>
+    </details>
   );
 }
