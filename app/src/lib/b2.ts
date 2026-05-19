@@ -158,10 +158,16 @@ export function decodeFileId(fileId: string): string {
   return Buffer.from(fileId, "base64url").toString("utf8");
 }
 
+// Bump when bucket CORS rules change so browsers refetch and pick up the
+// updated Access-Control-Allow-Origin header instead of a stale no-CORS
+// cached response. B2 ignores unknown query params.
+const PUBLIC_URL_CACHE_BUST = "v3";
+
 export function publicUrl(key: string): string {
   // For an allPublic bucket on B2 S3-compatible. Works permanently — unlike signed URLs.
   const base = process.env.B2_DOWNLOAD_URL ?? "https://f006.backblazeb2.com";
-  return `${base}/file/${encodeURIComponent(bucket)}/${key.split("/").map(encodeURIComponent).join("/")}`;
+  const path = key.split("/").map(encodeURIComponent).join("/");
+  return `${base}/file/${encodeURIComponent(bucket)}/${path}?cb=${PUBLIC_URL_CACHE_BUST}`;
 }
 
 export function classifyByFilename(name: string): "raw" | "edited" | "clip" | "asset" {
