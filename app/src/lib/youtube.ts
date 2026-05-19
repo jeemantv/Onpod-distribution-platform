@@ -142,6 +142,98 @@ export async function listMyChannels(
   }));
 }
 
+export interface ResumableInitOptions {
+  accessToken: string;
+  sizeBytes: number;
+  contentType: string;
+  title: string;
+  description: string;
+  tags: string[];
+  categoryId?: string;
+  privacyStatus: "public" | "unlisted" | "private";
+  publishAt?: string | null;
+  madeForKids?: boolean;
+  isShort?: boolean;
+  defaultLanguage?: string;
+  defaultAudioLanguage?: string;
+}
+
+export async function startResumableUpload(
+  opts: ResumableInitOptions,
+): Promise<{ sessionUri: string }> {
+  const isShort = !!opts.isShort;
+  const tags = isShort ? [...opts.tags, "#Shorts"] : opts.tags;
+  const metadata = {
+    snippet: {
+      title: isShort && !opts.title.includes("#Shorts") ? `${opts.title} #Shorts` : opts.title,
+      description: opts.description,
+      tags,
+      categoryId: opts.categoryId ?? "22",
+      ...(opts.defaultLanguage ? { defaultLanguage: opts.defaultLanguage } : {}),
+      ...(opts.defaultAudioLanguage
+        ? { defaultAudioLanguage: opts.defaultAudioLanguage }
+        : opts.defaultLanguage
+          ? { defaultAudioLanguage: opts.defaultLanguage }
+          : {}),
+    },
+    status: {
+      privacyStatus: opts.publishAt ? "private" : opts.privacyStatus,
+      publishAt: opts.publishAt ?? undefined,
+      selfDeclaredMadeForKids: opts.madeForKids ?? false,
+    },
+  };
+  const params = new URLSearchParams({
+    part: "snippet,status",
+    uploadType: "resumable",
+  });
+  const res = await fetch(
+    `https://www.googleapis.com/upload/youtube/v3/videos?${params.toString()}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${opts.accessToken}`,
+        "Content-Type": "application/json; charset=UTF-8",
+        "X-Upload-Content-Length": String(opts.sizeBytes),
+        "X-Upload-Content-Type": opts.contentType,
+      },
+      body: JSON.stringify(metadata),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(
+      `resumable init ${res.status}: ${(await res.text()).slice(0, 300)}`,
+    );
+  }
+  const sessionUri = res.headers.get("location");
+  if (!sessionUri) {
+    throw new Error("resumable init returned no Location header");
+  }
+  return { sessionUri };
+}
+
+export async function addToPlaylist(
+  accessToken: string,
+  videoId: string,
+  playlistId: string,
+): Promise<void> {
+  await fetch(
+    `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        snippet: {
+          playlistId,
+          resourceId: { kind: "youtube#video", videoId },
+        },
+      }),
+    },
+  );
+}
+
 export interface UploadOptions {
   accessToken: string;
   videoBytes: Uint8Array;
@@ -151,11 +243,11 @@ export interface UploadOptions {
   tags: string[];
   categoryId?: string;
   privacyStatus: "public" | "unlisted" | "private";
-  publishAt?: string | null; // RFC3339
+  publishAt?: string | null;
   madeForKids?: boolean;
   isShort?: boolean;
-  defaultLanguage?: string; // BCP-47
-  defaultAudioLanguage?: string; // BCP-47
+  defaultLanguage?: string;
+  defaultAudioLanguage?: string;
   playlistId?: string;
 }
 

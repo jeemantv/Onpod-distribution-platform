@@ -31,6 +31,13 @@ export function CoverArtComposer({
   const [baseUrl, setBaseUrl] = useState<string | null>(
     thumbnails[0]?.url ?? null,
   );
+
+  // If thumbnails arrive after mount (async restore from B2), auto-pick first
+  useEffect(() => {
+    if (!baseUrl && thumbnails[0]?.url) setBaseUrl(thumbnails[0].url);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [thumbnails]);
+
   const [baseImage, setBaseImage] = useState<HTMLImageElement | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
   const [title, setTitle] = useState(defaultTitle ?? "EPISODE TITLE");
@@ -55,8 +62,8 @@ export function CoverArtComposer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaultTitle]);
 
-  // Load base image via fetch → blob → object URL.
-  // This avoids canvas taint from cross-origin loads — we can read pixels and toDataURL works.
+  // Load base image. Try direct crossOrigin first; if it fails (CORS, network),
+  // fall back to fetch+blob+objectURL. Either path yields an untainted canvas.
   useEffect(() => {
     let cancelled = false;
     let objectUrl: string | null = null;
@@ -65,27 +72,36 @@ export function CoverArtComposer({
       setBaseImage(null);
       return;
     }
+
+    const tryDirect = (): Promise<HTMLImageElement> =>
+      new Promise((resolve, reject) => {
+        const img = new Image();
+        if (baseUrl.startsWith("http")) img.crossOrigin = "anonymous";
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error("direct load failed"));
+        img.src = baseUrl;
+      });
+
+    const tryBlobFallback = async (): Promise<HTMLImageElement> => {
+      const res = await fetch(baseUrl);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      objectUrl = URL.createObjectURL(blob);
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error("blob load failed"));
+        img.src = objectUrl!;
+      });
+    };
+
     (async () => {
       try {
-        let src = baseUrl;
-        if (baseUrl.startsWith("http")) {
-          const res = await fetch(baseUrl);
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const blob = await res.blob();
-          objectUrl = URL.createObjectURL(blob);
-          src = objectUrl;
-        }
-        const img = new Image();
-        img.onload = () => {
-          if (!cancelled) setBaseImage(img);
-        };
-        img.onerror = () => {
-          if (!cancelled) setImageError("Image decode failed.");
-        };
-        img.src = src;
+        const img = await tryDirect().catch(async () => tryBlobFallback());
+        if (!cancelled) setBaseImage(img);
       } catch (err) {
         if (!cancelled)
-          setImageError(`Couldn't fetch: ${(err as Error).message}`);
+          setImageError(`Couldn't load image: ${(err as Error).message}`);
       }
     })();
     return () => {

@@ -8,7 +8,8 @@ import { FileActionButtons } from "./FileActionButtons";
 import { ApprovalToggle } from "./ApprovalToggle";
 import { FileStatusBadges } from "./FileStatusBadges";
 import { AIStudioModal } from "./AIStudioModal";
-import { YouTubeModal } from "./YouTubeModal";
+import { YouTubeModal, type PublishedInfo as YTPublishedInfo } from "./YouTubeModal";
+import { uploadToYouTube, type UploadProgress } from "@/lib/yt-uploader";
 import { SpotifyModal } from "./SpotifyModal";
 import { OpusClipModal } from "./OpusClipModal";
 import { RequestApprovalModal } from "./RequestApprovalModal";
@@ -43,17 +44,100 @@ export function FilePortal({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [toast, setToast] = useState<{
-    kind: "success" | "error";
+    kind: "success" | "error" | "progress";
     title: string;
     detail?: string;
     href?: string;
+    percent?: number;
+    sticky?: boolean;
   } | null>(null);
 
   useEffect(() => {
-    if (!toast) return;
+    if (!toast || toast.sticky) return;
     const t = setTimeout(() => setToast(null), 8000);
     return () => clearTimeout(t);
   }, [toast]);
+
+  const runYouTubeUpload = async (info: YTPublishedInfo) => {
+    const controller = new AbortController();
+    setToast({
+      kind: "progress",
+      title: "Uploading to YouTube…",
+      detail: info.title,
+      percent: 0,
+      sticky: true,
+    });
+    try {
+      const { videoId } = await uploadToYouTube(
+        info.init,
+        controller.signal,
+        (p: UploadProgress) => {
+          const percent = Math.round((p.uploaded / Math.max(1, p.total)) * 100);
+          setToast({
+            kind: "progress",
+            title:
+              p.phase === "fetching"
+                ? "Fetching from B2…"
+                : p.phase === "uploading"
+                  ? `Uploading to YouTube… ${percent}%`
+                  : p.phase === "finalizing"
+                    ? "Finalizing on YouTube…"
+                    : "Working…",
+            detail: info.title,
+            percent,
+            sticky: true,
+          });
+        },
+      );
+      const url = `https://www.youtube.com/watch?v=${videoId}`;
+      // Finalize on server side: record history, set thumbnail, add playlist
+      await fetch("/api/youtube/upload-complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileId: info.fileId,
+          videoId,
+          title: info.title,
+          vidType: info.init.vidType,
+          publishAt: info.init.publishAt,
+          visibility: info.init.visibility,
+          playlistId: info.playlistId,
+          thumbnailUrl: info.thumbnailUrl,
+          thumbnailBase64: info.thumbnailBase64,
+        }),
+      });
+      setToast({
+        kind: "success",
+        title: "Published to YouTube",
+        detail: info.title,
+        href: url,
+      });
+      // Reflect on the row
+      setFiles((fs) =>
+        fs.map((f) =>
+          f.id === info.fileId
+            ? {
+                ...f,
+                publishStates: [
+                  ...f.publishStates,
+                  {
+                    platform: "youtube",
+                    action: info.init.publishAt ? "scheduled" : "published",
+                    vidType: info.init.vidType,
+                  },
+                ],
+              }
+            : f,
+        ),
+      );
+    } catch (err) {
+      setToast({
+        kind: "error",
+        title: "YouTube upload failed",
+        detail: (err as Error).message,
+      });
+    }
+  };
 
   const [modal, setModal] = useState<
     | null
@@ -377,35 +461,47 @@ export function FilePortal({
 
       {toast ? (
         <div
-          className={`fixed z-[120] top-20 right-4 sm:right-6 max-w-[360px] flex items-start gap-3 p-3 sm:p-4 rounded-[12px] border shadow-modal ${
+          className={`fixed z-[120] top-20 right-4 sm:right-6 w-[320px] sm:w-[380px] flex flex-col gap-2 p-3 sm:p-4 rounded-[12px] border shadow-modal ${
             toast.kind === "success"
               ? "bg-[rgba(16,185,129,0.12)] border-[rgba(16,185,129,0.4)] text-[#34d399]"
-              : "bg-[rgba(239,68,68,0.12)] border-[rgba(239,68,68,0.4)] text-[#f87171]"
+              : toast.kind === "error"
+                ? "bg-[rgba(239,68,68,0.12)] border-[rgba(239,68,68,0.4)] text-[#f87171]"
+                : "bg-bg-elev-2 border-border-strong text-text"
           }`}
         >
-          <div className="flex-1 min-w-0">
-            <div className="text-[13px] font-medium">{toast.title}</div>
-            {toast.detail ? (
-              <div className="text-[11px] text-text-muted mt-0.5 truncate">{toast.detail}</div>
-            ) : null}
-            {toast.href ? (
-              <a
-                href={toast.href}
-                target="_blank"
-                rel="noreferrer"
-                className="text-[12px] underline mt-1 inline-block break-all"
-              >
-                {toast.href}
-              </a>
-            ) : null}
+          <div className="flex items-start gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] font-medium">{toast.title}</div>
+              {toast.detail ? (
+                <div className="text-[11px] text-text-muted mt-0.5 truncate">{toast.detail}</div>
+              ) : null}
+              {toast.href ? (
+                <a
+                  href={toast.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[12px] underline mt-1 inline-block break-all"
+                >
+                  {toast.href}
+                </a>
+              ) : null}
+            </div>
+            <button
+              onClick={() => setToast(null)}
+              className="text-[18px] leading-none opacity-70 hover:opacity-100"
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
           </div>
-          <button
-            onClick={() => setToast(null)}
-            className="text-[18px] leading-none opacity-70 hover:opacity-100"
-            aria-label="Dismiss"
-          >
-            ×
-          </button>
+          {toast.kind === "progress" ? (
+            <div className="h-1 rounded-full bg-bg-elev-3 overflow-hidden">
+              <div
+                className="h-full bg-accent transition-all"
+                style={{ width: `${toast.percent ?? 0}%` }}
+              />
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -451,26 +547,7 @@ export function FilePortal({
           aiReady={!!aiReady[modal.fileId]}
           onClose={() => setModal(null)}
           onPublished={(info) => {
-            setToast({
-              kind: "success",
-              title: "Published to YouTube",
-              detail: info.title,
-              href: info.url,
-            });
-            // Reflect the new publish state on the row immediately
-            setFiles((fs) =>
-              fs.map((f) =>
-                f.id === modal.fileId
-                  ? {
-                      ...f,
-                      publishStates: [
-                        ...f.publishStates,
-                        { platform: "youtube", action: "published" },
-                      ],
-                    }
-                  : f,
-              ),
-            );
+            void runYouTubeUpload(info);
           }}
         />
       ) : null}

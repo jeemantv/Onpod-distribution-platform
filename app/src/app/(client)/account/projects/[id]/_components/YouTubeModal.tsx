@@ -32,6 +32,27 @@ interface ConnectionState {
 
 const SHORT_DURATION_THRESHOLD = 90;
 
+export interface PublishedInfo {
+  videoId: string;
+  url: string;
+  title: string;
+  fileId: string;
+  init: {
+    sessionUri: string;
+    videoUrl: string;
+    sizeBytes: number;
+    contentType: string;
+    title: string;
+    vidType: "long" | "short";
+    publishAt: string | null;
+    visibility: "public" | "unlisted" | "private";
+    channelId: string;
+  };
+  playlistId: string | null;
+  thumbnailUrl: string | null;
+  thumbnailBase64: string | null;
+}
+
 export function YouTubeModal({
   fileId,
   file,
@@ -43,7 +64,7 @@ export function YouTubeModal({
   file: FileItem;
   aiReady: boolean;
   onClose: () => void;
-  onPublished?: (info: { videoId: string; url: string; title: string }) => void;
+  onPublished?: (info: PublishedInfo) => void;
 }) {
   const [connection, setConnection] = useState<ConnectionState | null>(null);
   const [playlists, setPlaylists] = useState<YouTubePlaylist[]>([]);
@@ -203,12 +224,13 @@ export function YouTubeModal({
     setPublishing(true);
     setError(null);
     try {
-      const res = await fetch("/api/youtube/upload", {
+      // Server only starts the YouTube resumable session — bytes go from
+      // the browser directly to YouTube to avoid Vercel's function timeout.
+      const res = await fetch("/api/youtube/upload-init", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           fileId,
-          channelId: connection?.channel?.id,
           title,
           description,
           tags,
@@ -217,19 +239,36 @@ export function YouTubeModal({
           publishMode,
           scheduledAt: publishMode === "schedule" ? scheduledAt : null,
           language,
-          playlistId: playlistId || null,
-          thumbnailUrl:
-            selectedThumb.base64 ? null : selectedThumb.url,
-          thumbnailBase64: selectedThumb.base64,
         }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { message?: string }).message ?? `HTTP ${res.status}`);
       }
-      const body = (await res.json()) as { videoId: string };
-      const url = `https://www.youtube.com/watch?v=${body.videoId}`;
-      onPublished?.({ videoId: body.videoId, url, title });
+      const init = (await res.json()) as {
+        sessionUri: string;
+        videoUrl: string;
+        sizeBytes: number;
+        contentType: string;
+        title: string;
+        vidType: "long" | "short";
+        publishAt: string | null;
+        visibility: "public" | "unlisted" | "private";
+        channelId: string;
+      };
+
+      // Hand off to the parent — it runs the upload as a background task
+      // and shows progress in a toast. The modal closes right away.
+      onPublished?.({
+        videoId: "",
+        url: "",
+        title,
+        init,
+        fileId,
+        playlistId: playlistId || null,
+        thumbnailUrl: selectedThumb.base64 ? null : selectedThumb.url,
+        thumbnailBase64: selectedThumb.base64,
+      } as PublishedInfo);
       onClose();
       return;
     } catch (err) {
