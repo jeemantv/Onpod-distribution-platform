@@ -68,6 +68,11 @@ export function FilePortal({
       sticky: true,
     });
     try {
+      console.log("[runYT] starting upload", {
+        sizeBytes: info.init.sizeBytes,
+        title: info.init.title,
+        vidType: info.init.vidType,
+      });
       const { videoId } = await uploadToYouTube(
         info.init,
         controller.signal,
@@ -89,6 +94,7 @@ export function FilePortal({
           });
         },
       );
+      console.log("[runYT] uploadToYouTube returned videoId=", videoId);
       const url = `https://www.youtube.com/watch?v=${videoId}`;
       // Finalize on server side: record history, set thumbnail, add playlist.
       // If this fails (Vercel timeout, YouTube rejected thumbnail size, etc)
@@ -118,8 +124,10 @@ export function FilePortal({
           finalizeResult = (await finRes.json()) as Record<string, unknown>;
         }
       } catch (err) {
+        console.error("[runYT] upload-complete fetch threw", err);
         finalizeErr = (err as Error).message;
       }
+      console.log("[runYT] finalize done", { finalizeErr, finalizeResult });
 
       const thumbProblem =
         finalizeErr ||

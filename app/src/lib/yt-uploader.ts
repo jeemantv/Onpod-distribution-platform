@@ -48,23 +48,42 @@ export async function uploadToYouTube(
   let offset = 0;
   let videoId: string | null = null;
 
+  console.log("[yt-upload] starting", {
+    size: blob.size,
+    sessionUri: init.sessionUri.slice(0, 80) + "...",
+  });
+
   while (offset < blob.size) {
     const end = Math.min(offset + CHUNK_SIZE, blob.size);
     const chunk = blob.slice(offset, end);
     const isLast = end === blob.size;
-    const res = await fetch(init.sessionUri, {
-      method: "PUT",
-      headers: {
-        "Content-Length": String(chunk.size),
-        "Content-Range": `bytes ${offset}-${end - 1}/${blob.size}`,
-      },
-      body: chunk,
-      signal,
-    });
+    console.log(
+      `[yt-upload] PUT bytes ${offset}-${end - 1}/${blob.size} (last=${isLast})`,
+    );
+
+    let res: Response;
+    try {
+      res = await fetch(init.sessionUri, {
+        method: "PUT",
+        headers: {
+          // Browser computes Content-Length itself; explicitly setting it is a no-op
+          "Content-Range": `bytes ${offset}-${end - 1}/${blob.size}`,
+        },
+        body: chunk,
+        signal,
+      });
+    } catch (err) {
+      console.error("[yt-upload] PUT fetch threw", err);
+      throw new Error(`PUT failed: ${(err as Error).message}`);
+    }
+
+    console.log(
+      `[yt-upload] response status=${res.status} type=${res.type} ok=${res.ok}`,
+    );
 
     if (res.status === 308) {
-      // Resume incomplete — YouTube returns Range header indicating bytes received
       const range = res.headers.get("range");
+      console.log(`[yt-upload] 308 resume; range header=${range}`);
       if (range) {
         const m = range.match(/bytes=0-(\d+)/);
         if (m) offset = parseInt(m[1], 10) + 1;
@@ -77,19 +96,32 @@ export async function uploadToYouTube(
     }
 
     if (res.ok && isLast) {
-      const body = (await res.json()) as { id?: string };
-      videoId = body.id ?? null;
+      const text = await res.text();
+      console.log("[yt-upload] final body:", text.slice(0, 400));
+      try {
+        const parsed = JSON.parse(text) as { id?: string };
+        videoId = parsed.id ?? null;
+      } catch {
+        console.warn("[yt-upload] non-JSON final body");
+      }
       break;
     }
 
     if (!res.ok) {
-      const text = await res.text();
+      const text = await res.text().catch(() => "<unreadable>");
+      console.error(`[yt-upload] PUT ${res.status}:`, text);
       throw new Error(`upload PUT ${res.status}: ${text.slice(0, 300)}`);
     }
 
     offset = end;
     onProgress({ uploaded: offset, total: blob.size, phase: "uploading" });
   }
+
+  console.log("[yt-upload] loop exited", {
+    offset,
+    blobSize: blob.size,
+    videoId,
+  });
 
   if (!videoId) throw new Error("youtube did not return videoId");
   onProgress({ uploaded: blob.size, total: blob.size, phase: "finalizing" });
