@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { FileItem, FileType } from "@/lib/types";
 import { formatBytes } from "@/lib/format";
 import { FileActionButtons } from "./FileActionButtons";
@@ -13,6 +14,7 @@ import { OpusClipModal } from "./OpusClipModal";
 import { RequestApprovalModal } from "./RequestApprovalModal";
 import { UploadButton } from "./UploadButton";
 import { PreviewModal } from "./PreviewModal";
+import { FileContextMenu } from "./FileContextMenu";
 
 const TABS: { key: FileType | "ai"; label: string }[] = [
   { key: "raw", label: "Raw Files" },
@@ -33,11 +35,14 @@ export function FilePortal({
   aiReadyByFile: Record<string, boolean>;
   shareToken: string;
 }) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<FileType | "ai">("edited");
   const [files, setFiles] = useState<FileItem[]>(initialFiles);
   const [search, setSearch] = useState("");
   const [aiReady, setAiReady] = useState(aiReadyByFile);
   const [aiProgress, setAiProgress] = useState<Record<string, number>>({});
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
   const [modal, setModal] = useState<
     | null
@@ -63,11 +68,82 @@ export function FilePortal({
     ai: Object.values(aiReady).filter(Boolean).length,
   };
 
-  const updateApproval = (fileId: string, next: FileItem["approvalStatus"]) => {
+  const updateApproval = async (fileId: string, next: FileItem["approvalStatus"]) => {
     setFiles((fs) =>
       fs.map((f) => (f.id === fileId ? { ...f, approvalStatus: next } : f)),
     );
+    await fetch(`/api/files/${fileId}/meta`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approvalStatus: next }),
+    }).catch(() => {});
   };
+
+  const toggleSelect = (fileId: string, checked: boolean) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(fileId);
+      else next.delete(fileId);
+      return next;
+    });
+  };
+
+  const selectAllInTab = () => {
+    setSelected(new Set(filtered.map((f) => f.id)));
+  };
+
+  const clearSelection = () => setSelected(new Set());
+
+  const moveSelectedTo = async (target: FileType) => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    setFiles((fs) =>
+      fs.map((f) => (selected.has(f.id) ? { ...f, type: target } : f)),
+    );
+    setActiveTab(target);
+    clearSelection();
+    await Promise.all(
+      ids.map((id) =>
+        fetch(`/api/files/${id}/meta`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: target }),
+        }).catch(() => {}),
+      ),
+    );
+  };
+
+  const deleteSelected = async () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    setFiles((fs) => fs.filter((f) => !selected.has(f.id)));
+    clearSelection();
+    await Promise.all(
+      ids.map((id) => fetch(`/api/files/${id}`, { method: "DELETE" }).catch(() => {})),
+    );
+    router.refresh();
+  };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target?.tagName === "INPUT" || target?.tagName === "TEXTAREA") return;
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        setSelected(new Set(filtered.map((f) => f.id)));
+      }
+      if ((e.key === "Delete" || e.key === "Backspace") && selected.size > 0) {
+        e.preventDefault();
+        if (confirm(`Delete ${selected.size} file(s)? This can't be undone.`)) {
+          void deleteSelected();
+        }
+      }
+      if (e.key === "Escape") setSelected(new Set());
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered, selected.size]);
 
   const downloadFile = async (fileId: string, filename: string) => {
     try {
@@ -81,9 +157,7 @@ export function FilePortal({
       a.click();
       a.remove();
     } catch (e) {
-      alert(
-        "Download failed: " + (e instanceof Error ? e.message : String(e)),
-      );
+      alert("Download failed: " + (e instanceof Error ? e.message : String(e)));
     }
   };
 
@@ -170,17 +244,13 @@ export function FilePortal({
             key={t.key}
             onClick={() => setActiveTab(t.key)}
             className={`px-4 py-2 rounded-[8px] text-[13px] font-medium flex items-center gap-2 transition ${
-              activeTab === t.key
-                ? "bg-bg-elev-3 text-text"
-                : "text-text-muted hover:text-text"
+              activeTab === t.key ? "bg-bg-elev-3 text-text" : "text-text-muted hover:text-text"
             }`}
           >
             {t.label}
             <span
               className={`text-[11px] px-[7px] py-[2px] rounded-full ${
-                activeTab === t.key
-                  ? "bg-accent text-white"
-                  : "bg-[rgba(255,255,255,0.08)]"
+                activeTab === t.key ? "bg-accent text-white" : "bg-[rgba(255,255,255,0.08)]"
               }`}
             >
               {counts[t.key]}
@@ -191,15 +261,7 @@ export function FilePortal({
 
       <div className="flex items-center justify-between mb-5 gap-4 flex-wrap">
         <div className="relative flex-1 max-w-[360px]">
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim"
-          >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim">
             <circle cx="11" cy="11" r="8" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
@@ -211,6 +273,13 @@ export function FilePortal({
           />
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={selectAllInTab}
+            title="⌘A"
+            className="px-3.5 py-2 rounded-[8px] bg-bg-elev border border-border hover:border-border-strong text-[13px]"
+          >
+            Select all
+          </button>
           <button
             onClick={() => setModal({ kind: "request-approval" })}
             className="px-3.5 py-2 rounded-[8px] bg-bg-elev border border-border hover:border-border-strong text-[13px]"
@@ -233,10 +302,17 @@ export function FilePortal({
           filtered.map((f) => (
             <li
               key={f.id}
-              className={`flex items-center gap-4 px-5 py-4 border rounded-lg transition ${rowStyle(f)}`}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                if (!selected.has(f.id)) setSelected(new Set([f.id]));
+                setContextMenu({ x: e.clientX, y: e.clientY });
+              }}
+              className={`flex items-center gap-4 px-5 py-4 border rounded-lg transition ${rowStyle(f, selected.has(f.id))}`}
             >
               <input
                 type="checkbox"
+                checked={selected.has(f.id)}
+                onChange={(e) => toggleSelect(f.id, e.target.checked)}
                 className="accent-accent w-4 h-4 shrink-0"
                 aria-label={`Select ${f.name}`}
               />
@@ -246,7 +322,7 @@ export function FilePortal({
                 <div className="text-[12px] text-text-muted mt-1 flex items-center gap-2 flex-wrap">
                   <span>{formatBytes(f.sizeBytes)}</span>
                   <span>·</span>
-                  <span>Updated May 12, 2026</span>
+                  <span>{new Date(f.uploadedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
                   <FileStatusBadges file={f} />
                 </div>
               </div>
@@ -273,6 +349,34 @@ export function FilePortal({
           ))
         )}
       </ul>
+
+      {contextMenu ? (
+        <FileContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          selectedCount={selected.size}
+          onMove={moveSelectedTo}
+          onDelete={deleteSelected}
+          onSelectAll={selectAllInTab}
+          onClose={() => setContextMenu(null)}
+        />
+      ) : null}
+
+      {selected.size > 0 ? (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 bg-bg-elev-2 border border-border-strong rounded-xl px-4 py-3 shadow-modal">
+          <span className="text-[13px] font-medium">{selected.size} selected</span>
+          <span className="text-[11px] text-text-muted hidden md:inline">
+            right-click for actions · ⌘A all · ⌫ delete · esc clear
+          </span>
+          <div className="w-px h-5 bg-border mx-2" />
+          <button
+            onClick={clearSelection}
+            className="px-3 py-1.5 rounded-[8px] text-[12px] text-text-muted hover:text-text"
+          >
+            Clear
+          </button>
+        </div>
+      ) : null}
 
       {modal?.kind === "ai" ? (
         <AIStudioModal
@@ -338,16 +442,17 @@ function needsApproval(f: FileItem): boolean {
   return f.type === "edited" || f.type === "clip";
 }
 
-function rowStyle(f: FileItem): string {
+function rowStyle(f: FileItem, isSelected: boolean): string {
+  const selectedRing = isSelected ? "ring-2 ring-accent " : "";
   const published = f.publishStates.some((s) => s.action === "published");
   const scheduled = f.publishStates.some((s) => s.action === "scheduled");
   if (published)
-    return "bg-[rgba(59,130,246,0.06)] border-[rgba(59,130,246,0.25)] hover:bg-[rgba(59,130,246,0.10)]";
+    return selectedRing + "bg-[rgba(59,130,246,0.06)] border-[rgba(59,130,246,0.25)] hover:bg-[rgba(59,130,246,0.10)]";
   if (scheduled)
-    return "bg-[rgba(245,158,11,0.05)] border-[rgba(245,158,11,0.22)] hover:bg-[rgba(245,158,11,0.09)]";
+    return selectedRing + "bg-[rgba(245,158,11,0.05)] border-[rgba(245,158,11,0.22)] hover:bg-[rgba(245,158,11,0.09)]";
   if (f.approvalStatus === "approved")
-    return "bg-[rgba(16,185,129,0.05)] border-[rgba(16,185,129,0.22)] hover:bg-[rgba(16,185,129,0.09)]";
-  return "bg-bg-elev border-border hover:bg-bg-elev-2 hover:border-border-strong";
+    return selectedRing + "bg-[rgba(16,185,129,0.05)] border-[rgba(16,185,129,0.22)] hover:bg-[rgba(16,185,129,0.09)]";
+  return selectedRing + "bg-bg-elev border-border hover:bg-bg-elev-2 hover:border-border-strong";
 }
 
 function FileIcon({ mime }: { mime: string }) {

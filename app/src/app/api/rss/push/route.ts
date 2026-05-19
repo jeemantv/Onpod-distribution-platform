@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { decodeFileId, getDownloadUrl } from "@/lib/b2";
+import { decodeFileId, publicUrl } from "@/lib/b2";
 import { getSession } from "@/lib/session";
 import {
   addEpisode,
@@ -61,12 +61,10 @@ export async function POST(req: Request) {
   const title = body.title ?? ai?.title ?? "Untitled episode";
   const description = body.description ?? ai?.description ?? "";
 
-  // TODO: For real distribution, enclosure URLs must be permanent and public.
-  // Signed B2 URLs expire — Spotify and Apple will fail. Either:
-  //   (a) Flip the bucket to allPublic and use the public download URL, OR
-  //   (b) Add a proxy route /audio/{fileId} that 302s to a fresh signed URL.
-  // (a) is what the bucket already is. Using long-TTL signed URL for now.
-  const audioUrl = await getDownloadUrl(key, 60 * 60 * 24 * 7);
+  // Bucket is allPublic — use the permanent public URL (Spotify/Apple poll for years).
+  // If you ever flip the bucket to private, replace this with a stable proxy that
+  // 302-redirects to a fresh signed URL.
+  const audioUrl = publicUrl(key);
 
   const sizeBytes = transcript?.raw
     ? (typeof (transcript.raw as { metadata?: { content_length?: number } }).metadata?.content_length ===

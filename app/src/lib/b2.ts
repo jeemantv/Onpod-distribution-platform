@@ -158,13 +158,18 @@ export function decodeFileId(fileId: string): string {
   return Buffer.from(fileId, "base64url").toString("utf8");
 }
 
+export function publicUrl(key: string): string {
+  // For an allPublic bucket on B2 S3-compatible. Works permanently — unlike signed URLs.
+  const base = process.env.B2_DOWNLOAD_URL ?? "https://f006.backblazeb2.com";
+  return `${base}/file/${encodeURIComponent(bucket)}/${key.split("/").map(encodeURIComponent).join("/")}`;
+}
+
 export function classifyByFilename(name: string): "raw" | "edited" | "clip" | "asset" {
   const lower = name.toLowerCase();
+  if (/(cam\d|_raw|audio_master|\.wav$)/.test(lower)) return "raw";
   if (/(clip|short)/.test(lower)) return "clip";
-  if (/(edited|final|master|v\d+\.mp4$)/.test(lower) && lower.endsWith(".mp4")) return "edited";
   if (/(cover|logo|thumbnail|lower_third|asset|\.png$|\.jpg$|\.jpeg$|\.webp$)/.test(lower)) return "asset";
-  if (/(cam\d|raw|\.wav$|audio_master)/.test(lower)) return "raw";
-  if (lower.endsWith(".mp4") || lower.endsWith(".mov")) return "raw";
+  if (lower.endsWith(".mp4") || lower.endsWith(".mov")) return "edited";
   return "asset";
 }
 

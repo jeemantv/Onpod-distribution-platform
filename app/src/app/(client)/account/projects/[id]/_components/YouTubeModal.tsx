@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
 import type { FileItem, VidType } from "@/lib/types";
+import { PublishingCalendar } from "./PublishingCalendar";
 
 interface YouTubeChannel {
   id: string;
@@ -419,6 +420,11 @@ export function YouTubeModal({
           {error}
         </div>
       ) : null}
+
+      <div className="mt-6">
+        <div className="text-[12px] text-text-muted mb-2">Publishing calendar</div>
+        <PublishingCalendar platform="youtube" />
+      </div>
 
       <style jsx>{`
         :global(.input-yt) {

@@ -16,6 +16,8 @@ import {
   projectPrefix,
 } from "@/lib/b2";
 import { AI_SUFFIX, TRANSCRIPT_SUFFIX } from "@/lib/transcript-store";
+import { historyForUserGroupedByFile } from "@/lib/publish-history-store";
+import { getFileMeta } from "@/lib/file-meta-store";
 
 export const dynamic = "force-dynamic";
 
@@ -42,22 +44,34 @@ export default async function ProjectPage({ params }: { params: { id: string } }
       .map((o) => o.key),
   );
   const videoObjects = b2Objects.filter(
-    (o) => !o.key.endsWith(AI_SUFFIX) && !o.key.endsWith(TRANSCRIPT_SUFFIX),
+    (o) =>
+      !o.key.endsWith(AI_SUFFIX) &&
+      !o.key.endsWith(TRANSCRIPT_SUFFIX) &&
+      !o.key.endsWith("/.file-meta.json"),
   );
+
+  const publishByFile = await historyForUserGroupedByFile(project.userId);
+  const meta = await getFileMeta(project.userId, project.id);
 
   const files: FileItem[] = videoObjects.map((o) => {
     const name = o.key.split("/").slice(-1)[0] ?? "file";
+    const override = meta[o.key];
+    const publishStates = (publishByFile[o.key] ?? []).map((row) => ({
+      platform: row.platform,
+      action: row.action,
+      vidType: row.vidType ?? undefined,
+    }));
     return {
       id: encodeFileId(o.key),
       projectId: project.id,
       name,
-      type: classifyByFilename(name),
+      type: override?.type ?? classifyByFilename(name),
       mimeType: guessMimeType(name),
       sizeBytes: o.sizeBytes,
       backblazeKey: o.key,
       uploadedAt: (o.lastModified ?? new Date()).toISOString(),
-      approvalStatus: "none",
-      publishStates: [],
+      approvalStatus: override?.approvalStatus ?? "none",
+      publishStates,
       downloadCount: 0,
     };
   });

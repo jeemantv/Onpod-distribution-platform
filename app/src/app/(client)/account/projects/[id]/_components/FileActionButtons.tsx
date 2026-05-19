@@ -158,6 +158,7 @@ function ActionBtn({
       onClick={(e) => {
         if (gated) {
           e.preventDefault();
+          alert("Awaiting client approval before publishing. Click the Approve toggle on this row first.");
           return;
         }
         onClick();

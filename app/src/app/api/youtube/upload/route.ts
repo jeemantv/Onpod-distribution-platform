@@ -4,6 +4,7 @@ import { getFreshAccessToken, getConnection } from "@/lib/youtube-store";
 import { uploadVideo } from "@/lib/youtube";
 import { getSession } from "@/lib/session";
 import { getAI } from "@/lib/transcript-store";
+import { recordPublish } from "@/lib/publish-history-store";
 
 interface RequestBody {
   fileId: string;
@@ -111,6 +112,22 @@ export async function POST(req: Request) {
       publishAt,
       isShort: body.vidType === "short",
     });
+
+    const name = key.split("/").slice(-1)[0] ?? "file";
+    await recordPublish({
+      userId: user.id,
+      fileId: body.fileId,
+      fileKey: key,
+      fileName: name,
+      platform: "youtube",
+      action: publishAt ? "scheduled" : "published",
+      vidType: body.vidType === "short" ? "short" : "long",
+      externalId: videoId,
+      externalUrl: `https://www.youtube.com/watch?v=${videoId}`,
+      scheduledFor: publishAt,
+      metadata: { title, channelId: conn.activeChannelId, privacyStatus },
+    });
+
     return NextResponse.json({
       videoId,
       url: `https://www.youtube.com/watch?v=${videoId}`,
