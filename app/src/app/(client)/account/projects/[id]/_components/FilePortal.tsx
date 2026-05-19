@@ -347,7 +347,9 @@ export function FilePortal({
                     value={f.approvalStatus}
                     onChange={(next) => updateApproval(f.id, next)}
                   />
-                ) : null}
+                ) : (
+                  <div className="hidden sm:block w-[170px] shrink-0" aria-hidden="true" />
+                )}
 
                 <FileActionButtons
                   file={f}

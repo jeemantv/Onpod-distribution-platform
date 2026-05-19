@@ -29,10 +29,11 @@ export function FileActionButtons({
   const showSpotify = file.type !== "clip" && file.type !== "asset" && isVideo;
   const showOpus = file.type !== "clip" && file.type !== "asset" && isVideo;
   const showYouTube = isVideo && file.type !== "raw" && file.type !== "asset";
+  const showAI = isVideo && file.type !== "asset";
 
   return (
     <div className="flex items-center gap-1 shrink-0">
-      {isVideo && file.type !== "asset" ? (
+      {showAI ? (
         <ActionBtn
           label="AI"
           onClick={onAI}
@@ -46,7 +47,9 @@ export function FileActionButtons({
             </svg>
           }
         />
-      ) : null}
+      ) : (
+        <Spacer />
+      )}
 
       {showYouTube ? (
         <ActionBtn
@@ -60,7 +63,9 @@ export function FileActionButtons({
             </svg>
           }
         />
-      ) : null}
+      ) : (
+        <Spacer />
+      )}
 
       {showSpotify ? (
         <ActionBtn
@@ -74,7 +79,9 @@ export function FileActionButtons({
             </svg>
           }
         />
-      ) : null}
+      ) : (
+        <Spacer />
+      )}
 
       {showOpus ? (
         <ActionBtn
@@ -92,9 +99,11 @@ export function FileActionButtons({
             </svg>
           }
         />
-      ) : null}
+      ) : (
+        <Spacer />
+      )}
 
-      <div className="w-px h-5 bg-border mx-1" />
+      <div className="w-px h-5 bg-border mx-1 hidden sm:block" />
 
       <button
         aria-label="Preview"
@@ -123,6 +132,11 @@ export function FileActionButtons({
       </button>
     </div>
   );
+}
+
+// Invisible 32px slot on sm+; collapses on mobile so cramped rows aren't bloated.
+function Spacer() {
+  return <div className="hidden sm:block w-8 h-8 shrink-0" aria-hidden="true" />;
 }
 
 function ActionBtn({
@@ -165,7 +179,7 @@ function ActionBtn({
       }}
       title={gated ? "Awaiting client approval before publishing." : label}
       aria-label={label}
-      className={`relative w-8 h-8 rounded-md border flex items-center justify-center transition ${baseTint} ${gatedCls}`}
+      className={`relative w-8 h-8 rounded-md border flex items-center justify-center transition shrink-0 ${baseTint} ${gatedCls}`}
     >
       {icon}
       {ready ? (
