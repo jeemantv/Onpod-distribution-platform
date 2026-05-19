@@ -1,8 +1,6 @@
-// Tracks OpusClip jobs we've kicked off so we can poll status.
-// app/data/opus-jobs.json (gitignored).
+// OpusClip job tracking, backed by B2 (serverless-safe).
 
-import fs from "fs/promises";
-import path from "path";
+import { readState, writeState } from "./state-store";
 
 export interface OpusJobRecord {
   jobId: string;
@@ -17,45 +15,39 @@ export interface OpusJobRecord {
   error?: string;
 }
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const FILE = path.join(DATA_DIR, "opus-jobs.json");
+const KEY = "opus-jobs.json";
 
-async function read(): Promise<OpusJobRecord[]> {
-  try {
-    return JSON.parse(await fs.readFile(FILE, "utf8")) as OpusJobRecord[];
-  } catch {
-    return [];
-  }
+async function readAll(): Promise<OpusJobRecord[]> {
+  return readState<OpusJobRecord[]>(KEY, []);
 }
 
-async function write(rows: OpusJobRecord[]): Promise<void> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(FILE, JSON.stringify(rows, null, 2));
+async function writeAll(rows: OpusJobRecord[]): Promise<void> {
+  await writeState(KEY, rows);
 }
 
 export async function recordJob(job: OpusJobRecord): Promise<void> {
-  const rows = await read();
+  const rows = await readAll();
   rows.unshift(job);
-  await write(rows);
+  await writeAll(rows);
 }
 
 export async function updateJob(
   jobId: string,
   patch: Partial<OpusJobRecord>,
 ): Promise<void> {
-  const rows = await read();
+  const rows = await readAll();
   const i = rows.findIndex((r) => r.jobId === jobId);
   if (i < 0) return;
   rows[i] = { ...rows[i], ...patch };
-  await write(rows);
+  await writeAll(rows);
 }
 
 export async function getJob(jobId: string): Promise<OpusJobRecord | null> {
-  const rows = await read();
+  const rows = await readAll();
   return rows.find((r) => r.jobId === jobId) ?? null;
 }
 
 export async function jobsForFile(videoKey: string): Promise<OpusJobRecord[]> {
-  const rows = await read();
+  const rows = await readAll();
   return rows.filter((r) => r.videoKey === videoKey);
 }

@@ -1,8 +1,6 @@
-// File-backed RSS feed store. One show per user for now.
-// Path: app/data/podcasts.json (gitignored). Replace with DB on deploy.
+// Podcast (RSS) show + episode store, backed by B2 (serverless-safe).
 
-import fs from "fs/promises";
-import path from "path";
+import { readState, writeState } from "./state-store";
 
 export interface ShowConfig {
   userId: string;
@@ -11,8 +9,8 @@ export interface ShowConfig {
   description: string;
   author: string;
   authorEmail: string;
-  language: string; // ISO 639-1, e.g. "en"
-  categoryItunes: string; // e.g. "Business"
+  language: string;
+  categoryItunes: string;
   coverUrl: string;
   link: string;
   explicit: boolean;
@@ -21,11 +19,11 @@ export interface ShowConfig {
 }
 
 export interface Episode {
-  guid: string; // stable id
-  fileId: string; // base64url B2 key
+  guid: string;
+  fileId: string;
   title: string;
   description: string;
-  audioUrl: string; // signed B2 URL? Probably a public CDN URL — see TODO.
+  audioUrl: string;
   audioMime: string;
   audioBytes: number;
   durationSeconds: number;
@@ -35,59 +33,49 @@ export interface Episode {
 }
 
 interface Store {
-  shows: Record<string, ShowConfig>; // keyed by slug
-  episodes: Record<string, Episode[]>; // keyed by slug
+  shows: Record<string, ShowConfig>;
+  episodes: Record<string, Episode[]>;
 }
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const FILE = path.join(DATA_DIR, "podcasts.json");
+const KEY = "podcasts.json";
 
-async function read(): Promise<Store> {
-  try {
-    const text = await fs.readFile(FILE, "utf8");
-    return JSON.parse(text) as Store;
-  } catch {
-    return { shows: {}, episodes: {} };
-  }
+async function readStore(): Promise<Store> {
+  return readState<Store>(KEY, { shows: {}, episodes: {} });
 }
 
-async function write(s: Store): Promise<void> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(FILE, JSON.stringify(s, null, 2));
+async function writeStore(s: Store): Promise<void> {
+  await writeState(KEY, s);
 }
 
 export async function getShowByUser(userId: string): Promise<ShowConfig | null> {
-  const s = await read();
-  return (
-    Object.values(s.shows).find((sh) => sh.userId === userId) ?? null
-  );
+  const s = await readStore();
+  return Object.values(s.shows).find((sh) => sh.userId === userId) ?? null;
 }
 
 export async function getShowBySlug(slug: string): Promise<ShowConfig | null> {
-  const s = await read();
+  const s = await readStore();
   return s.shows[slug] ?? null;
 }
 
 export async function upsertShow(config: ShowConfig): Promise<ShowConfig> {
-  const s = await read();
+  const s = await readStore();
   s.shows[config.slug] = { ...config, updatedAt: Date.now() };
-  await write(s);
+  await writeStore(s);
   return s.shows[config.slug];
 }
 
 export async function getEpisodes(slug: string): Promise<Episode[]> {
-  const s = await read();
+  const s = await readStore();
   return s.episodes[slug] ?? [];
 }
 
 export async function addEpisode(slug: string, ep: Episode): Promise<Episode[]> {
-  const s = await read();
+  const s = await readStore();
   const list = s.episodes[slug] ?? [];
-  // Replace if same guid already exists
   const idx = list.findIndex((e) => e.guid === ep.guid);
   if (idx >= 0) list[idx] = ep;
   else list.unshift(ep);
   s.episodes[slug] = list;
-  await write(s);
+  await writeStore(s);
   return list;
 }

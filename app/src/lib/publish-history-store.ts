@@ -1,41 +1,32 @@
-// File-backed publish history. One row per publish action.
-// Path: app/data/publish-history.json (gitignored).
+// Publish-history store, backed by B2 (serverless-safe).
 
-import fs from "fs/promises";
-import path from "path";
+import { readState, writeState } from "./state-store";
 import type { PublishAction, PublishPlatform, VidType } from "./types";
 
 export interface PublishHistoryRow {
   id: string;
   userId: string;
-  fileId: string; // base64url B2 key
-  fileKey: string; // raw B2 key, for cross-referencing
+  fileId: string;
+  fileKey: string;
   fileName: string;
   platform: PublishPlatform;
   action: PublishAction;
   vidType: VidType | null;
   externalId: string | null;
   externalUrl: string | null;
-  scheduledFor: string | null; // ISO
+  scheduledFor: string | null;
   metadata: Record<string, unknown>;
   createdAt: string;
 }
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const FILE = path.join(DATA_DIR, "publish-history.json");
+const KEY = "publish-history.json";
 
 async function readAll(): Promise<PublishHistoryRow[]> {
-  try {
-    const text = await fs.readFile(FILE, "utf8");
-    return JSON.parse(text) as PublishHistoryRow[];
-  } catch {
-    return [];
-  }
+  return readState<PublishHistoryRow[]>(KEY, []);
 }
 
 async function writeAll(rows: PublishHistoryRow[]): Promise<void> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(FILE, JSON.stringify(rows, null, 2));
+  await writeState(KEY, rows);
 }
 
 export async function recordPublish(

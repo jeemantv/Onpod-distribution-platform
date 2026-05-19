@@ -1,10 +1,8 @@
-// File-backed YouTube OAuth token store. Multiple-channel-per-user supported.
-// Path: app/data/youtube-tokens.json (gitignored). Replace with DB on deploy.
+// YouTube OAuth token store, backed by B2 (serverless-safe).
+// One JSON file keyed by userId; one connection per user.
 
-import fs from "fs/promises";
-import path from "path";
-import type { OAuthTokens, YouTubeChannelInfo } from "./youtube";
-import { refreshTokens } from "./youtube";
+import { readState, writeState } from "./state-store";
+import { refreshTokens, type OAuthTokens, type YouTubeChannelInfo } from "./youtube";
 
 export interface StoredConnection {
   userId: string;
@@ -14,21 +12,14 @@ export interface StoredConnection {
   connectedAt: number;
 }
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const TOKENS_FILE = path.join(DATA_DIR, "youtube-tokens.json");
+const KEY = "youtube-tokens.json";
 
 async function readAll(): Promise<Record<string, StoredConnection>> {
-  try {
-    const text = await fs.readFile(TOKENS_FILE, "utf8");
-    return JSON.parse(text) as Record<string, StoredConnection>;
-  } catch {
-    return {};
-  }
+  return readState<Record<string, StoredConnection>>(KEY, {});
 }
 
 async function writeAll(all: Record<string, StoredConnection>): Promise<void> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(TOKENS_FILE, JSON.stringify(all, null, 2));
+  await writeState(KEY, all);
 }
 
 export async function getConnection(

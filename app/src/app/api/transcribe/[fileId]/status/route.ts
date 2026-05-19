@@ -1,9 +1,19 @@
 import { NextResponse } from "next/server";
 import { decodeFileId } from "@/lib/b2";
-import { getAI, getTranscript, hasAI, hasTranscript } from "@/lib/transcript-store";
-import { deriveProgress, getJob } from "@/lib/job-tracker";
+import {
+  getAI,
+  getJobMarker,
+  getTranscript,
+  hasAI,
+  hasTranscript,
+} from "@/lib/transcript-store";
 import { getSession } from "@/lib/session";
 
+// Status derives purely from B2 state:
+//   ai.json present                → ready
+//   transcript.json present        → generating
+//   job.json present, no transcript → transcribing (deepgram in flight)
+//   nothing                        → idle
 export async function GET(
   req: Request,
   { params }: { params: { fileId: string } },
@@ -17,15 +27,12 @@ export async function GET(
   } catch {
     return NextResponse.json({ error: "invalid_file_id" }, { status: 400 });
   }
-
   const [ownerId] = key.split("/", 1);
   if (user.role !== "admin" && ownerId !== user.id) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
   const includeData = new URL(req.url).searchParams.get("include") === "data";
-
-  const job = getJob(key);
 
   if (await hasAI(key)) {
     const body: Record<string, unknown> = {
@@ -43,8 +50,8 @@ export async function GET(
 
   if (await hasTranscript(key)) {
     const body: Record<string, unknown> = {
-      status: job?.stage ?? "generating",
-      progress: job ? deriveProgress(job.stage, Date.now() - job.startedAt) : 80,
+      status: "generating",
+      progress: 80,
       hasTranscript: true,
       hasAI: false,
     };
@@ -52,13 +59,19 @@ export async function GET(
     return NextResponse.json(body);
   }
 
-  if (job) {
+  const marker = await getJobMarker(key);
+  if (marker) {
+    const elapsed = Date.now() - marker.startedAt;
+    const progress =
+      marker.stage === "transcribing"
+        ? Math.min(70, 5 + Math.round(elapsed / (3 * 60 * 1000) * 65))
+        : 80;
     return NextResponse.json({
-      status: job.stage,
-      progress: deriveProgress(job.stage, Date.now() - job.startedAt),
+      status: marker.error ? "error" : marker.stage,
+      progress,
       hasTranscript: false,
       hasAI: false,
-      error: job.error,
+      error: marker.error,
     });
   }
 
