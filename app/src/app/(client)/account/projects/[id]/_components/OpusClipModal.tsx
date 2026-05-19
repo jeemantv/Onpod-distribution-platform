@@ -72,14 +72,24 @@ export function OpusClipModal({
           </div>
           <p className="text-[14px] mb-1">Clips submitted to OpusClip</p>
           <p className="text-[12px] text-text-muted mb-4">
-            Typical processing: 8–15 minutes. We&apos;ll save the clips into your project&apos;s Clips folder automatically.
+            Typical processing: 8–15 minutes. You&apos;ll get an email when clips are ready.
           </p>
-          <code className="block px-3 py-2 bg-bg-elev-2 border border-border rounded-[8px] text-[11px] text-text-dim mb-5">
-            job {submitted.jobId}
+          <code className="block px-3 py-2 bg-bg-elev-2 border border-border rounded-[8px] text-[11px] text-text-dim mb-3">
+            project {submitted.jobId}
           </code>
-          <button onClick={onClose} className="px-4 py-2 rounded-[8px] bg-bg-elev-3 border border-border-strong text-[13px]">
-            Close
-          </button>
+          <a
+            href={`https://www.opus.pro/clip/${submitted.jobId}`}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-block text-[12px] text-accent-2 underline mb-5"
+          >
+            View in OpusClip dashboard →
+          </a>
+          <div>
+            <button onClick={onClose} className="px-4 py-2 rounded-[8px] bg-bg-elev-3 border border-border-strong text-[13px]">
+              Close
+            </button>
+          </div>
         </div>
       </Modal>
     );
