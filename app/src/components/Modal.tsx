@@ -45,6 +45,7 @@ export function Modal({
       <div
         onClick={(e) => e.stopPropagation()}
         className={`relative w-full ${widths[size]} sm:my-8 bg-bg-elev border border-border sm:rounded-xl shadow-modal flex flex-col h-[100dvh] sm:h-auto sm:max-h-[calc(100vh-4rem)]`}
+        style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
         <div className="flex items-start justify-between p-4 sm:p-6 border-b border-border shrink-0">
           <div className="min-w-0 flex-1 pr-2">
@@ -70,7 +71,10 @@ export function Modal({
         </div>
         <div className="p-4 sm:p-6 overflow-y-auto flex-1 min-h-0">{children}</div>
         {footer ? (
-          <div className="p-4 sm:p-6 border-t border-border flex items-center justify-end gap-2 sm:gap-3 flex-wrap shrink-0">
+          <div
+            className="p-4 sm:p-6 border-t border-border flex items-center justify-end gap-2 sm:gap-3 flex-wrap shrink-0"
+            style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
+          >
             {footer}
           </div>
         ) : null}

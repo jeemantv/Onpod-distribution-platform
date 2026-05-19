@@ -12,6 +12,20 @@ html, body {
   font-weight: 400;
 }
 
+/* Prevent any element from causing the whole page to scroll sideways on mobile.
+   Internal containers can still have their own horizontal overflow. */
+body {
+  overflow-x: clip;
+}
+
+@supports not (overflow-x: clip) {
+  body { overflow-x: hidden; }
+}
+
+/* Safe-area utility for iPhone home indicator etc. */
+.pb-safe { padding-bottom: calc(env(safe-area-inset-bottom) + 1rem); }
+.pt-safe { padding-top: calc(env(safe-area-inset-top) + 0px); }
+
 .display {
   font-family: 'Bebas Neue', sans-serif;
   letter-spacing: 0.02em;

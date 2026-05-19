@@ -108,7 +108,7 @@ export function FileActionButtons({
       <button
         aria-label="Preview"
         onClick={onPreview}
-        className="w-8 h-8 rounded-md bg-bg-elev-2 border border-border hover:border-border-strong text-text-muted hover:text-text flex items-center justify-center"
+        className="w-11 h-11 sm:w-8 sm:h-8 rounded-md bg-bg-elev-2 border border-border hover:border-border-strong text-text-muted hover:text-text flex items-center justify-center"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
@@ -118,7 +118,7 @@ export function FileActionButtons({
       <button
         aria-label="Download"
         onClick={onDownload}
-        className={`w-8 h-8 rounded-md border flex items-center justify-center ${
+        className={`w-11 h-11 sm:w-8 sm:h-8 rounded-md border flex items-center justify-center ${
           file.downloadCount > 0
             ? "bg-[rgba(16,185,129,0.12)] border-[rgba(16,185,129,0.3)] text-[#34d399]"
             : "bg-bg-elev-2 border-border hover:border-border-strong text-text-muted hover:text-text"
@@ -179,7 +179,7 @@ function ActionBtn({
       }}
       title={gated ? "Awaiting client approval before publishing." : label}
       aria-label={label}
-      className={`relative w-8 h-8 rounded-md border flex items-center justify-center transition shrink-0 ${baseTint} ${gatedCls}`}
+      className={`relative w-11 h-11 sm:w-8 sm:h-8 rounded-md border flex items-center justify-center transition shrink-0 ${baseTint} ${gatedCls}`}
     >
       {icon}
       {ready ? (
