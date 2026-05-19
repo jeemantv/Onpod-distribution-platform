@@ -4,6 +4,10 @@ import { b2, bucket, decodeFileId, publicUrl } from "@/lib/b2";
 import { enhanceImage, ENHANCE_PROMPT_DEFAULT } from "@/lib/gemini";
 import { getSession } from "@/lib/session";
 
+// Up to ~30s of model calls + retries; bump Vercel function ceiling
+// past the 10s default. Hobby caps at 60s, Pro at 300s.
+export const maxDuration = 60;
+
 interface RequestBody {
   fileId: string;
   // Provide one of:
