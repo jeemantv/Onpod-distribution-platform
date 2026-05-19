@@ -28,8 +28,10 @@ const RING_FOR: Record<"published" | "scheduled" | "draft", string> = {
 
 export function PublishingCalendar({
   platform = "youtube",
+  vidType,
 }: {
   platform?: "youtube" | "spotify";
+  vidType?: "long" | "short";
 }) {
   const [rows, setRows] = useState<HistoryRow[]>([]);
   const [cursor, setCursor] = useState(() => {
@@ -42,9 +44,15 @@ export function PublishingCalendar({
       const res = await fetch("/api/publish/history");
       if (!res.ok) return;
       const body = (await res.json()) as { history: HistoryRow[] };
-      setRows(body.history.filter((r) => r.platform === platform));
+      setRows(
+        body.history.filter((r) => {
+          if (r.platform !== platform) return false;
+          if (vidType && r.vidType && r.vidType !== vidType) return false;
+          return true;
+        }),
+      );
     })();
-  }, [platform]);
+  }, [platform, vidType]);
 
   const eventsByDate = useMemo(() => {
     const map: Record<string, HistoryRow[]> = {};

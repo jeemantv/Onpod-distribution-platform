@@ -150,12 +150,22 @@ export function FilePortal({
       const res = await fetch(`/api/files/${fileId}/download`, { method: "POST" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const { signedUrl } = (await res.json()) as { signedUrl: string };
+
+      // Fetch the bytes so the browser triggers a real download. The plain
+      // <a download> attribute is ignored for cross-origin URLs without
+      // Content-Disposition, which B2 doesn't send by default.
+      const fileRes = await fetch(signedUrl);
+      if (!fileRes.ok) throw new Error(`B2 ${fileRes.status}`);
+      const blob = await fileRes.blob();
+      const objectUrl = URL.createObjectURL(blob);
+
       const a = document.createElement("a");
-      a.href = signedUrl;
+      a.href = objectUrl;
       a.download = filename;
       document.body.appendChild(a);
       a.click();
       a.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
     } catch (e) {
       alert("Download failed: " + (e instanceof Error ? e.message : String(e)));
     }

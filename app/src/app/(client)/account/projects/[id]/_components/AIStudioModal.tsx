@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
 import type { FileItem, ArticleFormat } from "@/lib/types";
+import { ThumbnailGenerator } from "./ThumbnailGenerator";
 
 interface AIData {
   title: string;
@@ -281,25 +282,7 @@ export function AIStudioModal({
         </div>
       ) : null}
 
-      {tab === "thumbnails" ? (
-        <div>
-          <div className="grid grid-cols-3 gap-3">
-            {[1, 2, 3].map((i) => (
-              <div
-                key={i}
-                className="aspect-video rounded-lg bg-gradient-to-br from-[#a855f7] to-[#ec4899] border border-border-strong flex items-center justify-center display text-[20px] text-white/80"
-              >
-                Variant {i}
-              </div>
-            ))}
-          </div>
-          <div className="flex items-center gap-2 mt-4">
-            <button className="btn-primary">Generate new variants</button>
-            <button className="btn-secondary">Extract from video</button>
-            <button className="btn-secondary">Upload custom</button>
-          </div>
-        </div>
-      ) : null}
+      {tab === "thumbnails" ? <ThumbnailGenerator fileId={fileId} file={file} /> : null}
 
       {tab === "transcript" ? (
         <div>

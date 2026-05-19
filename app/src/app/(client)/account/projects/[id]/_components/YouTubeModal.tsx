@@ -1,15 +1,26 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Modal } from "@/components/Modal";
 import type { FileItem, VidType } from "@/lib/types";
 import { PublishingCalendar } from "./PublishingCalendar";
+import {
+  PINNED_LANGUAGES,
+  ALL_LANGUAGES,
+  pickYouTubeLanguage,
+} from "@/lib/youtube-languages";
 
 interface YouTubeChannel {
   id: string;
   title: string;
   thumbnailUrl: string | null;
   subscriberCount: string | null;
+}
+
+interface YouTubePlaylist {
+  id: string;
+  title: string;
+  itemCount: number;
 }
 
 interface ConnectionState {
@@ -33,17 +44,23 @@ export function YouTubeModal({
   onClose: () => void;
 }) {
   const [connection, setConnection] = useState<ConnectionState | null>(null);
+  const [playlists, setPlaylists] = useState<YouTubePlaylist[]>([]);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [aiLoaded, setAiLoaded] = useState(false);
 
-  const [publishMode, setPublishMode] = useState<"now" | "schedule" | "private">("now");
+  const [publishMode, setPublishMode] = useState<"now" | "schedule">("now");
   const [vidType, setVidType] = useState<VidType>("long");
   const [vidTypeAuto, setVidTypeAuto] = useState(true);
   const [visibility, setVisibility] = useState<"public" | "unlisted" | "private">("public");
-  const [scheduledAt, setScheduledAt] = useState("");
+  const [scheduledDate, setScheduledDate] = useState<string | null>(null); // YYYY-MM-DD
+  const [scheduledTime, setScheduledTime] = useState<string>("09:00"); // HH:MM
   const [durationSec, setDurationSec] = useState<number | null>(null);
+
+  const [language, setLanguage] = useState<string>("en");
+  const [languageAuto, setLanguageAuto] = useState(true);
+  const [playlistId, setPlaylistId] = useState<string>("");
 
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,9 +69,14 @@ export function YouTubeModal({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const res = await fetch("/api/youtube/me");
-      const body = (await res.json()) as ConnectionState;
-      if (!cancelled) setConnection(body);
+      const [meRes, plRes] = await Promise.all([
+        fetch("/api/youtube/me"),
+        fetch("/api/youtube/playlists"),
+      ]);
+      const meBody = (await meRes.json()) as ConnectionState;
+      if (!cancelled) setConnection(meBody);
+      const plBody = (await plRes.json()) as { playlists?: YouTubePlaylist[] };
+      if (!cancelled) setPlaylists(plBody.playlists ?? []);
     })();
     return () => {
       cancelled = true;
@@ -73,33 +95,37 @@ export function YouTubeModal({
             description: string;
             chapters: string;
             tags: string[];
+            language?: string;
           };
-          transcript?: { durationSeconds: number };
+          transcript?: { durationSeconds: number; language?: string };
         };
         if (cancelled) return;
         if (body.ai) {
           setTitle(body.ai.title);
           const fullDescription =
-            body.ai.description +
-            (body.ai.chapters ? `\n\n${body.ai.chapters}` : "");
+            body.ai.description + (body.ai.chapters ? `\n\n${body.ai.chapters}` : "");
           setDescription(fullDescription);
           setTags(body.ai.tags ?? []);
           setAiLoaded(true);
+        }
+        const detected = body.ai?.language ?? body.transcript?.language;
+        if (detected && languageAuto) {
+          setLanguage(pickYouTubeLanguage(detected));
         }
         if (body.transcript?.durationSeconds) {
           applyDuration(body.transcript.durationSeconds);
         }
       } catch {
-        // ignore — modal still works without AI
+        // ignore
       }
     })();
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileId]);
 
   useEffect(() => {
-    // Fallback: probe video duration client-side if we don't have it from the transcript.
     if (durationSec !== null) return;
     let cancelled = false;
     (async () => {
@@ -134,6 +160,11 @@ export function YouTubeModal({
     setVidTypeAuto(false);
   }
 
+  const scheduledAt = useMemo(() => {
+    if (publishMode !== "schedule" || !scheduledDate) return null;
+    return `${scheduledDate}T${scheduledTime}`;
+  }, [publishMode, scheduledDate, scheduledTime]);
+
   const startConnect = () => {
     window.location.href = `/api/youtube/connect?returnTo=${encodeURIComponent(window.location.pathname)}`;
   };
@@ -155,6 +186,8 @@ export function YouTubeModal({
           visibility,
           publishMode,
           scheduledAt: publishMode === "schedule" ? scheduledAt : null,
+          language,
+          playlistId: playlistId || null,
         }),
       });
       if (!res.ok) {
@@ -180,9 +213,7 @@ export function YouTubeModal({
           <p className="text-[14px] mb-2">YouTube isn&apos;t configured yet.</p>
           <p className="text-[12px] text-text-muted">
             Set <code className="text-accent-2">YOUTUBE_CLIENT_ID</code> and{" "}
-            <code className="text-accent-2">YOUTUBE_CLIENT_SECRET</code> in{" "}
-            <code className="text-accent-2">app/.env.local</code> and restart{" "}
-            <code className="text-accent-2">next dev</code>.
+            <code className="text-accent-2">YOUTUBE_CLIENT_SECRET</code> in env.
           </p>
         </div>
       </Modal>
@@ -200,7 +231,7 @@ export function YouTubeModal({
           </div>
           <p className="text-[14px] mb-1">Connect YouTube to publish from OnPod</p>
           <p className="text-[12px] text-text-muted mb-6">
-            You&apos;ll grant the YouTube upload scope on your account. OnPod uploads only when you click Publish.
+            You&apos;ll grant the YouTube upload scope on your account.
           </p>
           <button
             onClick={startConnect}
@@ -232,7 +263,10 @@ export function YouTubeModal({
             {success.url}
           </a>
           <div className="mt-6">
-            <button onClick={onClose} className="px-4 py-2 rounded-[8px] bg-bg-elev-3 border border-border-strong text-[13px]">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 rounded-[8px] bg-bg-elev-3 border border-border-strong text-[13px]"
+            >
               Close
             </button>
           </div>
@@ -251,11 +285,18 @@ export function YouTubeModal({
       size="xl"
       footer={
         <>
-          <button onClick={onClose} className="px-4 py-2 rounded-[8px] text-text-muted hover:text-text">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-[8px] text-text-muted hover:text-text"
+          >
             Cancel
           </button>
           <button
-            disabled={publishing || !title.trim()}
+            disabled={
+              publishing ||
+              !title.trim() ||
+              (publishMode === "schedule" && !scheduledDate)
+            }
             onClick={handlePublish}
             className="px-5 py-2.5 rounded-[10px] bg-accent text-white text-[13px] font-medium disabled:opacity-60"
           >
@@ -263,9 +304,7 @@ export function YouTubeModal({
               ? "Uploading…"
               : publishMode === "now"
                 ? "Publish now"
-                : publishMode === "schedule"
-                  ? "Schedule"
-                  : "Save private"}
+                : "Schedule"}
           </button>
         </>
       }
@@ -273,7 +312,11 @@ export function YouTubeModal({
       {channel ? (
         <div className="flex items-center gap-3 mb-5 p-3 bg-bg-elev-2 border border-border rounded-[12px]">
           {channel.thumbnailUrl ? (
-            <img src={channel.thumbnailUrl} alt={channel.title} className="w-10 h-10 rounded-full" />
+            <img
+              src={channel.thumbnailUrl}
+              alt={channel.title}
+              className="w-10 h-10 rounded-full"
+            />
           ) : (
             <div className="w-10 h-10 rounded-full bg-[linear-gradient(135deg,#ff3b30,#ff8a00)] flex items-center justify-center font-semibold text-[13px]">
               {channel.title.slice(0, 2).toUpperCase()}
@@ -287,7 +330,10 @@ export function YouTubeModal({
               </div>
             ) : null}
           </div>
-          <button onClick={startConnect} className="text-[12px] text-text-muted hover:text-text">
+          <button
+            onClick={startConnect}
+            className="text-[12px] text-text-muted hover:text-text"
+          >
             Switch account
           </button>
         </div>
@@ -302,7 +348,7 @@ export function YouTubeModal({
       >
         {aiLoaded
           ? "AI-generated metadata loaded. Edit before publishing."
-          : "No AI content yet — run the AI button on this file first for auto-filled metadata."}
+          : "No AI content yet — run the AI button first for auto-filled metadata."}
       </div>
 
       {durationSec !== null ? (
@@ -311,7 +357,9 @@ export function YouTubeModal({
           {vidTypeAuto ? (
             <span className="text-accent-2">
               auto-detected as {vidType === "short" ? "YouTube Short" : "regular video"}{" "}
-              {vidType === "short" ? `(< ${SHORT_DURATION_THRESHOLD}s)` : `(≥ ${SHORT_DURATION_THRESHOLD}s)`}
+              {vidType === "short"
+                ? `(< ${SHORT_DURATION_THRESHOLD}s)`
+                : `(≥ ${SHORT_DURATION_THRESHOLD}s)`}
             </span>
           ) : (
             <span>manual override</span>
@@ -384,32 +432,93 @@ export function YouTubeModal({
 
         <div>
           <FieldLabel>Publish mode</FieldLabel>
-          <select
-            value={publishMode}
-            onChange={(e) => setPublishMode(e.target.value as typeof publishMode)}
-            className="input-yt"
-          >
-            <option value="now">Publish immediately</option>
-            <option value="schedule">Schedule for later</option>
-            <option value="private">Save as private</option>
-          </select>
+          <div className="flex bg-bg-elev-2 border border-border rounded-[10px] p-1">
+            <button
+              onClick={() => setPublishMode("now")}
+              className={`flex-1 py-1.5 text-[12px] rounded-[6px] ${
+                publishMode === "now" ? "bg-bg-elev-3 text-text" : "text-text-muted"
+              }`}
+            >
+              Publish immediately
+            </button>
+            <button
+              onClick={() => setPublishMode("schedule")}
+              className={`flex-1 py-1.5 text-[12px] rounded-[6px] ${
+                publishMode === "schedule" ? "bg-bg-elev-3 text-text" : "text-text-muted"
+              }`}
+            >
+              Schedule later
+            </button>
+          </div>
         </div>
 
         <div>
-          <FieldLabel>Tags ({tags.length})</FieldLabel>
-          <div className="px-3 py-2 bg-bg-elev-2 border border-border rounded-[10px] text-[12px] text-text-muted">
-            {tags.length === 0 ? "(none — pulled from AI metadata)" : tags.slice(0, 6).join(", ") + (tags.length > 6 ? ` +${tags.length - 6}` : "")}
-          </div>
+          <FieldLabel>
+            Language{" "}
+            {languageAuto ? (
+              <span className="text-accent-2 normal-case text-[10px] ml-1">
+                auto-detected
+              </span>
+            ) : null}
+          </FieldLabel>
+          <select
+            value={language}
+            onChange={(e) => {
+              setLanguage(e.target.value);
+              setLanguageAuto(false);
+            }}
+            className="input-yt"
+          >
+            <optgroup label="Common">
+              {PINNED_LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.label}
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label="All languages">
+              {ALL_LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.label}
+                </option>
+              ))}
+            </optgroup>
+          </select>
+        </div>
+
+        <div className="col-span-2">
+          <FieldLabel>
+            Playlist{" "}
+            {playlists.length === 0 ? (
+              <span className="text-text-dim normal-case text-[10px] ml-1">
+                (no playlists on your channel yet)
+              </span>
+            ) : null}
+          </FieldLabel>
+          <select
+            value={playlistId}
+            onChange={(e) => setPlaylistId(e.target.value)}
+            className="input-yt"
+            disabled={playlists.length === 0}
+          >
+            <option value="">(none)</option>
+            {playlists.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.title} ({p.itemCount})
+              </option>
+            ))}
+          </select>
         </div>
 
         {publishMode === "schedule" ? (
           <div className="col-span-2">
-            <FieldLabel>Schedule date and time (your local time)</FieldLabel>
-            <input
-              type="datetime-local"
-              value={scheduledAt}
-              onChange={(e) => setScheduledAt(e.target.value)}
-              className="input-yt"
+            <FieldLabel>Pick a date and time</FieldLabel>
+            <SchedulePicker
+              vidType={vidType}
+              valueDate={scheduledDate}
+              valueTime={scheduledTime}
+              onChangeDate={setScheduledDate}
+              onChangeTime={setScheduledTime}
             />
           </div>
         ) : null}
@@ -422,8 +531,10 @@ export function YouTubeModal({
       ) : null}
 
       <div className="mt-6">
-        <div className="text-[12px] text-text-muted mb-2">Publishing calendar</div>
-        <PublishingCalendar platform="youtube" />
+        <div className="text-[12px] text-text-muted mb-2">
+          Publishing calendar — showing {vidType === "short" ? "Shorts" : "long-form"} only
+        </div>
+        <PublishingCalendar platform="youtube" vidType={vidType} />
       </div>
 
       <style jsx>{`
@@ -441,6 +552,9 @@ export function YouTubeModal({
           outline: none;
           border-color: rgba(255, 255, 255, 0.16);
         }
+        :global(.input-yt:disabled) {
+          opacity: 0.5;
+        }
       `}</style>
     </Modal>
   );
@@ -449,5 +563,178 @@ export function YouTubeModal({
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
     <label className="block text-[12px] text-text-muted mb-2">{children}</label>
+  );
+}
+
+interface HistoryEvent {
+  date: string; // YYYY-MM-DD
+  vidType: "long" | "short" | null;
+  fileName: string;
+  action: "draft" | "scheduled" | "published";
+}
+
+function SchedulePicker({
+  vidType,
+  valueDate,
+  valueTime,
+  onChangeDate,
+  onChangeTime,
+}: {
+  vidType: VidType;
+  valueDate: string | null;
+  valueTime: string;
+  onChangeDate: (v: string) => void;
+  onChangeTime: (v: string) => void;
+}) {
+  const [month, setMonth] = useState(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  });
+  const [events, setEvents] = useState<HistoryEvent[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      const res = await fetch("/api/publish/history");
+      if (!res.ok) return;
+      const body = (await res.json()) as {
+        history: Array<{
+          fileName: string;
+          platform: string;
+          action: "draft" | "scheduled" | "published";
+          vidType: "long" | "short" | null;
+          scheduledFor: string | null;
+          createdAt: string;
+        }>;
+      };
+      const evs: HistoryEvent[] = body.history
+        .filter((r) => r.platform === "youtube")
+        .map((r) => ({
+          date: (r.scheduledFor ?? r.createdAt).slice(0, 10),
+          vidType: r.vidType,
+          fileName: r.fileName,
+          action: r.action,
+        }));
+      setEvents(evs);
+    })();
+  }, []);
+
+  const matchingEvents = useMemo(() => {
+    const filtered = events.filter(
+      (e) => !e.vidType || e.vidType === vidType,
+    );
+    const map: Record<string, HistoryEvent[]> = {};
+    for (const e of filtered) (map[e.date] ??= []).push(e);
+    return map;
+  }, [events, vidType]);
+
+  const year = month.getFullYear();
+  const m = month.getMonth();
+  const daysInMonth = new Date(year, m + 1, 0).getDate();
+  const firstDow = new Date(year, m, 1).getDay();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return (
+    <div className="bg-bg-elev-2 border border-border rounded-[12px] p-4">
+      <div className="flex items-center justify-between mb-3">
+        <button
+          onClick={() => setMonth(new Date(year, m - 1, 1))}
+          className="text-text-muted hover:text-text px-2"
+        >
+          ‹
+        </button>
+        <div className="display text-[16px]">
+          {month.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+        </div>
+        <button
+          onClick={() => setMonth(new Date(year, m + 1, 1))}
+          className="text-text-muted hover:text-text px-2"
+        >
+          ›
+        </button>
+      </div>
+      <div className="grid grid-cols-7 gap-1 text-center text-[10px] text-text-dim mb-1">
+        {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
+          <div key={i}>{d}</div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {Array.from({ length: firstDow }).map((_, i) => (
+          <div key={`pad-${i}`} />
+        ))}
+        {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
+          const date = new Date(year, m, day);
+          const iso = `${year}-${String(m + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+          const past = date < today;
+          const dayEvents = matchingEvents[iso] ?? [];
+          const selected = valueDate === iso;
+          return (
+            <button
+              key={day}
+              disabled={past}
+              onClick={() => onChangeDate(iso)}
+              title={dayEvents
+                .map((e) => `${e.action}: ${e.fileName}`)
+                .join("\n")}
+              className={`relative h-12 rounded-[6px] text-[12px] flex flex-col items-center justify-center gap-1 ${
+                past
+                  ? "text-text-dim/40 cursor-not-allowed"
+                  : selected
+                    ? "bg-accent text-white"
+                    : "hover:bg-bg-elev-3"
+              }`}
+            >
+              <span>{day}</span>
+              {dayEvents.length > 0 ? (
+                <div className="flex gap-0.5">
+                  {dayEvents.slice(0, 3).map((e, i) => (
+                    <span
+                      key={i}
+                      className={`w-1 h-1 rounded-full ${
+                        e.action === "published"
+                          ? "bg-success"
+                          : e.action === "scheduled"
+                            ? "bg-warning"
+                            : "bg-text-muted"
+                      }`}
+                    />
+                  ))}
+                </div>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-[11px] text-text-muted mb-1">Date</label>
+          <div className="px-3 py-2 bg-bg-elev-3 border border-border rounded-[8px] text-[12px]">
+            {valueDate ?? "(pick a date above)"}
+          </div>
+        </div>
+        <div>
+          <label className="block text-[11px] text-text-muted mb-1">Time (local)</label>
+          <input
+            type="time"
+            value={valueTime}
+            onChange={(e) => onChangeTime(e.target.value)}
+            className="input-yt"
+          />
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center gap-4 text-[11px] text-text-muted flex-wrap">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-success" /> Published
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-warning" /> Scheduled
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-text-muted" /> Draft
+        </span>
+      </div>
+    </div>
   );
 }

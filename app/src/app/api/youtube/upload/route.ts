@@ -14,8 +14,10 @@ interface RequestBody {
   tags?: string[];
   vidType?: "long" | "short";
   visibility?: "public" | "unlisted" | "private";
-  publishMode?: "now" | "schedule" | "private";
+  publishMode?: "now" | "schedule";
   scheduledAt?: string | null;
+  language?: string;
+  playlistId?: string | null;
 }
 
 export async function POST(req: Request) {
@@ -95,10 +97,7 @@ export async function POST(req: Request) {
     if (!Number.isNaN(local.getTime())) publishAt = local.toISOString();
   }
 
-  const privacyStatus =
-    body.publishMode === "private" || publishAt
-      ? "private"
-      : (body.visibility ?? "public");
+  const privacyStatus = publishAt ? "private" : (body.visibility ?? "public");
 
   try {
     const { videoId } = await uploadVideo({
@@ -111,6 +110,9 @@ export async function POST(req: Request) {
       privacyStatus,
       publishAt,
       isShort: body.vidType === "short",
+      defaultLanguage: body.language,
+      defaultAudioLanguage: body.language,
+      playlistId: body.playlistId ?? undefined,
     });
 
     const name = key.split("/").slice(-1)[0] ?? "file";

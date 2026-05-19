@@ -154,6 +154,9 @@ export interface UploadOptions {
   publishAt?: string | null; // RFC3339
   madeForKids?: boolean;
   isShort?: boolean;
+  defaultLanguage?: string; // BCP-47
+  defaultAudioLanguage?: string; // BCP-47
+  playlistId?: string;
 }
 
 export async function uploadVideo(opts: UploadOptions): Promise<{ videoId: string }> {
@@ -167,6 +170,12 @@ export async function uploadVideo(opts: UploadOptions): Promise<{ videoId: strin
       description: opts.description,
       tags,
       categoryId: opts.categoryId ?? "22",
+      ...(opts.defaultLanguage ? { defaultLanguage: opts.defaultLanguage } : {}),
+      ...(opts.defaultAudioLanguage
+        ? { defaultAudioLanguage: opts.defaultAudioLanguage }
+        : opts.defaultLanguage
+          ? { defaultAudioLanguage: opts.defaultLanguage }
+          : {}),
     },
     status: {
       privacyStatus: opts.publishAt ? "private" : opts.privacyStatus,
@@ -210,5 +219,26 @@ export async function uploadVideo(opts: UploadOptions): Promise<{ videoId: strin
   }
   const data = (await res.json()) as { id?: string };
   if (!data.id) throw new Error("videos.insert returned no id");
+
+  // Add to playlist if requested
+  if (opts.playlistId) {
+    await fetch(
+      `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${opts.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          snippet: {
+            playlistId: opts.playlistId,
+            resourceId: { kind: "youtube#video", videoId: data.id },
+          },
+        }),
+      },
+    ).catch((err) => console.error("[playlist add failed]", err));
+  }
+
   return { videoId: data.id };
 }
