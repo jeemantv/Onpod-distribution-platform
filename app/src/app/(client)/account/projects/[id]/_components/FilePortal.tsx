@@ -217,8 +217,39 @@ export function FilePortal({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (target?.tagName === "INPUT" || target?.tagName === "TEXTAREA") return;
+      // Bail if a modal (AI Studio / YouTube / Spotify / etc.) is open.
+      if (modal !== null) return;
+      if (contextMenu !== null) return;
+
+      // Bail if focus is inside ANY editable element (covers selects, contenteditable,
+      // any input type — not just INPUT/TEXTAREA).
+      const active = document.activeElement as HTMLElement | null;
+      if (active) {
+        const tag = active.tagName;
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT" ||
+          active.isContentEditable
+        ) {
+          return;
+        }
+      }
+
+      // Defensive: also check the event target itself
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT" ||
+          target.isContentEditable
+        ) {
+          return;
+        }
+      }
+
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
         e.preventDefault();
         setSelected(new Set(filtered.map((f) => f.id)));
@@ -234,7 +265,7 @@ export function FilePortal({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtered, selected.size]);
+  }, [filtered, selected.size, modal, contextMenu]);
 
   const downloadFile = async (fileId: string, filename: string) => {
     try {
