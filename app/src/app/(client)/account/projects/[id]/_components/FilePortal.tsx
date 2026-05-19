@@ -90,26 +90,48 @@ export function FilePortal({
         },
       );
       const url = `https://www.youtube.com/watch?v=${videoId}`;
-      // Finalize on server side: record history, set thumbnail, add playlist
-      await fetch("/api/youtube/upload-complete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fileId: info.fileId,
-          videoId,
-          title: info.title,
-          vidType: info.init.vidType,
-          publishAt: info.init.publishAt,
-          visibility: info.init.visibility,
-          playlistId: info.playlistId,
-          thumbnailUrl: info.thumbnailUrl,
-          thumbnailBase64: info.thumbnailBase64,
-        }),
-      });
+      // Finalize on server side: record history, set thumbnail, add playlist.
+      // If this fails (Vercel timeout, YouTube rejected thumbnail size, etc)
+      // the video is already up on YouTube — show a partial-success toast
+      // instead of pretending the whole publish failed.
+      let finalizeErr: string | null = null;
+      let finalizeResult: Record<string, unknown> = {};
+      try {
+        const finRes = await fetch("/api/youtube/upload-complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fileId: info.fileId,
+            videoId,
+            title: info.title,
+            vidType: info.init.vidType,
+            publishAt: info.init.publishAt,
+            visibility: info.init.visibility,
+            playlistId: info.playlistId,
+            thumbnailUrl: info.thumbnailUrl,
+            thumbnailBase64: info.thumbnailBase64,
+          }),
+        });
+        if (!finRes.ok) {
+          finalizeErr = `HTTP ${finRes.status}`;
+        } else {
+          finalizeResult = (await finRes.json()) as Record<string, unknown>;
+        }
+      } catch (err) {
+        finalizeErr = (err as Error).message;
+      }
+
+      const thumbProblem =
+        finalizeErr ||
+        (typeof finalizeResult.thumbnailError === "string"
+          ? (finalizeResult.thumbnailError as string)
+          : null);
       setToast({
         kind: "success",
-        title: "Published to YouTube",
-        detail: info.title,
+        title: thumbProblem
+          ? "Video uploaded — thumbnail couldn't be set"
+          : "Published to YouTube",
+        detail: thumbProblem ?? info.title,
         href: url,
       });
       // Reflect on the row

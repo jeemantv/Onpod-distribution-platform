@@ -5,6 +5,10 @@ import { getFreshAccessToken, getConnection } from "@/lib/youtube-store";
 import { getSession } from "@/lib/session";
 import { recordPublish } from "@/lib/publish-history-store";
 
+// Thumbnail fetch + thumbnails.set + playlistItems.insert + B2 write
+// adds up to >10s sometimes. Vercel Hobby caps at 60s, which is plenty.
+export const maxDuration = 60;
+
 interface RequestBody {
   fileId: string;
   videoId: string;

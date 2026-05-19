@@ -291,7 +291,14 @@ export function CoverArtComposer({
     try {
       const canvas = canvasRef.current;
       if (!canvas) throw new Error("no canvas");
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.88);
+      // YouTube rejects thumbnails > 2MB. Step quality down until we fit
+      // comfortably under that ceiling.
+      let dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+      for (const q of [0.78, 0.7, 0.62, 0.55] as const) {
+        // ~base64 expansion factor 1.37 + small header. Conservatively bail at 1.6MB.
+        if (dataUrl.length < 1_600_000) break;
+        dataUrl = canvas.toDataURL("image/jpeg", q);
+      }
       const b64 = dataUrl.split(",")[1] ?? "";
       const res = await fetch("/api/ai/cover-art", {
         method: "POST",
