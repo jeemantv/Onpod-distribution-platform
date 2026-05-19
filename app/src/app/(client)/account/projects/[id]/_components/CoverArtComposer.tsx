@@ -45,6 +45,9 @@ export function CoverArtComposer({
   const [layout, setLayout] = useState<Layout>("lowerBanner");
   const [bannerColor, setBannerColor] = useState("#ff3b30");
   const [textColor, setTextColor] = useState("#ffffff");
+  const [zoom, setZoom] = useState(1);
+  const [panX, setPanX] = useState(0); // -1..1 (-1 = leftmost, 1 = rightmost)
+  const [panY, setPanY] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<string | null>(existingCoverUrl ?? null);
   const [error, setError] = useState<string | null>(null);
@@ -55,6 +58,9 @@ export function CoverArtComposer({
   const deferredBannerColor = useDeferredValue(bannerColor);
   const deferredTextColor = useDeferredValue(textColor);
   const deferredLayout = useDeferredValue(layout);
+  const deferredZoom = useDeferredValue(zoom);
+  const deferredPanX = useDeferredValue(panX);
+  const deferredPanY = useDeferredValue(panY);
 
   // Sync defaults when they arrive late (e.g. after AI loads)
   useEffect(() => {
@@ -125,13 +131,19 @@ export function CoverArtComposer({
     ctx.fillRect(0, 0, THUMB_W, THUMB_H);
 
     if (baseImage) {
-      const scale = Math.max(
+      const baseScale = Math.max(
         THUMB_W / baseImage.width,
         THUMB_H / baseImage.height,
       );
+      const scale = baseScale * deferredZoom;
       const w = baseImage.width * scale;
       const h = baseImage.height * scale;
-      ctx.drawImage(baseImage, (THUMB_W - w) / 2, (THUMB_H - h) / 2, w, h);
+      // pan range: amount of overflow * pan ratio
+      const overflowX = Math.max(0, w - THUMB_W);
+      const overflowY = Math.max(0, h - THUMB_H);
+      const x = (THUMB_W - w) / 2 + (deferredPanX * overflowX) / 2;
+      const y = (THUMB_H - h) / 2 + (deferredPanY * overflowY) / 2;
+      ctx.drawImage(baseImage, x, y, w, h);
     }
 
     drawOverlay(ctx, deferredLayout, deferredTitle, deferredTag, {
@@ -145,7 +157,57 @@ export function CoverArtComposer({
     deferredTag,
     deferredBannerColor,
     deferredTextColor,
+    deferredZoom,
+    deferredPanX,
+    deferredPanY,
   ]);
+
+  // Drag-to-pan on the canvas
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    let dragging = false;
+    let startX = 0;
+    let startY = 0;
+    let startPanX = panX;
+    let startPanY = panY;
+
+    const onDown = (e: PointerEvent) => {
+      dragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      startPanX = panX;
+      startPanY = panY;
+      canvas.setPointerCapture(e.pointerId);
+      canvas.style.cursor = "grabbing";
+    };
+    const onMove = (e: PointerEvent) => {
+      if (!dragging) return;
+      const rect = canvas.getBoundingClientRect();
+      const dx = (e.clientX - startX) / rect.width;
+      const dy = (e.clientY - startY) / rect.height;
+      // -2..2 range so dragging across the whole canvas pans the full overflow
+      setPanX(clamp(startPanX - dx * 2, -1, 1));
+      setPanY(clamp(startPanY - dy * 2, -1, 1));
+    };
+    const onUp = (e: PointerEvent) => {
+      dragging = false;
+      canvas.releasePointerCapture(e.pointerId);
+      canvas.style.cursor = "grab";
+    };
+
+    canvas.style.cursor = "grab";
+    canvas.addEventListener("pointerdown", onDown);
+    canvas.addEventListener("pointermove", onMove);
+    canvas.addEventListener("pointerup", onUp);
+    canvas.addEventListener("pointercancel", onUp);
+    return () => {
+      canvas.removeEventListener("pointerdown", onDown);
+      canvas.removeEventListener("pointermove", onMove);
+      canvas.removeEventListener("pointerup", onUp);
+      canvas.removeEventListener("pointercancel", onUp);
+    };
+  }, [panX, panY]);
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -311,12 +373,42 @@ export function CoverArtComposer({
       </div>
 
       <div>
-        <div className="text-[12px] text-text-muted mb-2">Preview (1280×720)</div>
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-[12px] text-text-muted">
+            Preview (1280×720) — drag to pan
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setZoom(1);
+              setPanX(0);
+              setPanY(0);
+            }}
+            className="text-[11px] text-text-muted hover:text-text"
+          >
+            Reset
+          </button>
+        </div>
         <canvas
           ref={canvasRef}
-          className="w-full rounded-lg border border-border-strong"
+          className="w-full rounded-lg border border-border-strong touch-none select-none"
           style={{ aspectRatio: "16/9" }}
         />
+        <div className="flex items-center gap-3 mt-2 text-[11px] text-text-muted">
+          <span className="w-12 shrink-0">Zoom</span>
+          <input
+            type="range"
+            min={1}
+            max={3}
+            step={0.05}
+            value={zoom}
+            onChange={(e) => setZoom(parseFloat(e.target.value))}
+            className="flex-1 accent-accent"
+          />
+          <span className="w-12 text-right tabular-nums">
+            {zoom.toFixed(2)}×
+          </span>
+        </div>
       </div>
 
       {error ? (
@@ -531,6 +623,10 @@ function fitText(
   ctx.font = `${weight} 28px Poppins, system-ui, sans-serif`;
   const wrapped = wrapText(ctx, text, maxWidth).slice(0, maxLines);
   return { lines: wrapped, fontSize: 28, lineHeight: 30 };
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, v));
 }
 
 function wrapText(

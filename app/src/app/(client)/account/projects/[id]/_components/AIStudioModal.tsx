@@ -130,6 +130,21 @@ export function AIStudioModal({
     }
   };
 
+  const persistField = async (
+    field: "title" | "description" | "chapters" | "tags" | "hashtags" | "summary",
+    value: string | string[],
+  ) => {
+    try {
+      await fetch("/api/ai/save-field", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileId, field, value }),
+      });
+    } catch {
+      // ignore — UI state still reflects the change
+    }
+  };
+
   const regenerate = async (field: "title" | "description" | "chapters" | "tags" | "hashtags" | "summary", customPrompt?: string) => {
     setRegeneratingField(field);
     try {
@@ -178,21 +193,23 @@ export function AIStudioModal({
 
       {tab === "metadata" ? (
         <div className="space-y-5">
-          <Field label="YouTube title">
+          <Field label="YouTube title (saves automatically)">
             <input
               value={data.title}
               onChange={(e) => setData({ ...data, title: e.target.value })}
+              onBlur={() => void persistField("title", data.title)}
               className="input"
             />
             <RegenRow busy={regeneratingField === "title"} onRegenerate={(prompt) => regenerate("title", prompt)} />
           </Field>
 
-          <Field label="YouTube description">
+          <Field label="YouTube description (saves automatically)">
             <textarea
               value={data.description}
               onChange={(e) =>
                 setData({ ...data, description: e.target.value })
               }
+              onBlur={() => void persistField("description", data.description)}
               rows={8}
               className="input"
             />
@@ -205,12 +222,11 @@ export function AIStudioModal({
                 <Chip
                   key={i}
                   label={t}
-                  onRemove={() =>
-                    setData({
-                      ...data,
-                      tags: data.tags.filter((_, j) => j !== i),
-                    })
-                  }
+                  onRemove={() => {
+                    const next = data.tags.filter((_, j) => j !== i);
+                    setData({ ...data, tags: next });
+                    void persistField("tags", next);
+                  }}
                 />
               ))}
             </div>
@@ -222,12 +238,11 @@ export function AIStudioModal({
                 <Chip
                   key={i}
                   label={t}
-                  onRemove={() =>
-                    setData({
-                      ...data,
-                      hashtags: data.hashtags.filter((_, j) => j !== i),
-                    })
-                  }
+                  onRemove={() => {
+                    const next = data.hashtags.filter((_, j) => j !== i);
+                    setData({ ...data, hashtags: next });
+                    void persistField("hashtags", next);
+                  }}
                 />
               ))}
             </div>
@@ -237,6 +252,7 @@ export function AIStudioModal({
             <textarea
               value={data.summary}
               onChange={(e) => setData({ ...data, summary: e.target.value })}
+              onBlur={() => void persistField("summary", data.summary)}
               rows={3}
               className="input"
             />
@@ -253,11 +269,12 @@ export function AIStudioModal({
           <textarea
             value={data.chapters}
             onChange={(e) => setData({ ...data, chapters: e.target.value })}
+            onBlur={() => void persistField("chapters", data.chapters)}
             rows={12}
             className="input font-mono text-[13px]"
           />
           <p className="text-[11px] text-text-dim mt-2">
-            Format: <code>00:00 Title</code> per line. YouTube auto-detects timestamps after 3+ entries with the first being 00:00.
+            Format: <code>00:00 Title</code> per line. YouTube auto-detects timestamps after 3+ entries with the first being 00:00. Saves automatically on blur.
           </p>
           <RegenRow busy={regeneratingField === "chapters"} onRegenerate={(prompt) => regenerate("chapters", prompt)} />
         </div>

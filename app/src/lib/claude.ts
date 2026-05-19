@@ -125,27 +125,27 @@ const ARTICLE_GUIDES: Record<ArticleFormat, { length: string; tone: string; stru
   linkedin: {
     length: "200-300 words",
     tone: "professional, opinion-led, first person, contrarian hook, ends with a question to drive comments",
-    structure: "punchy 1-line hook, 3-5 short paragraphs separated by line breaks, 4-6 hashtags at the end",
+    structure: "punchy first line, 3 to 5 short paragraphs separated by blank lines, 4 to 6 hashtags at the end",
   },
   wordpress: {
     length: "800-1500 words",
     tone: "informative, SEO-friendly, scannable, mid-funnel",
-    structure: "H1 title, intro paragraph, 3-5 H2 sections with body, conclusion, suggested meta description at the very end as italic note",
+    structure: "Title on its own line in plain Title Case (no # symbol). Intro paragraph. 3 to 5 sections, each starting with the section name on its own line in Title Case, then body paragraphs. Conclusion. After the conclusion, leave one blank line and add 'Meta description:' followed by 1 sentence.",
   },
   medium: {
     length: "1000-2000 words",
-    tone: "narrative, personal, insightful — voice of an experienced operator telling a story with lessons",
-    structure: "memorable opening line, 4-6 long-form sections (sometimes with H2 subheadings), reflective closing",
+    tone: "narrative, personal, insightful, voice of an experienced operator telling a story with lessons",
+    structure: "Memorable opening line. 4 to 6 long-form sections, each beginning with the section name in Title Case on its own line. Reflective closing.",
   },
   newsletter: {
     length: "500-800 words",
     tone: "conversational, direct, 'just sent from my desk'",
-    structure: "greeting, single big insight, 2-3 supporting bullets, soft CTA, signature line",
+    structure: "Greeting line. Single big insight in 2 to 3 paragraphs. 2 to 3 supporting points written as short paragraphs (NOT bullets). Soft CTA. Signature line.",
   },
   seoBlog: {
     length: "1200-2000 words",
     tone: "authoritative, keyword-rich without being spammy",
-    structure: "H1 with primary keyword, intro that names the problem and the answer in 2-3 lines, H2/H3 hierarchy covering subtopics, FAQ section with 3-5 Q&A at the end",
+    structure: "Title in plain Title Case on its own line. Intro that names the problem and the answer in 2 to 3 sentences. 4 to 6 sections, each starting with the section name in Title Case on its own line. FAQ section at the end as 3 to 5 question/answer pairs (each question and answer on its own paragraph).",
   },
 };
 
@@ -176,16 +176,24 @@ export async function generateArticle(
 Episode title: ${ai.title}
 Episode summary: ${ai.summary}
 
-Format requirements:
+Format:
 - Length: ${guide.length}
 - Tone: ${guide.tone}
 - Structure: ${guide.structure}
 
-Hard rules:
-- Return MARKDOWN ONLY. No preamble like "Here's the article".
-- Do not invent facts. Stay grounded in the transcript.
-- Strong opening line. No "In today's fast-paced world" type filler.
-- Use the speaker's actual phrases and arguments where possible.
+WRITE LIKE A HUMAN. DO NOT WRITE LIKE AI. Hard bans, no exceptions:
+
+1. NO em-dashes (—) or en-dashes (–). Use a comma, a period, or "and"/"but".
+2. NO markdown headings. Do not use #, ##, ### anywhere. Section titles go on their own line in Title Case, plain text.
+3. NO asterisks. Do not use *, ** or *** for bold/italic/bullets.
+4. NO bullet points or numbered lists with -, *, or 1./2./3. Write supporting points as actual paragraphs.
+5. NO AI filler phrases. Banned: "In today's fast-paced world", "It's important to note", "Let's dive in", "Ultimately", "In conclusion,", "At the end of the day", "It's worth noting", "Furthermore", "Moreover", "Additionally", "On the other hand", "That being said", "delve", "tapestry", "landscape" (figuratively), "navigate" (figuratively), "unlock", "leverage" (verb), "elevate" (figuratively).
+6. NO "I" if the format is third-person. NO "we" unless it's a newsletter or it appears in the transcript that way.
+7. Vary sentence length on purpose. Short sentence. Then a longer one that earns its length by carrying a single idea. Avoid three-clause sentences with multiple conjunctions.
+8. Use the speaker's actual phrases and arguments where possible. Quote them inline with regular quotation marks.
+9. Do not invent facts. If the transcript doesn't say it, do not say it.
+
+Return only the article text. No preamble, no commentary, no "Here's the article".
 
 Transcript:
 ${trimmed}`;
@@ -200,7 +208,8 @@ ${trimmed}`;
     body: JSON.stringify({
       model: "claude-sonnet-4-5",
       max_tokens: 4000,
-      system: "You are a senior content writer who turns podcast transcripts into publish-ready articles. You match the requested format precisely and never pad with filler.",
+      system:
+        "You are a senior content writer. You write articles from podcast transcripts that sound like a real person wrote them. You do not use em-dashes, markdown headings (#), asterisks (*), bullet points, or AI filler phrases. You vary sentence length deliberately. You quote the speaker rather than paraphrasing when their phrasing is good. You never invent facts.",
       messages: [{ role: "user", content: user }],
     }),
   });
@@ -213,7 +222,19 @@ ${trimmed}`;
   };
   const text = data.content?.find((c) => c.type === "text")?.text ?? "";
   // Strip leading fenced code block if Claude wraps the whole thing
-  return text.replace(/^```(?:markdown|md)?\n([\s\S]*?)\n```$/m, "$1").trim();
+  let out = text.replace(/^```(?:markdown|md)?\n([\s\S]*?)\n```$/m, "$1").trim();
+  // Belt-and-suspenders: strip any em-dashes / heading hashes / leftover asterisks
+  // Claude might emit despite the prompt
+  out = out
+    .replace(/[—–]/g, ", ")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/^\s*[-*]\s+/gm, "")
+    .replace(/^\s*\d+\.\s+/gm, "")
+    .replace(/  +/g, " ")
+    .trim();
+  return out;
 }
 
 export async function regenerateField(
