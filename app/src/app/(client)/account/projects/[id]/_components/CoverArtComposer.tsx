@@ -55,27 +55,52 @@ export function CoverArtComposer({
   const [enhanceError, setEnhanceError] = useState<string | null>(null);
 
   const enhanceBase = async () => {
-    if (!baseUrl) return;
+    if (!baseImage) return;
     setEnhancing(true);
     setEnhanceError(null);
     try {
-      let payload: { imageUrl?: string; imageBase64?: string };
-      if (baseUrl.startsWith("data:")) {
-        payload = { imageBase64: baseUrl.split(",")[1] ?? "" };
-      } else {
-        payload = { imageUrl: baseUrl };
-      }
+      // Render the *cropped + zoomed* base image (no banner/text overlay)
+      // to an offscreen canvas, then send THAT to Gemini. This way the
+      // enhancement matches what the user composed.
+      const off = document.createElement("canvas");
+      off.width = THUMB_W;
+      off.height = THUMB_H;
+      const ctx = off.getContext("2d");
+      if (!ctx) throw new Error("no offscreen ctx");
+      ctx.fillStyle = "#0a0a0b";
+      ctx.fillRect(0, 0, THUMB_W, THUMB_H);
+      const baseScale = Math.max(
+        THUMB_W / baseImage.width,
+        THUMB_H / baseImage.height,
+      );
+      const scale = baseScale * zoom;
+      const w = baseImage.width * scale;
+      const h = baseImage.height * scale;
+      const overflowX = Math.max(0, w - THUMB_W);
+      const overflowY = Math.max(0, h - THUMB_H);
+      const x = (THUMB_W - w) / 2 + (panX * overflowX) / 2;
+      const y = (THUMB_H - h) / 2 + (panY * overflowY) / 2;
+      ctx.drawImage(baseImage, x, y, w, h);
+
+      const dataUrl = off.toDataURL("image/jpeg", 0.92);
+      const b64 = dataUrl.split(",")[1] ?? "";
+
       const res = await fetch("/api/ai/enhance-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileId, ...payload }),
+        body: JSON.stringify({ fileId, imageBase64: b64 }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error((body as { message?: string }).message ?? `HTTP ${res.status}`);
       }
       const body = (await res.json()) as { url: string };
+      // Swap in the enhanced version as the new base. Reset zoom/pan since
+      // it's already cropped/composed.
       setBaseUrl(body.url);
+      setZoom(1);
+      setPanX(0);
+      setPanY(0);
     } catch (err) {
       setEnhanceError((err as Error).message);
     } finally {
@@ -193,37 +218,49 @@ export function CoverArtComposer({
     deferredPanY,
   ]);
 
-  // Drag-to-pan on the canvas
+  // Drag-to-pan: listeners bound once. Refs hold transient drag state +
+  // latest pan values so state updates don't tear the drag.
+  const panRef = useRef({ x: panX, y: panY });
+  useEffect(() => {
+    panRef.current.x = panX;
+    panRef.current.y = panY;
+  }, [panX, panY]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    let dragging = false;
-    let startX = 0;
-    let startY = 0;
-    let startPanX = panX;
-    let startPanY = panY;
+    const drag = {
+      active: false,
+      startClientX: 0,
+      startClientY: 0,
+      startPanX: 0,
+      startPanY: 0,
+    };
 
     const onDown = (e: PointerEvent) => {
-      dragging = true;
-      startX = e.clientX;
-      startY = e.clientY;
-      startPanX = panX;
-      startPanY = panY;
+      drag.active = true;
+      drag.startClientX = e.clientX;
+      drag.startClientY = e.clientY;
+      drag.startPanX = panRef.current.x;
+      drag.startPanY = panRef.current.y;
       canvas.setPointerCapture(e.pointerId);
       canvas.style.cursor = "grabbing";
     };
     const onMove = (e: PointerEvent) => {
-      if (!dragging) return;
+      if (!drag.active) return;
       const rect = canvas.getBoundingClientRect();
-      const dx = (e.clientX - startX) / rect.width;
-      const dy = (e.clientY - startY) / rect.height;
-      // -2..2 range so dragging across the whole canvas pans the full overflow
-      setPanX(clamp(startPanX - dx * 2, -1, 1));
-      setPanY(clamp(startPanY - dy * 2, -1, 1));
+      const dx = (e.clientX - drag.startClientX) / rect.width;
+      const dy = (e.clientY - drag.startClientY) / rect.height;
+      setPanX(clamp(drag.startPanX - dx * 2, -1, 1));
+      setPanY(clamp(drag.startPanY - dy * 2, -1, 1));
     };
     const onUp = (e: PointerEvent) => {
-      dragging = false;
-      canvas.releasePointerCapture(e.pointerId);
+      drag.active = false;
+      try {
+        canvas.releasePointerCapture(e.pointerId);
+      } catch {
+        // ignore — pointer may already be released
+      }
       canvas.style.cursor = "grab";
     };
 
@@ -238,7 +275,7 @@ export function CoverArtComposer({
       canvas.removeEventListener("pointerup", onUp);
       canvas.removeEventListener("pointercancel", onUp);
     };
-  }, [panX, panY]);
+  }, []);
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -440,6 +477,23 @@ export function CoverArtComposer({
             {zoom.toFixed(2)}×
           </span>
         </div>
+
+        <div className="mt-4 flex items-start gap-3 flex-wrap">
+          <button
+            type="button"
+            onClick={enhanceBase}
+            disabled={enhancing || !baseImage}
+            className="px-4 py-2 rounded-[8px] bg-[linear-gradient(135deg,#a855f7,#ec4899)] text-white text-[13px] font-medium disabled:opacity-60"
+          >
+            {enhancing ? "Enhancing…" : "✨ Enhance with AI"}
+          </button>
+          <p className="text-[11px] text-text-muted flex-1 min-w-[200px]">
+            Click after you finish zooming and panning. Gemini will rebuild the cropped frame with sharper detail, then reset zoom/pan so you can work with the enhanced version.
+          </p>
+        </div>
+        {enhanceError ? (
+          <p className="mt-2 text-[11px] text-[#f87171]">{enhanceError}</p>
+        ) : null}
       </div>
 
       {error ? (

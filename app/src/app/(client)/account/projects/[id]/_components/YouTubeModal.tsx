@@ -102,7 +102,8 @@ export function YouTubeModal({
       const [meRes, plRes, tbRes] = await Promise.all([
         fetch("/api/youtube/me"),
         fetch("/api/youtube/playlists"),
-        fetch(`/api/files/${fileId}/thumbnails`),
+        // no-store so a just-saved cover art shows up immediately
+        fetch(`/api/files/${fileId}/thumbnails`, { cache: "no-store" }),
       ]);
       const meBody = (await meRes.json()) as ConnectionState;
       if (!cancelled) setConnection(meBody);
@@ -112,8 +113,17 @@ export function YouTubeModal({
         thumbnails?: { label: string; name: string; url: string }[];
       };
       if (!cancelled && tbBody.thumbnails) {
-        setAvailableThumbs(tbBody.thumbnails);
-        const cover = tbBody.thumbnails.find((t) => t.label === "cover");
+        // Sort so cover art shows first
+        const sorted = [...tbBody.thumbnails].sort((a, b) =>
+          a.label === "cover" ? -1 : b.label === "cover" ? 1 : 0,
+        );
+        // Append a fresh cache-buster so a just-saved cover doesn't pull a stale cached image
+        const stamped = sorted.map((t) => ({
+          ...t,
+          url: t.url + (t.url.includes("?") ? "&" : "?") + "ts=" + Date.now(),
+        }));
+        setAvailableThumbs(stamped);
+        const cover = stamped.find((t) => t.label === "cover");
         if (cover) setSelectedThumb({ url: cover.url, base64: null });
       }
     })();
