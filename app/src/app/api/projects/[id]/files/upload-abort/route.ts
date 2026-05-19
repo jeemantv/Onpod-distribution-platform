@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { fileKey, guessMimeType, startMultipartUpload } from "@/lib/b2";
+import { abortMultipartUpload } from "@/lib/b2";
 import { getProjectById } from "@/lib/mock-data";
 import { getSession } from "@/lib/session";
 
@@ -16,25 +16,15 @@ export async function POST(
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  const { filename, sizeBytes, mimeType } = (await req.json()) as {
-    filename: string;
-    sizeBytes: number;
-    mimeType?: string;
-  };
-
-  if (!filename || typeof sizeBytes !== "number" || sizeBytes <= 0) {
-    return NextResponse.json({ error: "invalid_request" }, { status: 400 });
+  const { key, uploadId } = (await req.json()) as { key: string; uploadId: string };
+  if (!key.startsWith(`${project.userId}/${project.id}/`)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  const sanitized = filename.replace(/[^\w.\-]/g, "_");
-  const key = fileKey(project.userId, project.id, sanitized);
-  const contentType = mimeType || guessMimeType(sanitized);
-
   try {
-    const init = await startMultipartUpload(key, contentType, sizeBytes);
-    return NextResponse.json(init);
+    await abortMultipartUpload(key, uploadId);
+    return NextResponse.json({ ok: true });
   } catch (err) {
-    console.error("[upload-init]", err);
     return NextResponse.json(
       { error: "b2_error", message: err instanceof Error ? err.message : "unknown" },
       { status: 500 },

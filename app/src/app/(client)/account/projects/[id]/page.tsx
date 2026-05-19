@@ -1,22 +1,53 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   getAIContentForFile,
-  getFilesForProject,
   getProjectById,
 } from "@/lib/mock-data";
 import { requireClient } from "@/lib/session";
+import type { FileItem } from "@/lib/types";
 import { LOCATION_LABEL } from "@/lib/types";
 import { TopNav } from "@/components/TopNav";
 import { FilePortal } from "./_components/FilePortal";
+import {
+  classifyByFilename,
+  encodeFileId,
+  guessMimeType,
+  listFiles,
+  projectPrefix,
+} from "@/lib/b2";
 
-export default function ProjectPage({ params }: { params: { id: string } }) {
+export const dynamic = "force-dynamic";
+
+export default async function ProjectPage({ params }: { params: { id: string } }) {
   const user = requireClient();
   const project = getProjectById(params.id);
   if (!project) notFound();
   if (project.userId !== user.id && user.role !== "admin") notFound();
 
-  const files = getFilesForProject(project.id);
+  const b2Objects = await listFiles(projectPrefix(project.userId, project.id)).catch(
+    (e) => {
+      console.error("[b2 list]", e);
+      return [];
+    },
+  );
+
+  const files: FileItem[] = b2Objects.map((o) => {
+    const name = o.key.split("/").slice(-1)[0] ?? "file";
+    return {
+      id: encodeFileId(o.key),
+      projectId: project.id,
+      name,
+      type: classifyByFilename(name),
+      mimeType: guessMimeType(name),
+      sizeBytes: o.sizeBytes,
+      backblazeKey: o.key,
+      uploadedAt: (o.lastModified ?? new Date()).toISOString(),
+      approvalStatus: "none",
+      publishStates: [],
+      downloadCount: 0,
+    };
+  });
+
   const aiByFile: Record<string, boolean> = {};
   for (const f of files) aiByFile[f.id] = !!getAIContentForFile(f.id);
 

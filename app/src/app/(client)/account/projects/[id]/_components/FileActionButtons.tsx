@@ -10,6 +10,8 @@ export function FileActionButtons({
   onYouTube,
   onSpotify,
   onOpus,
+  onPreview,
+  onDownload,
 }: {
   file: FileItem;
   aiReady: boolean;
@@ -18,6 +20,8 @@ export function FileActionButtons({
   onYouTube: () => void;
   onSpotify: () => void;
   onOpus: () => void;
+  onPreview: () => void;
+  onDownload: () => void;
 }) {
   const isVideo = file.mimeType.startsWith("video/");
   const needsApproval = file.type === "edited" || file.type === "clip";
@@ -94,6 +98,7 @@ export function FileActionButtons({
 
       <button
         aria-label="Preview"
+        onClick={onPreview}
         className="w-8 h-8 rounded-md bg-bg-elev-2 border border-border hover:border-border-strong text-text-muted hover:text-text flex items-center justify-center"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -103,6 +108,7 @@ export function FileActionButtons({
       </button>
       <button
         aria-label="Download"
+        onClick={onDownload}
         className={`w-8 h-8 rounded-md border flex items-center justify-center ${
           file.downloadCount > 0
             ? "bg-[rgba(16,185,129,0.12)] border-[rgba(16,185,129,0.3)] text-[#34d399]"

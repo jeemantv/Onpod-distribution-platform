@@ -11,6 +11,8 @@ import { YouTubeModal } from "./YouTubeModal";
 import { SpotifyModal } from "./SpotifyModal";
 import { OpusClipModal } from "./OpusClipModal";
 import { RequestApprovalModal } from "./RequestApprovalModal";
+import { UploadButton } from "./UploadButton";
+import { PreviewModal } from "./PreviewModal";
 
 const TABS: { key: FileType | "ai"; label: string }[] = [
   { key: "raw", label: "Raw Files" },
@@ -39,7 +41,7 @@ export function FilePortal({
 
   const [modal, setModal] = useState<
     | null
-    | { kind: "ai" | "youtube" | "spotify" | "opus"; fileId: string }
+    | { kind: "ai" | "youtube" | "spotify" | "opus" | "preview"; fileId: string }
     | { kind: "request-approval" }
   >(null);
 
@@ -65,6 +67,24 @@ export function FilePortal({
     setFiles((fs) =>
       fs.map((f) => (f.id === fileId ? { ...f, approvalStatus: next } : f)),
     );
+  };
+
+  const downloadFile = async (fileId: string, filename: string) => {
+    try {
+      const res = await fetch(`/api/files/${fileId}/download`, { method: "POST" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const { signedUrl } = (await res.json()) as { signedUrl: string };
+      const a = document.createElement("a");
+      a.href = signedUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (e) {
+      alert(
+        "Download failed: " + (e instanceof Error ? e.message : String(e)),
+      );
+    }
   };
 
   const startAI = (fileId: string) => {
@@ -149,9 +169,7 @@ export function FilePortal({
           <button className="px-3.5 py-2 rounded-[8px] bg-bg-elev border border-border hover:border-border-strong text-[13px]">
             Download all
           </button>
-          <button className="px-3.5 py-2 rounded-[8px] bg-accent hover:opacity-90 text-white text-[13px] font-medium">
-            Upload video
-          </button>
+          <UploadButton projectId={projectId} />
         </div>
       </div>
 
@@ -197,6 +215,8 @@ export function FilePortal({
                 onYouTube={() => setModal({ kind: "youtube", fileId: f.id })}
                 onSpotify={() => setModal({ kind: "spotify", fileId: f.id })}
                 onOpus={() => setModal({ kind: "opus", fileId: f.id })}
+                onPreview={() => setModal({ kind: "preview", fileId: f.id })}
+                onDownload={() => downloadFile(f.id, f.name)}
               />
             </li>
           ))
@@ -229,6 +249,12 @@ export function FilePortal({
       {modal?.kind === "opus" ? (
         <OpusClipModal
           fileId={modal.fileId}
+          file={files.find((f) => f.id === modal.fileId)!}
+          onClose={() => setModal(null)}
+        />
+      ) : null}
+      {modal?.kind === "preview" ? (
+        <PreviewModal
           file={files.find((f) => f.id === modal.fileId)!}
           onClose={() => setModal(null)}
         />

@@ -1,12 +1,15 @@
 import Link from "next/link";
 import { StatusPill } from "@/components/StatusPill";
 import { TopNav } from "@/components/TopNav";
-import { getProjectsForUser, getFilesForProject } from "@/lib/mock-data";
+import { getProjectsForUser } from "@/lib/mock-data";
 import { requireClient } from "@/lib/session";
 import { LOCATION_LABEL } from "@/lib/types";
 import { groupBy } from "@/lib/format";
 import { ProjectMultiSelectBar } from "./_components/ProjectMultiSelectBar";
 import { FolderCheckbox } from "./_components/FolderCheckbox";
+import { listFiles, projectPrefix } from "@/lib/b2";
+
+export const dynamic = "force-dynamic";
 
 function formatRecorded(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", {
@@ -16,11 +19,19 @@ function formatRecorded(iso: string): string {
   });
 }
 
-export default function AccountPage() {
+export default async function AccountPage() {
   const user = requireClient();
   const projects = getProjectsForUser(user.id);
   const byYear = groupBy(projects, (p) => p.recordedAt.slice(0, 4));
   const years = Object.keys(byYear).sort().reverse();
+
+  const fileCounts: Record<string, number> = {};
+  await Promise.all(
+    projects.map(async (p) => {
+      const files = await listFiles(projectPrefix(p.userId, p.id)).catch(() => []);
+      fileCounts[p.id] = files.length;
+    }),
+  );
 
   return (
     <>
@@ -60,7 +71,7 @@ export default function AccountPage() {
               <h2 className="display text-[20px] text-text-muted mb-4">{year}</h2>
               <ul className="space-y-2" data-folder-list>
                 {byYear[year].map((p) => {
-                  const fileCount = getFilesForProject(p.id).length;
+                  const fileCount = fileCounts[p.id] ?? 0;
                   return (
                     <li key={p.id}>
                       <Link
