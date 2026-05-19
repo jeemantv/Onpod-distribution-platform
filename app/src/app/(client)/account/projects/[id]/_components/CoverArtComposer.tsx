@@ -83,7 +83,9 @@ export function CoverArtComposer({
       });
 
     const tryBlobFallback = async (): Promise<HTMLImageElement> => {
-      const res = await fetch(baseUrl);
+      // cache: 'reload' forces the browser to revalidate / refetch, bypassing
+      // any stale no-CORS response that's currently cached for this URL.
+      const res = await fetch(baseUrl, { mode: "cors", cache: "reload" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
       objectUrl = URL.createObjectURL(blob);
