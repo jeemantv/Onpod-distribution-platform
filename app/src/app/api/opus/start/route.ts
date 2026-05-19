@@ -8,12 +8,13 @@ interface RequestBody {
   fileId: string;
   brandTemplateId?: string;
   count?: number | "auto";
-  durationRange: "0-29" | "30-59" | "60-89";
+  durationRange?: string;
 }
 
-function parseDurationRange(r: RequestBody["durationRange"]): [number, number] {
+function parseDurationRange(r: string | undefined): [number, number] {
+  if (!r) return [0, 89];
   const [a, b] = r.split("-").map((n) => parseInt(n, 10));
-  return [a || 0, b || 89];
+  return [Number.isFinite(a) ? a : 0, Number.isFinite(b) ? b : 89];
 }
 
 export async function POST(req: Request) {

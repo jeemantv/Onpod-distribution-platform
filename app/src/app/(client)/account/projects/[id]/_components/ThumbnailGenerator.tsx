@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FileItem } from "@/lib/types";
 import { CoverArtComposer } from "./CoverArtComposer";
 
@@ -23,16 +23,49 @@ const LABEL_TEXT: Record<string, string> = {
 export function ThumbnailGenerator({
   fileId,
   file,
+  aiTitle,
 }: {
   fileId: string;
   file: FileItem;
+  aiTitle?: string;
 }) {
   const [thumbnails, setThumbnails] = useState<Thumbnail[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stage, setStage] = useState<string>("");
+  const [existingCoverUrl, setExistingCoverUrl] = useState<string | null>(null);
 
   void file;
+
+  // Restore on mount: check B2 for existing sidecar thumbnails and cover.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/files/${fileId}/thumbnails`);
+        if (!res.ok) return;
+        const body = (await res.json()) as {
+          thumbnails?: { label: string; name: string; url: string }[];
+        };
+        if (cancelled || !body.thumbnails) return;
+        const cover = body.thumbnails.find((t) => t.label === "cover");
+        if (cover) setExistingCoverUrl(cover.url);
+        const aiThumbs = body.thumbnails
+          .filter((t) => t.label !== "cover")
+          .map((t) => ({
+            label: t.label,
+            url: t.url,
+            reason: "Restored from previous run",
+          }));
+        if (aiThumbs.length > 0) setThumbnails(aiThumbs);
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fileId]);
 
   const generate = async () => {
     setBusy(true);
@@ -136,9 +169,14 @@ export function ThumbnailGenerator({
         <div className="mt-8 pt-6 border-t border-border">
           <h3 className="display text-[18px] mb-1">Cover art composer</h3>
           <p className="text-[12px] text-text-muted mb-4">
-            Pick one of the photos above (or upload your own), add a red banner + white title, save as your podcast cover art. Becomes the YouTube thumbnail when you publish.
+            Pick one of the photos above (or upload your own), add a banner + title, save as your podcast cover art. Becomes the YouTube thumbnail when you publish.
           </p>
-          <CoverArtComposer fileId={fileId} thumbnails={thumbnails} />
+          <CoverArtComposer
+            fileId={fileId}
+            thumbnails={thumbnails}
+            defaultTitle={aiTitle}
+            existingCoverUrl={existingCoverUrl}
+          />
         </div>
       ) : null}
     </div>

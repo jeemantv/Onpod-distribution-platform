@@ -16,12 +16,11 @@ import { UploadButton } from "./UploadButton";
 import { PreviewModal } from "./PreviewModal";
 import { FileContextMenu } from "./FileContextMenu";
 
-const TABS: { key: FileType | "ai"; label: string }[] = [
+const TABS: { key: FileType; label: string }[] = [
   { key: "raw", label: "Raw Files" },
   { key: "edited", label: "Edited Podcast" },
   { key: "clip", label: "Clips" },
   { key: "asset", label: "Assets" },
-  { key: "ai", label: "AI Content" },
 ];
 
 export function FilePortal({
@@ -36,13 +35,25 @@ export function FilePortal({
   shareToken: string;
 }) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<FileType | "ai">("edited");
+  const [activeTab, setActiveTab] = useState<FileType>("edited");
   const [files, setFiles] = useState<FileItem[]>(initialFiles);
   const [search, setSearch] = useState("");
   const [aiReady, setAiReady] = useState(aiReadyByFile);
   const [aiProgress, setAiProgress] = useState<Record<string, number>>({});
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [toast, setToast] = useState<{
+    kind: "success" | "error";
+    title: string;
+    detail?: string;
+    href?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 8000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const [modal, setModal] = useState<
     | null
@@ -51,21 +62,17 @@ export function FilePortal({
   >(null);
 
   const filtered = useMemo(() => {
-    if (activeTab === "ai") {
-      return files.filter((f) => aiReady[f.id]);
-    }
     const byType = files.filter((f) => f.type === activeTab);
     if (!search.trim()) return byType;
     const q = search.toLowerCase();
     return byType.filter((f) => f.name.toLowerCase().includes(q));
-  }, [files, activeTab, search, aiReady]);
+  }, [files, activeTab, search]);
 
-  const counts: Record<FileType | "ai", number> = {
+  const counts: Record<FileType, number> = {
     raw: files.filter((f) => f.type === "raw").length,
     edited: files.filter((f) => f.type === "edited").length,
     clip: files.filter((f) => f.type === "clip").length,
     asset: files.filter((f) => f.type === "asset").length,
-    ai: Object.values(aiReady).filter(Boolean).length,
   };
 
   const updateApproval = async (fileId: string, next: FileItem["approvalStatus"]) => {
@@ -368,6 +375,40 @@ export function FilePortal({
         )}
       </ul>
 
+      {toast ? (
+        <div
+          className={`fixed z-[120] top-20 right-4 sm:right-6 max-w-[360px] flex items-start gap-3 p-3 sm:p-4 rounded-[12px] border shadow-modal ${
+            toast.kind === "success"
+              ? "bg-[rgba(16,185,129,0.12)] border-[rgba(16,185,129,0.4)] text-[#34d399]"
+              : "bg-[rgba(239,68,68,0.12)] border-[rgba(239,68,68,0.4)] text-[#f87171]"
+          }`}
+        >
+          <div className="flex-1 min-w-0">
+            <div className="text-[13px] font-medium">{toast.title}</div>
+            {toast.detail ? (
+              <div className="text-[11px] text-text-muted mt-0.5 truncate">{toast.detail}</div>
+            ) : null}
+            {toast.href ? (
+              <a
+                href={toast.href}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[12px] underline mt-1 inline-block break-all"
+              >
+                {toast.href}
+              </a>
+            ) : null}
+          </div>
+          <button
+            onClick={() => setToast(null)}
+            className="text-[18px] leading-none opacity-70 hover:opacity-100"
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
+
       {contextMenu ? (
         <FileContextMenu
           x={contextMenu.x}
@@ -409,6 +450,28 @@ export function FilePortal({
           file={files.find((f) => f.id === modal.fileId)!}
           aiReady={!!aiReady[modal.fileId]}
           onClose={() => setModal(null)}
+          onPublished={(info) => {
+            setToast({
+              kind: "success",
+              title: "Published to YouTube",
+              detail: info.title,
+              href: info.url,
+            });
+            // Reflect the new publish state on the row immediately
+            setFiles((fs) =>
+              fs.map((f) =>
+                f.id === modal.fileId
+                  ? {
+                      ...f,
+                      publishStates: [
+                        ...f.publishStates,
+                        { platform: "youtube", action: "published" },
+                      ],
+                    }
+                  : f,
+              ),
+            );
+          }}
         />
       ) : null}
       {modal?.kind === "spotify" ? (

@@ -9,11 +9,6 @@ interface BrandTemplate {
   name: string;
 }
 
-const DURATION_OPTIONS = [
-  { value: "0-29" as const, label: "Under 30s", range: [0, 29] as [number, number] },
-  { value: "30-59" as const, label: "30–59s", range: [30, 59] as [number, number] },
-  { value: "60-89" as const, label: "60–89s", range: [60, 89] as [number, number] },
-];
 
 export function OpusClipModal({
   fileId,
@@ -27,8 +22,11 @@ export function OpusClipModal({
   const [templates, setTemplates] = useState<BrandTemplate[]>([]);
   const [activeTemplateId, setActiveTemplateId] = useState<string>("");
   const [customTemplateId, setCustomTemplateId] = useState("");
-  const [duration, setDuration] = useState<typeof DURATION_OPTIONS[number]["value"]>("30-59");
-  const [count, setCount] = useState<string>("auto");
+  // Internal default — OpusClip picks the right durations from 0-89s
+  const duration = "0-89" as const;
+  const count = "auto" as const;
+  void duration;
+  void count;
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState<{ jobId: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -55,8 +53,8 @@ export function OpusClipModal({
         body: JSON.stringify({
           fileId,
           brandTemplateId: selectedTemplateId,
-          count: count === "auto" ? "auto" : Number(count),
-          durationRange: duration,
+          count: "auto",
+          durationRange: "0-89",
         }),
       });
       if (!res.ok) {
@@ -176,35 +174,10 @@ export function OpusClipModal({
         </div>
       </Section>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Section title="Clip duration">
-          <div className="flex bg-bg-elev-2 border border-border rounded-[10px] p-1">
-            {DURATION_OPTIONS.map((d) => (
-              <button
-                key={d.value}
-                onClick={() => setDuration(d.value)}
-                className={`flex-1 py-1.5 text-[12px] rounded-[6px] ${
-                  duration === d.value ? "bg-bg-elev-3 text-text" : "text-text-muted"
-                }`}
-              >
-                {d.label}
-              </button>
-            ))}
-          </div>
-        </Section>
-        <Section title="Number of clips">
-          <select value={count} onChange={(e) => setCount(e.target.value)} className="input-op">
-            <option value="auto">Auto (5–10)</option>
-            <option value="3">3</option>
-            <option value="5">5</option>
-            <option value="10">10</option>
-            <option value="15">15</option>
-          </select>
-        </Section>
-      </div>
-
       <div className="mt-5 p-3 rounded-[10px] bg-bg-elev-2 border border-border text-[12px] text-text-muted">
         <span className="text-text">Format:</span> always vertical 9:16. No hook overlay.{" "}
+        <span className="text-text">Length:</span> OpusClip picks 0–89s automatically.{" "}
+        <span className="text-text">Count:</span> auto (5–10 clips).{" "}
         <span className="text-text">Cost:</span> 1 OpusClip credit.
       </div>
 

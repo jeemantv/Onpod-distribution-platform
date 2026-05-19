@@ -114,6 +114,108 @@ function extractJson(text: string): string {
   return trimmed;
 }
 
+export type ArticleFormat =
+  | "linkedin"
+  | "wordpress"
+  | "medium"
+  | "newsletter"
+  | "seoBlog";
+
+const ARTICLE_GUIDES: Record<ArticleFormat, { length: string; tone: string; structure: string }> = {
+  linkedin: {
+    length: "200-300 words",
+    tone: "professional, opinion-led, first person, contrarian hook, ends with a question to drive comments",
+    structure: "punchy 1-line hook, 3-5 short paragraphs separated by line breaks, 4-6 hashtags at the end",
+  },
+  wordpress: {
+    length: "800-1500 words",
+    tone: "informative, SEO-friendly, scannable, mid-funnel",
+    structure: "H1 title, intro paragraph, 3-5 H2 sections with body, conclusion, suggested meta description at the very end as italic note",
+  },
+  medium: {
+    length: "1000-2000 words",
+    tone: "narrative, personal, insightful — voice of an experienced operator telling a story with lessons",
+    structure: "memorable opening line, 4-6 long-form sections (sometimes with H2 subheadings), reflective closing",
+  },
+  newsletter: {
+    length: "500-800 words",
+    tone: "conversational, direct, 'just sent from my desk'",
+    structure: "greeting, single big insight, 2-3 supporting bullets, soft CTA, signature line",
+  },
+  seoBlog: {
+    length: "1200-2000 words",
+    tone: "authoritative, keyword-rich without being spammy",
+    structure: "H1 with primary keyword, intro that names the problem and the answer in 2-3 lines, H2/H3 hierarchy covering subtopics, FAQ section with 3-5 Q&A at the end",
+  },
+};
+
+const ARTICLE_LABEL: Record<ArticleFormat, string> = {
+  linkedin: "LinkedIn post",
+  wordpress: "WordPress article",
+  medium: "Medium essay",
+  newsletter: "Email newsletter",
+  seoBlog: "SEO blog post",
+};
+
+export async function generateArticle(
+  format: ArticleFormat,
+  transcript: string,
+  ai: AIPackage,
+): Promise<string> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error("ANTHROPIC_API_KEY not set");
+
+  const guide = ARTICLE_GUIDES[format];
+  const trimmed =
+    transcript.length > 100_000
+      ? transcript.slice(0, 100_000) + "\n\n[... truncated]"
+      : transcript;
+
+  const user = `Write a ${ARTICLE_LABEL[format]} from this podcast transcript.
+
+Episode title: ${ai.title}
+Episode summary: ${ai.summary}
+
+Format requirements:
+- Length: ${guide.length}
+- Tone: ${guide.tone}
+- Structure: ${guide.structure}
+
+Hard rules:
+- Return MARKDOWN ONLY. No preamble like "Here's the article".
+- Do not invent facts. Stay grounded in the transcript.
+- Strong opening line. No "In today's fast-paced world" type filler.
+- Use the speaker's actual phrases and arguments where possible.
+
+Transcript:
+${trimmed}`;
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-5",
+      max_tokens: 4000,
+      system: "You are a senior content writer who turns podcast transcripts into publish-ready articles. You match the requested format precisely and never pad with filler.",
+      messages: [{ role: "user", content: user }],
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Claude article ${res.status}: ${(await res.text()).slice(0, 400)}`);
+  }
+  const data = (await res.json()) as {
+    content?: Array<{ type: string; text?: string }>;
+  };
+  const text = data.content?.find((c) => c.type === "text")?.text ?? "";
+  // Strip leading fenced code block if Claude wraps the whole thing
+  return text.replace(/^```(?:markdown|md)?\n([\s\S]*?)\n```$/m, "$1").trim();
+}
+
 export async function regenerateField(
   transcript: string,
   field: keyof AIPackage,

@@ -37,11 +37,13 @@ export function YouTubeModal({
   file,
   aiReady,
   onClose,
+  onPublished,
 }: {
   fileId: string;
   file: FileItem;
   aiReady: boolean;
   onClose: () => void;
+  onPublished?: (info: { videoId: string; url: string; title: string }) => void;
 }) {
   const [connection, setConnection] = useState<ConnectionState | null>(null);
   const [playlists, setPlaylists] = useState<YouTubePlaylist[]>([]);
@@ -72,7 +74,6 @@ export function YouTubeModal({
 
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<{ videoId: string; url: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -227,10 +228,10 @@ export function YouTubeModal({
         throw new Error((body as { message?: string }).message ?? `HTTP ${res.status}`);
       }
       const body = (await res.json()) as { videoId: string };
-      setSuccess({
-        videoId: body.videoId,
-        url: `https://www.youtube.com/watch?v=${body.videoId}`,
-      });
+      const url = `https://www.youtube.com/watch?v=${body.videoId}`;
+      onPublished?.({ videoId: body.videoId, url, title });
+      onClose();
+      return;
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -271,37 +272,6 @@ export function YouTubeModal({
           >
             Connect YouTube
           </button>
-        </div>
-      </Modal>
-    );
-  }
-
-  if (success) {
-    return (
-      <Modal title="Published" subtitle={file.name} onClose={onClose} size="md">
-        <div className="text-center py-6">
-          <div className="inline-flex w-14 h-14 rounded-full bg-[rgba(16,185,129,0.15)] text-[#34d399] items-center justify-center mb-4">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-          </div>
-          <p className="text-[14px] mb-1">Uploaded to YouTube</p>
-          <a
-            href={success.url}
-            target="_blank"
-            rel="noreferrer"
-            className="text-[13px] text-accent underline"
-          >
-            {success.url}
-          </a>
-          <div className="mt-6">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 rounded-[8px] bg-bg-elev-3 border border-border-strong text-[13px]"
-            >
-              Close
-            </button>
-          </div>
         </div>
       </Modal>
     );
