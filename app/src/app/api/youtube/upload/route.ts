@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { decodeFileId, getDownloadUrl } from "@/lib/b2";
 import { getFreshAccessToken, getConnection } from "@/lib/youtube-store";
-import { uploadVideo } from "@/lib/youtube";
+import { setThumbnail, uploadVideo } from "@/lib/youtube";
 import { getSession } from "@/lib/session";
 import { getAI } from "@/lib/transcript-store";
 import { recordPublish } from "@/lib/publish-history-store";
@@ -18,6 +18,8 @@ interface RequestBody {
   scheduledAt?: string | null;
   language?: string;
   playlistId?: string | null;
+  thumbnailUrl?: string | null; // public URL to a B2 sidecar OR a custom upload
+  thumbnailBase64?: string | null; // alternative: raw base64 (no data: prefix)
 }
 
 export async function POST(req: Request) {
@@ -114,6 +116,30 @@ export async function POST(req: Request) {
       defaultAudioLanguage: body.language,
       playlistId: body.playlistId ?? undefined,
     });
+
+    // Apply thumbnail if provided
+    try {
+      let thumbBytes: Uint8Array | null = null;
+      let thumbType = "image/jpeg";
+      if (body.thumbnailBase64) {
+        thumbBytes = new Uint8Array(Buffer.from(body.thumbnailBase64, "base64"));
+      } else if (body.thumbnailUrl) {
+        const r = await fetch(body.thumbnailUrl);
+        if (r.ok) {
+          thumbType = r.headers.get("content-type") ?? "image/jpeg";
+          thumbBytes = new Uint8Array(await r.arrayBuffer());
+        }
+      }
+      if (thumbBytes && thumbBytes.length > 0) {
+        if (thumbBytes.length > 2 * 1024 * 1024) {
+          console.warn("[yt upload] thumbnail >2MB; YouTube may reject");
+        }
+        await setThumbnail(accessToken, videoId, thumbBytes, thumbType);
+      }
+    } catch (err) {
+      console.error("[yt upload] thumbnail set failed", err);
+      // Don't fail the whole publish — video uploaded successfully.
+    }
 
     const name = key.split("/").slice(-1)[0] ?? "file";
     await recordPublish({

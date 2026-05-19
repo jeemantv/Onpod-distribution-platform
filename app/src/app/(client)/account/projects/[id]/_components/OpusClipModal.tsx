@@ -1,13 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
 import type { FileItem } from "@/lib/types";
 
-const STYLES: { id: "onpod-bold" | "minimal" | "viral"; name: string; description: string }[] = [
-  { id: "onpod-bold", name: "OnPod Bold", description: "High-contrast, animated word highlights" },
-  { id: "minimal", name: "Minimal", description: "Subtle captions, speaker focus" },
-  { id: "viral", name: "Viral Hook", description: "Hook-first, emoji captions, fast cuts" },
+interface BrandTemplate {
+  id: string;
+  name: string;
+}
+
+const DURATION_OPTIONS = [
+  { value: "0-29" as const, label: "Under 30s", range: [0, 29] as [number, number] },
+  { value: "30-59" as const, label: "30–59s", range: [30, 59] as [number, number] },
+  { value: "60-89" as const, label: "60–89s", range: [60, 89] as [number, number] },
 ];
 
 export function OpusClipModal({
@@ -19,14 +24,26 @@ export function OpusClipModal({
   file: FileItem;
   onClose: () => void;
 }) {
-  const [style, setStyle] = useState<"onpod-bold" | "minimal" | "viral">("onpod-bold");
-  const [aspect, setAspect] = useState<"9:16" | "1:1" | "16:9">("9:16");
+  const [templates, setTemplates] = useState<BrandTemplate[]>([]);
+  const [activeTemplateId, setActiveTemplateId] = useState<string>("");
+  const [customTemplateId, setCustomTemplateId] = useState("");
+  const [duration, setDuration] = useState<typeof DURATION_OPTIONS[number]["value"]>("30-59");
   const [count, setCount] = useState<string>("auto");
-  const [duration, setDuration] = useState<"15-30" | "30-60" | "60-90">("30-60");
-  const [branding, setBranding] = useState<"onpod-default" | "none" | "custom">("onpod-default");
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState<{ jobId: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const res = await fetch("/api/opus/brand-templates");
+      if (!res.ok) return;
+      const body = (await res.json()) as { templates: BrandTemplate[] };
+      setTemplates(body.templates);
+      if (body.templates.length > 0) setActiveTemplateId(body.templates[0].id);
+    })();
+  }, []);
+
+  const selectedTemplateId = customTemplateId.trim() || activeTemplateId || undefined;
 
   const submit = async () => {
     setSubmitting(true);
@@ -37,11 +54,9 @@ export function OpusClipModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           fileId,
-          styleTemplateId: style,
-          aspectRatio: aspect,
+          brandTemplateId: selectedTemplateId,
           count: count === "auto" ? "auto" : Number(count),
           durationRange: duration,
-          branding,
         }),
       });
       if (!res.ok) {
@@ -72,7 +87,7 @@ export function OpusClipModal({
           </div>
           <p className="text-[14px] mb-1">Clips submitted to OpusClip</p>
           <p className="text-[12px] text-text-muted mb-4">
-            Typical processing: 8–15 minutes. You&apos;ll get an email when clips are ready.
+            Typical processing: 8–15 minutes. Clips auto-import to your Clips folder when ready.
           </p>
           <code className="block px-3 py-2 bg-bg-elev-2 border border-border rounded-[8px] text-[11px] text-text-dim mb-3">
             project {submitted.jobId}
@@ -95,6 +110,8 @@ export function OpusClipModal({
     );
   }
 
+  const fallbackTemplate = templates.length === 0;
+
   return (
     <Modal
       title="Generate clips with OpusClip"
@@ -108,7 +125,7 @@ export function OpusClipModal({
           </button>
           <button
             onClick={submit}
-            disabled={submitting}
+            disabled={submitting || !selectedTemplateId}
             className="px-5 py-2.5 rounded-[10px] bg-[linear-gradient(135deg,#a855f7,#ec4899)] text-white text-[13px] font-medium disabled:opacity-60"
           >
             {submitting ? "Submitting…" : "Generate clips"}
@@ -117,45 +134,64 @@ export function OpusClipModal({
       }
     >
       <p className="text-[12px] text-text-muted mb-5">
-        OpusClip will analyze your video and generate short-form clips with captions. Typical processing: 8–15 minutes. You&apos;ll get an email when ready.
+        OpusClip generates short-form clips using your brand template. Always vertical (9:16). Clips auto-download to this project&apos;s Clips folder when ready.
       </p>
 
-      <Section title="Style">
-        <div className="grid grid-cols-3 gap-3">
-          {STYLES.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => setStyle(s.id as typeof style)}
-              className={`text-left p-3 rounded-[10px] border transition ${
-                style === s.id
-                  ? "border-[rgba(236,72,153,0.5)] bg-[rgba(236,72,153,0.08)]"
-                  : "border-border bg-bg-elev-2 hover:border-border-strong"
-              }`}
-            >
-              <div className="display text-[16px] mb-1">{s.name}</div>
-              <div className="text-[11px] text-text-muted">{s.description}</div>
-            </button>
-          ))}
+      <Section title="Brand template">
+        {fallbackTemplate ? (
+          <div className="p-3 rounded-[10px] bg-[rgba(245,158,11,0.08)] border border-[rgba(245,158,11,0.25)] text-[12px] text-[#fbbf24]">
+            OpusClip&apos;s brand-templates list endpoint returns empty for this account. Paste a template ID below — find it in opus.pro → Brand templates → your template → URL has the ID.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {templates.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => {
+                  setActiveTemplateId(t.id);
+                  setCustomTemplateId("");
+                }}
+                className={`text-left p-3 rounded-[10px] border transition ${
+                  activeTemplateId === t.id && !customTemplateId.trim()
+                    ? "border-[rgba(236,72,153,0.5)] bg-[rgba(236,72,153,0.08)]"
+                    : "border-border bg-bg-elev-2 hover:border-border-strong"
+                }`}
+              >
+                <div className="text-[13px] font-medium">{t.name}</div>
+                <div className="text-[11px] text-text-dim mt-0.5 truncate">{t.id}</div>
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="mt-3">
+          <label className="block text-[11px] text-text-muted mb-1">
+            Or paste a brand template ID (overrides the selection above)
+          </label>
+          <input
+            value={customTemplateId}
+            onChange={(e) => setCustomTemplateId(e.target.value)}
+            placeholder="cm6...xyz"
+            className="input-op"
+          />
         </div>
       </Section>
 
-      <Section title="Aspect ratio">
-        <div className="flex bg-bg-elev-2 border border-border rounded-[10px] p-1 w-fit">
-          {(["9:16", "1:1", "16:9"] as const).map((r) => (
-            <button
-              key={r}
-              onClick={() => setAspect(r)}
-              className={`px-4 py-1.5 rounded-[6px] text-[12px] ${
-                aspect === r ? "bg-bg-elev-3 text-text" : "text-text-muted"
-              }`}
-            >
-              {r}
-            </button>
-          ))}
-        </div>
-      </Section>
-
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Section title="Clip duration">
+          <div className="flex bg-bg-elev-2 border border-border rounded-[10px] p-1">
+            {DURATION_OPTIONS.map((d) => (
+              <button
+                key={d.value}
+                onClick={() => setDuration(d.value)}
+                className={`flex-1 py-1.5 text-[12px] rounded-[6px] ${
+                  duration === d.value ? "bg-bg-elev-3 text-text" : "text-text-muted"
+                }`}
+              >
+                {d.label}
+              </button>
+            ))}
+          </div>
+        </Section>
         <Section title="Number of clips">
           <select value={count} onChange={(e) => setCount(e.target.value)} className="input-op">
             <option value="auto">Auto (5–10)</option>
@@ -165,24 +201,11 @@ export function OpusClipModal({
             <option value="15">15</option>
           </select>
         </Section>
-        <Section title="Clip duration">
-          <select value={duration} onChange={(e) => setDuration(e.target.value as typeof duration)} className="input-op">
-            <option value="15-30">15–30s</option>
-            <option value="30-60">30–60s</option>
-            <option value="60-90">60–90s</option>
-          </select>
-        </Section>
-        <Section title="Branding">
-          <select value={branding} onChange={(e) => setBranding(e.target.value as typeof branding)} className="input-op">
-            <option value="onpod-default">OnPod default</option>
-            <option value="none">No branding</option>
-            <option value="custom">Custom logo</option>
-          </select>
-        </Section>
       </div>
 
       <div className="mt-5 p-3 rounded-[10px] bg-bg-elev-2 border border-border text-[12px] text-text-muted">
-        Cost: <span className="text-text">1 OpusClip credit</span> from your monthly allowance.
+        <span className="text-text">Format:</span> always vertical 9:16. No hook overlay.{" "}
+        <span className="text-text">Cost:</span> 1 OpusClip credit.
       </div>
 
       {error ? (

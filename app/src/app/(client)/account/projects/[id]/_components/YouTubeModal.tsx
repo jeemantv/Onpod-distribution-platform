@@ -62,6 +62,14 @@ export function YouTubeModal({
   const [languageAuto, setLanguageAuto] = useState(true);
   const [playlistId, setPlaylistId] = useState<string>("");
 
+  const [availableThumbs, setAvailableThumbs] = useState<
+    { label: string; name: string; url: string }[]
+  >([]);
+  const [selectedThumb, setSelectedThumb] = useState<{
+    url: string | null;
+    base64: string | null;
+  }>({ url: null, base64: null });
+
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{ videoId: string; url: string } | null>(null);
@@ -69,19 +77,40 @@ export function YouTubeModal({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [meRes, plRes] = await Promise.all([
+      const [meRes, plRes, tbRes] = await Promise.all([
         fetch("/api/youtube/me"),
         fetch("/api/youtube/playlists"),
+        fetch(`/api/files/${fileId}/thumbnails`),
       ]);
       const meBody = (await meRes.json()) as ConnectionState;
       if (!cancelled) setConnection(meBody);
       const plBody = (await plRes.json()) as { playlists?: YouTubePlaylist[] };
       if (!cancelled) setPlaylists(plBody.playlists ?? []);
+      const tbBody = (await tbRes.json()) as {
+        thumbnails?: { label: string; name: string; url: string }[];
+      };
+      if (!cancelled && tbBody.thumbnails) {
+        setAvailableThumbs(tbBody.thumbnails);
+        const cover = tbBody.thumbnails.find((t) => t.label === "cover");
+        if (cover) setSelectedThumb({ url: cover.url, base64: null });
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [fileId]);
+
+  const handleCustomThumb = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const data = reader.result as string;
+      const b64 = data.split(",")[1] ?? "";
+      setSelectedThumb({ url: data, base64: b64 });
+    };
+    reader.readAsDataURL(f);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -188,6 +217,9 @@ export function YouTubeModal({
           scheduledAt: publishMode === "schedule" ? scheduledAt : null,
           language,
           playlistId: playlistId || null,
+          thumbnailUrl:
+            selectedThumb.base64 ? null : selectedThumb.url,
+          thumbnailBase64: selectedThumb.base64,
         }),
       });
       if (!res.ok) {
@@ -522,6 +554,55 @@ export function YouTubeModal({
             />
           </div>
         ) : null}
+
+        <div className="col-span-2">
+          <FieldLabel>Thumbnail</FieldLabel>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {availableThumbs.map((t) => (
+              <button
+                key={t.label}
+                onClick={() => setSelectedThumb({ url: t.url, base64: null })}
+                className={`aspect-video rounded-[8px] overflow-hidden border-2 ${
+                  selectedThumb.url === t.url && !selectedThumb.base64
+                    ? "border-accent"
+                    : "border-border"
+                }`}
+                title={t.name}
+              >
+                <img src={t.url} alt={t.name} className="w-full h-full object-cover" />
+              </button>
+            ))}
+            <label
+              className={`aspect-video rounded-[8px] border-2 flex flex-col items-center justify-center gap-1 cursor-pointer text-[11px] text-text-muted hover:text-text ${
+                selectedThumb.base64 ? "border-accent" : "border-dashed border-border"
+              }`}
+            >
+              {selectedThumb.base64 && selectedThumb.url ? (
+                <img src={selectedThumb.url} alt="custom" className="w-full h-full object-cover rounded-[6px]" />
+              ) : (
+                <>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="17 8 12 3 7 8" />
+                    <line x1="12" y1="3" x2="12" y2="15" />
+                  </svg>
+                  Upload custom
+                </>
+              )}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleCustomThumb}
+              />
+            </label>
+          </div>
+          {availableThumbs.length === 0 ? (
+            <p className="text-[11px] text-text-dim mt-2">
+              No thumbnails generated yet. Open AI Studio → Thumbnails to create some, or upload a custom image.
+            </p>
+          ) : null}
+        </div>
       </div>
 
       {error ? (

@@ -6,16 +6,14 @@ import { getSession } from "@/lib/session";
 
 interface RequestBody {
   fileId: string;
-  styleTemplateId: "onpod-bold" | "minimal" | "viral";
-  aspectRatio: "9:16" | "1:1" | "16:9";
-  count: number | "auto";
-  durationRange: "15-30" | "30-60" | "60-90";
-  branding: "onpod-default" | "none" | "custom";
+  brandTemplateId?: string;
+  count?: number | "auto";
+  durationRange: "0-29" | "30-59" | "60-89";
 }
 
 function parseDurationRange(r: RequestBody["durationRange"]): [number, number] {
   const [a, b] = r.split("-").map((n) => parseInt(n, 10));
-  return [a || 0, b || 90];
+  return [a || 0, b || 89];
 }
 
 export async function POST(req: Request) {
@@ -42,9 +40,9 @@ export async function POST(req: Request) {
   const webhookUrl = `${origin}/api/opus/webhook`;
   const notifyEmail = process.env.OPUSCLIP_NOTIFY_EMAIL ?? user.email;
   const brandTemplateId =
-    body.branding === "none"
-      ? undefined
-      : process.env.OPUSCLIP_BRAND_TEMPLATE_ID;
+    body.brandTemplateId ||
+    process.env.OPUSCLIP_BRAND_TEMPLATE_ID ||
+    undefined;
 
   try {
     const { projectId: opusProjectId } = await createClipProject({
@@ -63,7 +61,7 @@ export async function POST(req: Request) {
       userId: user.id,
       videoKey: key,
       projectId,
-      stylePreset: body.styleTemplateId,
+      stylePreset: brandTemplateId ?? "default",
       startedAt: Date.now(),
       status: "queued",
       clipsDelivered: 0,

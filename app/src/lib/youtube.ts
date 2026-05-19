@@ -242,3 +242,30 @@ export async function uploadVideo(opts: UploadOptions): Promise<{ videoId: strin
 
   return { videoId: data.id };
 }
+
+export async function setThumbnail(
+  accessToken: string,
+  videoId: string,
+  imageBytes: Uint8Array,
+  contentType: string,
+): Promise<void> {
+  const params = new URLSearchParams({ videoId });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const blob = new Blob([imageBytes as any], { type: contentType });
+  const res = await fetch(
+    `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?${params.toString()}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": contentType,
+      },
+      body: blob,
+    },
+  );
+  if (!res.ok) {
+    throw new Error(
+      `thumbnails.set ${res.status}: ${(await res.text()).slice(0, 300)}`,
+    );
+  }
+}

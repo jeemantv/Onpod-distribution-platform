@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { FileItem } from "@/lib/types";
+import { CoverArtComposer } from "./CoverArtComposer";
 
 const FRAME_COUNT = 8;
 const FRAME_WIDTH = 640;
@@ -130,6 +131,16 @@ export function ThumbnailGenerator({
         Extracts {FRAME_COUNT} frames at evenly-spaced timestamps. Claude Sonnet 4.5 picks
         the 3 best — one with all speakers and a close-up of each. Stored in B2 alongside the video.
       </p>
+
+      {thumbnails.length > 0 ? (
+        <div className="mt-8 pt-6 border-t border-border">
+          <h3 className="display text-[18px] mb-1">Cover art composer</h3>
+          <p className="text-[12px] text-text-muted mb-4">
+            Pick one of the photos above (or upload your own), add a red banner + white title, save as your podcast cover art. Becomes the YouTube thumbnail when you publish.
+          </p>
+          <CoverArtComposer fileId={fileId} thumbnails={thumbnails} />
+        </div>
+      ) : null}
     </div>
   );
 }
