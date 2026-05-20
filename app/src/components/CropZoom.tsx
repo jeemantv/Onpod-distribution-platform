@@ -11,7 +11,7 @@ interface Props {
   imageUrl: string;
   aspect?: number; // width/height, default 16/9
   onCancel: () => void;
-  onApply: (base64Jpeg: string) => void;
+  onApply: (payload: { base64: string; mime: string }) => void;
 }
 
 export function CropZoom({ open, imageUrl, aspect = 16 / 9, onCancel, onApply }: Props) {
@@ -19,7 +19,8 @@ export function CropZoom({ open, imageUrl, aspect = 16 / 9, onCancel, onApply }:
   const imgRef = useRef<HTMLImageElement | null>(null);
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [bg, setBg] = useState("#0a0a0b");
+  const [bg, setBg] = useState<string>("transparent");
+  const [keepTransparency, setKeepTransparency] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const dragRef = useRef<{ dragging: boolean; startX: number; startY: number; baseX: number; baseY: number }>({
     dragging: false,
@@ -80,14 +81,17 @@ export function CropZoom({ open, imageUrl, aspect = 16 / 9, onCancel, onApply }:
     if (!ctx) return;
     canvas.width = W;
     canvas.height = H;
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
+    ctx.clearRect(0, 0, W, H);
+    if (!keepTransparency || bg !== "transparent") {
+      ctx.fillStyle = bg === "transparent" ? "#0a0a0b" : bg;
+      ctx.fillRect(0, 0, W, H);
+    }
     const drawW = img.width * scale;
     const drawH = img.height * scale;
     const cx = W / 2 + pan.x - drawW / 2;
     const cy = H / 2 + pan.y - drawH / 2;
     ctx.drawImage(img, cx, cy, drawW, drawH);
-  }, [scale, pan, bg, loaded, W, H]);
+  }, [scale, pan, bg, loaded, W, H, keepTransparency]);
 
   function startDrag(e: React.MouseEvent) {
     dragRef.current = {
@@ -114,9 +118,13 @@ export function CropZoom({ open, imageUrl, aspect = 16 / 9, onCancel, onApply }:
   function apply() {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const data = canvas.toDataURL("image/jpeg", 0.92);
+    const mime = keepTransparency ? "image/png" : "image/jpeg";
+    const data =
+      mime === "image/png"
+        ? canvas.toDataURL("image/png")
+        : canvas.toDataURL("image/jpeg", 0.92);
     const b64 = data.split(",")[1] ?? "";
-    onApply(b64);
+    onApply({ base64: b64, mime });
   }
 
   if (!open) return null;
@@ -141,6 +149,13 @@ export function CropZoom({ open, imageUrl, aspect = 16 / 9, onCancel, onApply }:
           onMouseUp={endDrag}
           onMouseLeave={endDrag}
           className="w-full rounded-[10px] border border-border cursor-grab active:cursor-grabbing"
+          style={{
+            backgroundImage:
+              "linear-gradient(45deg, rgba(255,255,255,0.06) 25%, transparent 25%), linear-gradient(-45deg, rgba(255,255,255,0.06) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.06) 75%), linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.06) 75%)",
+            backgroundSize: "20px 20px",
+            backgroundPosition: "0 0, 0 10px, 10px -10px, -10px 0",
+            backgroundColor: "#0a0a0b",
+          }}
         />
         <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
           <label className="text-[11px] text-text-muted">
@@ -155,14 +170,23 @@ export function CropZoom({ open, imageUrl, aspect = 16 / 9, onCancel, onApply }:
               className="w-full"
             />
           </label>
-          <label className="text-[11px] text-text-muted">
-            Background (for transparent PNGs)
-            <input
-              type="color"
-              value={bg}
-              onChange={(e) => setBg(e.target.value)}
-              className="mt-1 h-9 w-20 bg-bg-elev-2 border border-border rounded-[8px]"
-            />
+          <label className="text-[11px] text-text-muted flex flex-col gap-2">
+            <span className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={keepTransparency}
+                onChange={(e) => setKeepTransparency(e.target.checked)}
+              />
+              Keep transparent (PNG)
+            </span>
+            {!keepTransparency ? (
+              <input
+                type="color"
+                value={bg === "transparent" ? "#0a0a0b" : bg}
+                onChange={(e) => setBg(e.target.value)}
+                className="h-9 w-20 bg-bg-elev-2 border border-border rounded-[8px]"
+              />
+            ) : null}
           </label>
           <div className="flex items-end gap-2">
             <button

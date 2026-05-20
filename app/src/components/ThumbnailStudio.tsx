@@ -14,9 +14,14 @@
 // "Clear" empties a layer so the template's default applies — useful
 // when the template has a background layer you don't want to override.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { extractFrames } from "@/lib/frame-extract";
 import { CropZoom } from "./CropZoom";
+import {
+  cropBase64Region,
+  fileToBase64,
+  flipImageHorizontal,
+} from "@/lib/image-ops";
 
 interface FileRow {
   key: string;
@@ -35,7 +40,16 @@ interface Template {
 interface FrameOption {
   url: string;
   label: string;
-  source: "auto-pick" | "all" | "enhanced" | "no-bg" | "adjusted";
+  source:
+    | "auto-pick"
+    | "all"
+    | "enhanced"
+    | "no-bg"
+    | "adjusted"
+    | "person"
+    | "upload"
+    | "flipped";
+  transparent?: boolean;
 }
 
 const FRAME_COUNT = 6;
@@ -69,8 +83,18 @@ export function ThumbnailStudio({
   const [frames, setFrames] = useState<FrameOption[]>([]);
   const [activeFrameUrl, setActiveFrameUrl] = useState<string>("");
   const [stage, setStage] = useState<
-    "idle" | "extracting" | "vision" | "enhancing" | "removing-bg" | "saving-crop" | "rendering"
+    | "idle"
+    | "extracting"
+    | "vision"
+    | "enhancing"
+    | "removing-bg"
+    | "saving-crop"
+    | "flipping"
+    | "uploading"
+    | "finding-people"
+    | "rendering"
   >("idle");
+  const uploadRef = useRef<HTMLInputElement | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -281,13 +305,188 @@ export function ThumbnailStudio({
         setStage("idle");
         return;
       }
-      const newFrame: FrameOption = {
+      // Replace the input frame in the strip rather than prepending, so
+      // we don't accumulate duplicates each time the user clicks.
+      const replaced: FrameOption = {
         url: data.url,
         label: "No background",
         source: "no-bg",
+        transparent: true,
       };
-      setFrames((prev) => [newFrame, ...prev]);
+      setFrames((prev) => {
+        const without = prev.filter((f) => f.url !== activeFrameUrl);
+        return [replaced, ...without];
+      });
       setActiveFrameUrl(data.url);
+      setStage("idle");
+    } catch (err) {
+      setError((err as Error).message);
+      setStage("idle");
+    }
+  }
+
+  async function flip() {
+    if (!sourceFileId || !activeFrameUrl) return;
+    setStage("flipping");
+    setError(null);
+    try {
+      const b64 = await flipImageHorizontal(activeFrameUrl);
+      const res = await fetch("/api/ai/upload-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileId: sourceFileId,
+          imageBase64: b64,
+          label: `flipped-${Date.now()}`,
+          mimeType: "image/png",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.message || "Flip failed");
+        setStage("idle");
+        return;
+      }
+      // Carry forward transparency flag if the source was a no-bg PNG.
+      const src = frames.find((f) => f.url === activeFrameUrl);
+      const next: FrameOption = {
+        url: data.url,
+        label: "Flipped",
+        source: "flipped",
+        transparent: src?.transparent ?? activeFrameUrl.endsWith(".png"),
+      };
+      setFrames((prev) => [next, ...prev]);
+      setActiveFrameUrl(data.url);
+      setStage("idle");
+    } catch (err) {
+      setError((err as Error).message);
+      setStage("idle");
+    }
+  }
+
+  async function uploadFiles(fileList: FileList | null) {
+    if (!fileList || !sourceFileId) return;
+    setStage("uploading");
+    setError(null);
+    try {
+      for (const f of Array.from(fileList)) {
+        const { base64, mime } = await fileToBase64(f);
+        const res = await fetch("/api/ai/upload-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fileId: sourceFileId,
+            imageBase64: base64,
+            label: `upload-${Date.now()}`,
+            mimeType: mime,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || `Upload failed (${res.status})`);
+        const next: FrameOption = {
+          url: data.url,
+          label: f.name.slice(0, 24),
+          source: "upload",
+          transparent: mime.includes("png"),
+        };
+        setFrames((prev) => [next, ...prev]);
+        setActiveFrameUrl(data.url);
+      }
+      setStage("idle");
+    } catch (err) {
+      setError((err as Error).message);
+      setStage("idle");
+    }
+  }
+
+  async function findPeople() {
+    if (!sourceFileId || !sourceUrl) return;
+    setError(null);
+    setStage("extracting");
+    try {
+      const raw = await extractFrames(sourceUrl, FRAME_COUNT);
+      setStage("finding-people");
+      const visionRes = await fetch("/api/ai/find-people", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileId: sourceFileId, framesBase64: raw }),
+      });
+      const visionData = await visionRes.json();
+      if (!visionRes.ok) {
+        setError(visionData.message || `Find people failed (${visionRes.status})`);
+        setStage("idle");
+        return;
+      }
+      const people = (visionData.people ?? []) as Array<{
+        frameIndex: number;
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        label: string;
+      }>;
+      if (people.length === 0) {
+        setError("No people detected in the sampled frames.");
+        setStage("idle");
+        return;
+      }
+
+      // Browser-side crop + upload + remove-bg per person
+      setStage("removing-bg");
+      const newFrames: FrameOption[] = [];
+      for (let i = 0; i < people.length; i++) {
+        const p = people[i];
+        const frameB64 = raw[p.frameIndex];
+        if (!frameB64) continue;
+        const cropped = await cropBase64Region(frameB64, p, 0.12);
+        // Save cropped JPEG so remove.bg can fetch it by URL.
+        const upRes = await fetch("/api/ai/upload-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fileId: sourceFileId,
+            imageBase64: cropped,
+            label: `person-${i + 1}-raw-${Date.now()}`,
+            mimeType: "image/jpeg",
+          }),
+        });
+        const upData = await upRes.json();
+        if (!upRes.ok) continue;
+
+        // Now strip the background
+        const rbRes = await fetch("/api/ai/remove-background", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fileId: sourceFileId,
+            imageUrl: upData.url,
+            label: `person-${i + 1}-${Date.now()}`,
+          }),
+        });
+        const rbData = await rbRes.json();
+        if (rbRes.ok) {
+          newFrames.push({
+            url: rbData.url,
+            label: p.label || `Person ${i + 1}`,
+            source: "person",
+            transparent: true,
+          });
+        } else {
+          // Fall back to the raw crop if remove-bg fails
+          newFrames.push({
+            url: upData.url,
+            label: `${p.label || `Person ${i + 1}`} (raw)`,
+            source: "person",
+          });
+        }
+      }
+      if (newFrames.length === 0) {
+        setError("Detected people but cutout failed for all of them.");
+        setStage("idle");
+        return;
+      }
+      setFrames((prev) => [...newFrames, ...prev]);
+      setActiveFrameUrl(newFrames[0].url);
       setStage("idle");
     } catch (err) {
       setError((err as Error).message);
@@ -301,7 +500,7 @@ export function ThumbnailStudio({
     setCropOpen(true);
   }
 
-  async function applyCrop(b64: string) {
+  async function applyCrop(payload: { base64: string; mime: string }) {
     if (!sourceFileId) return;
     setCropOpen(false);
     setStage("saving-crop");
@@ -311,9 +510,9 @@ export function ThumbnailStudio({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           fileId: sourceFileId,
-          imageBase64: b64,
+          imageBase64: payload.base64,
           label: `adj-${Date.now()}`,
-          mimeType: "image/jpeg",
+          mimeType: payload.mime,
         }),
       });
       const data = await res.json();
@@ -322,10 +521,12 @@ export function ThumbnailStudio({
         setStage("idle");
         return;
       }
+      const isTransparent = payload.mime.includes("png");
       const newFrame: FrameOption = {
         url: data.url,
         label: "Adjusted",
         source: "adjusted",
+        transparent: isTransparent,
       };
       setFrames((prev) => [newFrame, ...prev]);
       setActiveFrameUrl(data.url);
@@ -439,12 +640,36 @@ export function ThumbnailStudio({
                 : "Auto-pick best frames"}
           </button>
           <button
+            onClick={findPeople}
+            disabled={busy}
+            className="px-3 py-2 rounded-[10px] bg-bg-elev-2 border border-border text-[12px] disabled:opacity-50"
+          >
+            {stage === "finding-people"
+              ? "Vision finding people…"
+              : "👥 Find 1–4 speakers (auto cutout)"}
+          </button>
+          <button
             onClick={() => pickFrames("all")}
             disabled={busy}
             className="px-3 py-2 rounded-[10px] bg-bg-elev-2 border border-border text-[12px] disabled:opacity-50"
           >
             Show all {FRAME_COUNT} frames
           </button>
+          <button
+            onClick={() => uploadRef.current?.click()}
+            disabled={busy}
+            className="px-3 py-2 rounded-[10px] bg-bg-elev-2 border border-border text-[12px] disabled:opacity-50"
+          >
+            {stage === "uploading" ? "Uploading…" : "⬆︎ Upload image"}
+          </button>
+          <input
+            ref={uploadRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => void uploadFiles(e.target.files)}
+          />
         </div>
 
         {frames.length > 0 ? (
@@ -460,14 +685,33 @@ export function ThumbnailStudio({
                 }`}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={f.url} alt={f.label} className="w-full block bg-bg-elev-3" />
+                <img
+                  src={f.url}
+                  alt={f.label}
+                  className="w-full block"
+                  style={
+                    f.transparent
+                      ? {
+                          backgroundImage:
+                            "linear-gradient(45deg, rgba(255,255,255,0.06) 25%, transparent 25%), linear-gradient(-45deg, rgba(255,255,255,0.06) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.06) 75%), linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.06) 75%)",
+                          backgroundSize: "16px 16px",
+                          backgroundPosition: "0 0, 0 8px, 8px -8px, -8px 0",
+                          backgroundColor: "#1a1a1d",
+                        }
+                      : undefined
+                  }
+                />
                 <div
                   className={`absolute top-1 left-1 px-2 py-0.5 rounded-full text-[10px] uppercase ${
                     f.source === "enhanced" ||
                     f.source === "no-bg" ||
-                    f.source === "adjusted"
+                    f.source === "adjusted" ||
+                    f.source === "person" ||
+                    f.source === "flipped"
                       ? "bg-accent-2 text-bg"
-                      : "bg-black/70 text-white"
+                      : f.source === "upload"
+                        ? "bg-accent text-white"
+                        : "bg-black/70 text-white"
                   }`}
                 >
                   {f.label}
@@ -500,9 +744,15 @@ export function ThumbnailStudio({
             >
               {stage === "saving-crop" ? "Saving…" : "🔍 Adjust / zoom"}
             </button>
+            <button
+              onClick={flip}
+              disabled={busy}
+              className="px-3 py-2 rounded-[10px] bg-bg-elev-2 border border-border text-[12px] disabled:opacity-50"
+            >
+              {stage === "flipping" ? "Flipping…" : "⇆ Flip horizontal"}
+            </button>
             <span className="text-[11px] text-text-dim">
-              Enhance: crisp + bright for thumbnails · BG: cutout PNG · Adjust:
-              pan + zoom into the frame.
+              Enhance · cutout · adjust · flip · or upload your own.
             </span>
           </div>
         ) : null}
