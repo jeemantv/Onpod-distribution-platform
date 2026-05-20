@@ -15,6 +15,9 @@ export interface StoredUser {
   avatar: string;
   avatarColor: string;
   createdAt: string;
+  // Optional editor that handles this client's review requests.
+  // Set on clients only; ignored otherwise.
+  assignedEditorEmail?: string;
 }
 
 interface ResetToken {
@@ -107,6 +110,17 @@ export async function updateUserRole(
   const i = users.findIndex((u) => u.id === userId);
   if (i < 0) throw new Error("user not found");
   users[i].role = role;
+  await writeUsers(users);
+}
+
+export async function updateUserAssignedEditor(
+  userId: string,
+  assignedEditorEmail: string | null,
+): Promise<void> {
+  const users = await readUsers();
+  const i = users.findIndex((u) => u.id === userId);
+  if (i < 0) throw new Error("user not found");
+  users[i].assignedEditorEmail = assignedEditorEmail || undefined;
   await writeUsers(users);
 }
 

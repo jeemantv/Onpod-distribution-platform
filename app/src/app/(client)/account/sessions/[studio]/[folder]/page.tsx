@@ -18,6 +18,8 @@ import {
 import { AI_SUFFIX, TRANSCRIPT_SUFFIX } from "@/lib/transcript-store";
 import type { FileItem } from "@/lib/types";
 import { FilePortal } from "@/app/(client)/account/projects/[id]/_components/FilePortal";
+import { VideoReviewer } from "@/components/VideoReviewer";
+import { publicUrl } from "@/lib/b2-public";
 
 export const dynamic = "force-dynamic";
 
@@ -97,6 +99,20 @@ export default async function ClientSessionPage({
             </Link>
           </p>
         </div>
+
+        {/* One reviewer block per video file in the session */}
+        {files
+          .filter((f) => /\.(mp4|mov|webm)$/i.test(f.name))
+          .map((f) => (
+            <VideoReviewer
+              key={f.id}
+              fileId={f.id}
+              fileUrl={publicUrl(f.backblazeKey)}
+              fileLabel={f.name}
+              canMarkDone={user.role === "admin" || (user.role as string) === "editor"}
+              currentEmail={user.email}
+            />
+          ))}
 
         <FilePortal
           projectId={syntheticProjectId}

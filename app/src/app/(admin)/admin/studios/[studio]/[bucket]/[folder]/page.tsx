@@ -21,6 +21,8 @@ import { AI_SUFFIX, TRANSCRIPT_SUFFIX } from "@/lib/transcript-store";
 import type { FileItem } from "@/lib/types";
 import { SessionUploader } from "@/components/SessionUploader";
 import { FilePortal } from "@/app/(client)/account/projects/[id]/_components/FilePortal";
+import { VideoReviewer } from "@/components/VideoReviewer";
+import { publicUrl } from "@/lib/b2-public";
 
 export const dynamic = "force-dynamic";
 
@@ -127,6 +129,19 @@ export default async function SessionPage({
       <div className="mb-6">
         <SessionUploader studio={studio} bucket={bucket} folder={folder} />
       </div>
+
+      {files
+        .filter((f) => /\.(mp4|mov|webm)$/i.test(f.name))
+        .map((f) => (
+          <VideoReviewer
+            key={f.id}
+            fileId={f.id}
+            fileUrl={publicUrl(f.backblazeKey)}
+            fileLabel={f.name}
+            canMarkDone={user.role === "admin" || user.role === "editor"}
+            currentEmail={user.email}
+          />
+        ))}
 
       <FilePortal
         projectId={syntheticProjectId}
