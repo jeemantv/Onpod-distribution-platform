@@ -18,6 +18,11 @@ export interface StoredUser {
   // Optional editor that handles this client's review requests.
   // Set on clients only; ignored otherwise.
   assignedEditorEmail?: string;
+  // Editor-scoped fields. assignedStudios=["all"] grants every studio;
+  // otherwise it's an explicit list of slugs. excludedClientEmails is a
+  // per-editor blacklist used when the studio is otherwise assigned.
+  assignedStudios?: string[];
+  excludedClientEmails?: string[];
 }
 
 interface ResetToken {
@@ -121,6 +126,29 @@ export async function updateUserAssignedEditor(
   const i = users.findIndex((u) => u.id === userId);
   if (i < 0) throw new Error("user not found");
   users[i].assignedEditorEmail = assignedEditorEmail || undefined;
+  await writeUsers(users);
+}
+
+export async function updateEditorAssignment(
+  userId: string,
+  assignment: {
+    assignedStudios?: string[];
+    excludedClientEmails?: string[];
+  },
+): Promise<void> {
+  const users = await readUsers();
+  const i = users.findIndex((u) => u.id === userId);
+  if (i < 0) throw new Error("user not found");
+  if (assignment.assignedStudios !== undefined) {
+    users[i].assignedStudios = assignment.assignedStudios.length
+      ? assignment.assignedStudios
+      : undefined;
+  }
+  if (assignment.excludedClientEmails !== undefined) {
+    users[i].excludedClientEmails = assignment.excludedClientEmails.length
+      ? assignment.excludedClientEmails.map((e) => e.toLowerCase())
+      : undefined;
+  }
   await writeUsers(users);
 }
 

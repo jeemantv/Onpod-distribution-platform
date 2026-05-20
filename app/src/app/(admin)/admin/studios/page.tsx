@@ -6,6 +6,7 @@ import {
   BUCKET_LABEL,
   STUDIO_LABEL,
 } from "@/lib/studio";
+import { loadEditorScope, studioVisibleToEditor } from "@/lib/editor-access";
 
 export const dynamic = "force-dynamic";
 
@@ -17,8 +18,10 @@ function formatBytes(n: number): string {
 }
 
 export default async function StudiosPage() {
-  requireEditorOrAdmin();
-  const studios = await summarizeStudios();
+  const user = requireEditorOrAdmin();
+  const scope = await loadEditorScope(user);
+  const allStudios = await summarizeStudios();
+  const studios = allStudios.filter((s) => studioVisibleToEditor(scope, s.slug));
 
   return (
     <>
@@ -28,6 +31,14 @@ export default async function StudiosPage() {
           Files from each OnPod studio, grouped into 4 buckets.
         </p>
       </div>
+
+      {studios.length === 0 ? (
+        <div className="bg-bg-elev border border-border rounded-lg p-12 text-center">
+          <p className="text-text-muted text-[13px]">
+            No studios assigned to you yet. Ask an admin to assign you.
+          </p>
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {studios.map((s) => {

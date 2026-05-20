@@ -32,7 +32,14 @@ export default async function BucketPage({
   if (!BUCKETS.includes(params.bucket as Bucket)) notFound();
   const studio = params.studio as StudioSlug;
   const bucket = params.bucket as Bucket;
-  const sessions = await listSessionsInBucket(studio, bucket);
+  const { loadEditorScope, studioVisibleToEditor, sessionVisibleToEditor } =
+    await import("@/lib/editor-access");
+  const scope = await loadEditorScope(user);
+  if (!studioVisibleToEditor(scope, studio)) notFound();
+  const allSessions = await listSessionsInBucket(studio, bucket);
+  const sessions = allSessions.filter((s) =>
+    sessionVisibleToEditor(scope, studio, s.folder),
+  );
 
   return (
     <>

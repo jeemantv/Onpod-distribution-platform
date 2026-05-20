@@ -24,9 +24,12 @@ export default async function StudioPage({
 }: {
   params: { studio: string };
 }) {
-  requireEditorOrAdmin();
+  const user = requireEditorOrAdmin();
   if (!STUDIO_SLUGS.includes(params.studio as StudioSlug)) notFound();
   const studio = params.studio as StudioSlug;
+  const { loadEditorScope, studioVisibleToEditor } = await import("@/lib/editor-access");
+  const scope = await loadEditorScope(user);
+  if (!studioVisibleToEditor(scope, studio)) notFound();
   const all = await summarizeStudios();
   const s = all.find((x) => x.slug === studio)!;
 

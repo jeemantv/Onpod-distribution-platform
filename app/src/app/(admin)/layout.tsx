@@ -2,7 +2,7 @@ import Link from "next/link";
 import { TopNav } from "@/components/TopNav";
 import { requireEditorOrAdmin } from "@/lib/session";
 
-const NAV = [
+const ADMIN_NAV = [
   { href: "/admin/studios", label: "Studios" },
   { href: "/admin/clients", label: "Clients" },
   { href: "/admin/team", label: "Team" },
@@ -11,12 +11,19 @@ const NAV = [
   { href: "/admin/settings", label: "Settings" },
 ];
 
+const EDITOR_NAV = [
+  { href: "/admin/studios", label: "Studios" },
+  { href: "/admin/clients", label: "Clients" },
+  { href: "/admin/projects", label: "All projects" },
+];
+
 export default function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   const user = requireEditorOrAdmin();
+  const NAV = user.role === "admin" ? ADMIN_NAV : EDITOR_NAV;
   return (
     <>
       <TopNav user={user} />
