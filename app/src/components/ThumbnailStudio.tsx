@@ -329,6 +329,8 @@ export function ThumbnailStudio({
         return;
       }
       setResult({ url: data.url });
+      // Tell open YouTubeModals on the page to refresh their thumbnail list
+      window.dispatchEvent(new CustomEvent("onpod:thumbnail-saved"));
     } catch (err) {
       setError((err as Error).message);
     } finally {

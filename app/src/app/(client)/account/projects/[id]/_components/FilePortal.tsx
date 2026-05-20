@@ -29,11 +29,19 @@ export function FilePortal({
   files: initialFiles,
   aiReadyByFile,
   shareToken,
+  studioContext,
 }: {
   projectId: string;
   files: FileItem[];
   aiReadyByFile: Record<string, boolean>;
   shareToken: string;
+  // When set, the file rows are studio-path files; the project-scoped
+  // UploadButton is hidden (use the dedicated SessionUploader above).
+  studioContext?: {
+    studio: string;
+    bucket: string;
+    folder: string;
+  };
 }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<FileType>("edited");
@@ -453,7 +461,7 @@ export function FilePortal({
           <button className="px-3 py-2 rounded-[8px] bg-bg-elev border border-border hover:border-border-strong text-[12px] sm:text-[13px]">
             Download all
           </button>
-          <UploadButton projectId={projectId} />
+          {studioContext ? null : <UploadButton projectId={projectId} />}
         </div>
       </div>
 

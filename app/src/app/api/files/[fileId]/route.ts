@@ -3,6 +3,8 @@ import { b2, bucket, decodeFileId } from "@/lib/b2";
 import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { deleteFileMetaEntry } from "@/lib/file-meta-store";
 import { getSession } from "@/lib/session";
+import { canAccessKey } from "@/lib/access";
+import { STUDIO_ROOT } from "@/lib/studio";
 
 export async function DELETE(
   _req: Request,
@@ -18,10 +20,15 @@ export async function DELETE(
     return NextResponse.json({ error: "invalid_file_id" }, { status: 400 });
   }
 
-  const [ownerId, projectId] = key.split("/");
-  if (user.role !== "admin" && ownerId !== user.id) {
+  if (!canAccessKey(user, key)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
+  // Studio paths: only admin can permanently delete (matches /api/admin/delete).
+  if (key.startsWith(STUDIO_ROOT) && user.role !== "admin") {
+    return NextResponse.json({ error: "admin_only" }, { status: 403 });
+  }
+
+  const [ownerId, projectId] = key.split("/");
 
   try {
     await b2.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
@@ -31,7 +38,9 @@ export async function DELETE(
         .send(new DeleteObjectCommand({ Bucket: bucket, Key: key + suffix }))
         .catch(() => {});
     }
-    await deleteFileMetaEntry(ownerId, projectId, key);
+    if (!key.startsWith(STUDIO_ROOT)) {
+      await deleteFileMetaEntry(ownerId, projectId, key);
+    }
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json(

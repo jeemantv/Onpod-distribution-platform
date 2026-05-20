@@ -1,9 +1,16 @@
+// List all known thumbnail/cover sidecars saved next to a source file.
+// The YouTube modal calls this and picks .cover.jpg as the default
+// thumbnail. We also surface Bannerbear renders (.bb-*) and next/og
+// composites (.cover-*) so anything created in ThumbnailStudio is
+// available in the YT modal.
+
 import { NextResponse } from "next/server";
 import { HeadObjectCommand } from "@aws-sdk/client-s3";
-import { b2, bucket, decodeFileId, publicUrl } from "@/lib/b2";
+import { b2, bucket, decodeFileId, listFiles, publicUrl } from "@/lib/b2";
 import { getSession } from "@/lib/session";
+import { canAccessKey } from "@/lib/access";
 
-const SUFFIXES = [
+const FIXED_SUFFIXES = [
   { suffix: ".cover.jpg", label: "cover", name: "Cover art" },
   { suffix: ".thumb-group.jpg", label: "group", name: "All speakers" },
   { suffix: ".thumb-primary.jpg", label: "primary", name: "Speaker A" },
@@ -32,13 +39,12 @@ export async function GET(
   } catch {
     return NextResponse.json({ error: "invalid_file_id" }, { status: 400 });
   }
-  const [ownerId] = key.split("/", 1);
-  if (user.role !== "admin" && ownerId !== user.id) {
+  if (!canAccessKey(user, key)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  const results = await Promise.all(
-    SUFFIXES.map(async (s) => {
+  const fixed = await Promise.all(
+    FIXED_SUFFIXES.map(async (s) => {
       const fullKey = key + s.suffix;
       const present = await exists(fullKey);
       return present
@@ -46,7 +52,35 @@ export async function GET(
         : null;
     }),
   );
+
+  // Dynamic outputs: list everything under the parent prefix that starts
+  // with `${filename}.bb-` or `${filename}.cover-`. Both ThumbnailStudio
+  // and Bannerbear write these.
+  const slashIdx = key.lastIndexOf("/");
+  const folderPrefix = slashIdx >= 0 ? key.slice(0, slashIdx + 1) : "";
+  const filename = slashIdx >= 0 ? key.slice(slashIdx + 1) : key;
+  const dynamic: { label: string; name: string; url: string; key: string }[] = [];
+  try {
+    const all = await listFiles(folderPrefix);
+    for (const item of all) {
+      const rel = item.key.slice(folderPrefix.length);
+      if (!rel.startsWith(`${filename}.bb-`) && !rel.startsWith(`${filename}.cover-`)) {
+        continue;
+      }
+      const trail = rel.slice(filename.length + 1);
+      const stem = trail.replace(/\.(jpe?g|png|webp)$/i, "");
+      dynamic.push({
+        label: stem,
+        name: stem.replace(/[-_]/g, " "),
+        url: publicUrl(item.key),
+        key: item.key,
+      });
+    }
+  } catch {
+    /* ignore listing errors */
+  }
+
   return NextResponse.json({
-    thumbnails: results.filter((r) => r !== null),
+    thumbnails: [...fixed.filter((r) => r !== null), ...dynamic],
   });
 }

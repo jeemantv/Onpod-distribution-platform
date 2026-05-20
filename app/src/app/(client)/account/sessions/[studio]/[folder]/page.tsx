@@ -10,8 +10,14 @@ import {
   sessionBelongsToEmail,
   type StudioSlug,
 } from "@/lib/studio";
-import { encodeFileId } from "@/lib/b2";
-import { SessionVideoList } from "@/components/SessionVideoList";
+import {
+  classifyByFilename,
+  encodeFileId,
+  guessMimeType,
+} from "@/lib/b2";
+import { AI_SUFFIX, TRANSCRIPT_SUFFIX } from "@/lib/transcript-store";
+import type { FileItem } from "@/lib/types";
+import { FilePortal } from "@/app/(client)/account/projects/[id]/_components/FilePortal";
 
 export const dynamic = "force-dynamic";
 
@@ -29,46 +35,75 @@ export default async function ClientSessionPage({
     notFound();
   }
   const parsed = parseSessionFolder(folder);
-  const files = await listSessionFiles(studio, "clients", folder);
 
-  const rows = files.map((f) => ({
-    key: f.key,
-    filename: f.filename,
-    fileId: encodeFileId(f.key),
-    url: f.url,
-    sizeBytes: f.sizeBytes,
-    lastModified: f.lastModified,
+  const allObjects = await listSessionFiles(studio, "clients", folder);
+  const aiKeys = new Set(
+    allObjects.filter((o) => o.key.endsWith(AI_SUFFIX)).map((o) => o.key),
+  );
+  const visibleObjects = allObjects.filter(
+    (o) =>
+      !o.key.endsWith(AI_SUFFIX) &&
+      !o.key.endsWith(TRANSCRIPT_SUFFIX) &&
+      !o.key.endsWith(".file-meta.json") &&
+      !o.key.includes(".cover-") &&
+      !o.key.includes(".bb-") &&
+      !o.key.includes(".thumb-") &&
+      !o.key.includes(".enhanced") &&
+      !o.key.includes(".nobg-"),
+  );
+  const syntheticProjectId = `studio:${studio}:clients:${folder}`;
+  const files: FileItem[] = visibleObjects.map((o) => ({
+    id: encodeFileId(o.key),
+    projectId: syntheticProjectId,
+    name: o.filename,
+    type: classifyByFilename(o.filename),
+    mimeType: guessMimeType(o.filename),
+    sizeBytes: o.sizeBytes,
+    backblazeKey: o.key,
+    uploadedAt: o.lastModified ?? new Date().toISOString(),
+    approvalStatus: "none",
+    publishStates: [],
+    downloadCount: 0,
   }));
+  const aiByFile: Record<string, boolean> = {};
+  for (const f of files) {
+    aiByFile[f.id] = aiKeys.has(f.backblazeKey + AI_SUFFIX);
+  }
 
   return (
     <>
-      <TopNav user={user} />
-      <main className="max-w-[1280px] mx-auto px-4 sm:px-8 py-6 sm:py-10">
-        <div className="mb-2 text-[12px] text-text-muted">
-          <Link href="/account" className="hover:text-text underline">
-            Your sessions
-          </Link>{" "}
-          /{" "}
-          <span className="text-text">
+      <TopNav user={user} backHref="/account" backLabel="All sessions" />
+      <main className="max-w-[1280px] mx-auto px-4 sm:px-8 py-6 sm:py-10 pb-32">
+        <div className="mb-6 sm:mb-7">
+          <h1 className="display text-[28px] sm:text-[42px] tracking-wide leading-tight">
+            {STUDIO_LABEL[studio].toUpperCase()} —{" "}
             {parsed ? `${parsed.date} ${parsed.time}` : folder}
-          </span>
+          </h1>
+          <div className="flex items-center gap-2 sm:gap-4 mt-2 text-[12px] sm:text-[13px] text-text-muted flex-wrap">
+            <span>{files.length} files</span>
+            <span>·</span>
+            <span>{STUDIO_LABEL[studio]} studio</span>
+            <span className="sm:ml-auto inline-flex items-center gap-1.5 px-3 py-1 bg-[rgba(20,184,166,0.1)] text-accent-2 rounded-full text-[12px] font-medium">
+              <span className="w-[6px] h-[6px] rounded-full bg-current" />
+              Viewer · downloads enabled
+            </span>
+          </div>
+          {parsed?.email ? (
+            <p className="text-text-muted text-[12px] mt-1">{parsed.email}</p>
+          ) : null}
+          <p className="text-[12px] text-text-muted mt-3">
+            <Link href="/account" className="underline hover:text-text">
+              ← back to all sessions
+            </Link>
+          </p>
         </div>
-        <h1 className="display text-[28px] sm:text-[32px] mb-1">
-          {parsed ? `${parsed.date} ${parsed.time}` : folder}
-        </h1>
-        <p className="text-text-muted text-[13px] mb-6">
-          {STUDIO_LABEL[studio]} studio · {files.length} files
-        </p>
 
-        <SessionVideoList
-          studio={studio}
-          bucket="clients"
-          folder={folder}
-          files={rows}
-          defaultTitle={parsed ? `${parsed.date} session` : folder}
-          defaultSubtitle={parsed?.email ?? ""}
-          canEdit={false}
-          canDelete={false}
+        <FilePortal
+          projectId={syntheticProjectId}
+          files={files}
+          aiReadyByFile={aiByFile}
+          shareToken=""
+          studioContext={{ studio, bucket: "clients", folder }}
         />
       </main>
     </>

@@ -74,9 +74,24 @@ export async function POST(req: Request) {
         CacheControl: "public, max-age=3600",
       }),
     );
+    // Also write to `.cover.jpg` so the YouTube modal picks this up
+    // as the default thumbnail without any extra click.
+    const coverKey = `${key}.cover.jpg`;
+    await b2
+      .send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: coverKey,
+          Body: buf,
+          ContentType: "image/jpeg",
+          CacheControl: "public, max-age=3600",
+        }),
+      )
+      .catch(() => {});
     return NextResponse.json({
       key: thumbKey,
       url: publicUrl(thumbKey),
+      coverUrl: publicUrl(coverKey),
       sourceUrl: url,
       bytes: buf.length,
     });

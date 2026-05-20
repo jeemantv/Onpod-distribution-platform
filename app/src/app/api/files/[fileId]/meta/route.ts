@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { decodeFileId } from "@/lib/b2";
 import { setFileMetaEntry } from "@/lib/file-meta-store";
 import { getSession } from "@/lib/session";
+import { canAccessKey } from "@/lib/access";
+import { STUDIO_ROOT } from "@/lib/studio";
 import type { ApprovalStatus, FileType } from "@/lib/types";
 
 const VALID_TYPES: ReadonlyArray<FileType> = ["raw", "edited", "clip", "asset"];
@@ -21,10 +23,10 @@ export async function POST(
     return NextResponse.json({ error: "invalid_file_id" }, { status: 400 });
   }
 
-  const [ownerId, projectId] = key.split("/");
-  if (user.role !== "admin" && ownerId !== user.id) {
+  if (!canAccessKey(user, key)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
+  const [ownerId, projectId] = key.split("/");
 
   const body = (await req.json()) as { type?: FileType; approvalStatus?: ApprovalStatus };
   if (body.type && !VALID_TYPES.includes(body.type)) {
@@ -34,6 +36,10 @@ export async function POST(
     return NextResponse.json({ error: "invalid_approval" }, { status: 400 });
   }
 
+  // Studio paths: meta is keyed by the studio + bucket + folder path.
+  // We piggy-back on the existing store using key.split("/")[0..1] which
+  // for studio keys is "studios"/"{slug}" — that's stable so future
+  // lookups by the same path collide cleanly.
   try {
     await setFileMetaEntry(ownerId, projectId, key, {
       type: body.type,

@@ -11,9 +11,16 @@ import {
   type Bucket,
   type StudioSlug,
 } from "@/lib/studio";
+import {
+  classifyByFilename,
+  encodeFileId,
+  guessMimeType,
+  listFiles,
+} from "@/lib/b2";
+import { AI_SUFFIX, TRANSCRIPT_SUFFIX } from "@/lib/transcript-store";
+import type { FileItem } from "@/lib/types";
 import { SessionUploader } from "@/components/SessionUploader";
-import { SessionVideoList } from "@/components/SessionVideoList";
-import { encodeFileId } from "@/lib/b2";
+import { FilePortal } from "@/app/(client)/account/projects/[id]/_components/FilePortal";
 
 export const dynamic = "force-dynamic";
 
@@ -29,16 +36,48 @@ export default async function SessionPage({
   const bucket = params.bucket as Bucket;
   const folder = decodeURIComponent(params.folder);
   const parsed = parseSessionFolder(folder);
-  const files = await listSessionFiles(studio, bucket, folder);
 
-  const rows = files.map((f) => ({
-    key: f.key,
-    filename: f.filename,
-    fileId: encodeFileId(f.key),
-    url: f.url,
-    sizeBytes: f.sizeBytes,
-    lastModified: f.lastModified,
+  const allObjects = await listSessionFiles(studio, bucket, folder);
+  // Filter sidecars so they don't appear as user-visible files
+  const aiKeys = new Set(
+    allObjects.filter((o) => o.key.endsWith(AI_SUFFIX)).map((o) => o.key),
+  );
+  const visibleObjects = allObjects.filter(
+    (o) =>
+      !o.key.endsWith(AI_SUFFIX) &&
+      !o.key.endsWith(TRANSCRIPT_SUFFIX) &&
+      !o.key.endsWith(".file-meta.json") &&
+      !o.key.includes(".cover-") &&
+      !o.key.includes(".bb-") &&
+      !o.key.includes(".thumb-") &&
+      !o.key.includes(".enhanced") &&
+      !o.key.includes(".nobg-"),
+  );
+
+  // Synthetic projectId = the session folder; FilePortal uses it only
+  // for caching keys / contextMenu UI, no API call depends on it when
+  // studioContext is set.
+  const syntheticProjectId = `studio:${studio}:${bucket}:${folder}`;
+  void listFiles;
+
+  const files: FileItem[] = visibleObjects.map((o) => ({
+    id: encodeFileId(o.key),
+    projectId: syntheticProjectId,
+    name: o.filename,
+    type: classifyByFilename(o.filename),
+    mimeType: guessMimeType(o.filename),
+    sizeBytes: o.sizeBytes,
+    backblazeKey: o.key,
+    uploadedAt: o.lastModified ?? new Date().toISOString(),
+    approvalStatus: "none",
+    publishStates: [],
+    downloadCount: 0,
   }));
+
+  const aiByFile: Record<string, boolean> = {};
+  for (const f of files) {
+    aiByFile[f.id] = aiKeys.has(f.backblazeKey + AI_SUFFIX);
+  }
 
   return (
     <>
@@ -63,33 +102,38 @@ export default async function SessionPage({
         </span>
       </div>
 
-      <h1 className="display text-[28px] sm:text-[32px] mb-1">
-        {parsed ? `${parsed.date} ${parsed.time}` : folder}
-      </h1>
-      <p className="text-text-muted text-[13px] mb-6">
-        {STUDIO_LABEL[studio]} studio
-        {parsed?.email ? <> · {parsed.email}</> : null} · {files.length} files
-      </p>
+      <div className="mb-6 sm:mb-7">
+        <h1 className="display text-[28px] sm:text-[42px] tracking-wide leading-tight">
+          {STUDIO_LABEL[studio].toUpperCase()} —{" "}
+          {parsed ? `${parsed.date} ${parsed.time}` : folder}
+        </h1>
+        <div className="flex items-center gap-2 sm:gap-4 mt-2 text-[12px] sm:text-[13px] text-text-muted flex-wrap">
+          <span>{files.length} files</span>
+          <span>·</span>
+          <span>{BUCKET_LABEL[bucket]}</span>
+          {parsed?.email ? (
+            <>
+              <span>·</span>
+              <span>{parsed.email}</span>
+            </>
+          ) : null}
+          <span className="sm:ml-auto inline-flex items-center gap-1.5 px-3 py-1 bg-[rgba(20,184,166,0.1)] text-accent-2 rounded-full text-[12px] font-medium">
+            <span className="w-[6px] h-[6px] rounded-full bg-current" />
+            {user.role === "admin" ? "Admin" : "Editor"}
+          </span>
+        </div>
+      </div>
 
       <div className="mb-6">
         <SessionUploader studio={studio} bucket={bucket} folder={folder} />
       </div>
 
-      <SessionVideoList
-        studio={studio}
-        bucket={bucket}
-        folder={folder}
-        files={rows}
-        defaultTitle={parsed ? `${parsed.date} session` : folder}
-        defaultSubtitle={parsed?.email ?? ""}
-        ownerEmail={parsed?.email ?? null}
-        podcastSettingsHref={
-          parsed?.email
-            ? `/admin/podcast?email=${encodeURIComponent(parsed.email)}`
-            : "/settings/podcast"
-        }
-        canEdit={user.role === "admin" || user.role === "editor"}
-        canDelete={user.role === "admin"}
+      <FilePortal
+        projectId={syntheticProjectId}
+        files={files}
+        aiReadyByFile={aiByFile}
+        shareToken=""
+        studioContext={{ studio, bucket, folder }}
       />
     </>
   );
