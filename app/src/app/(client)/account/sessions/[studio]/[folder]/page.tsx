@@ -17,14 +17,9 @@ import { OpusClipPanel } from "@/components/OpusClipPanel";
 import { BannerbearGenerator } from "@/components/BannerbearGenerator";
 import { ThumbnailMaker } from "@/components/ThumbnailMaker";
 import { PodcastPublish } from "@/components/PodcastPublish";
+import { SessionFileList } from "@/components/SessionFileList";
 
 export const dynamic = "force-dynamic";
-
-function fmt(n: number): string {
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
 
 export default async function ClientSessionPage({
   params,
@@ -41,6 +36,13 @@ export default async function ClientSessionPage({
   }
   const parsed = parseSessionFolder(folder);
   const files = await listSessionFiles(studio, "clients", folder);
+
+  const rows = files.map((f) => ({
+    key: f.key,
+    filename: f.filename,
+    fileId: encodeFileId(f.key),
+    url: f.url,
+  }));
 
   return (
     <>
@@ -62,75 +64,30 @@ export default async function ClientSessionPage({
           {STUDIO_LABEL[studio]} studio · {files.length} files
         </p>
 
-        {(() => {
-          const rows = files.map((f) => ({
-            key: f.key,
-            filename: f.filename,
-            fileId: encodeFileId(f.key),
-            url: f.url,
-          }));
-          return (
-            <>
-              <SessionAITools files={rows} />
-              <AIMetadataPanel files={rows} />
-              <ThumbnailMaker
-                files={rows}
-                defaultSubtitle={parsed?.email ?? ""}
-              />
-              <BannerbearGenerator
-                files={rows}
-                defaultTitle={parsed ? `${parsed.date} session` : folder}
-              />
-              <OpusClipPanel files={rows} />
-              <PodcastPublish files={rows} />
-            </>
-          );
-        })()}
+        <SessionAITools files={rows} />
+        <AIMetadataPanel files={rows} />
+        <ThumbnailMaker
+          files={rows}
+          defaultSubtitle={parsed?.email ?? ""}
+        />
+        <BannerbearGenerator
+          files={rows}
+          defaultTitle={parsed ? `${parsed.date} session` : folder}
+        />
+        <OpusClipPanel files={rows} />
+        <PodcastPublish files={rows} />
 
-        {files.length === 0 ? (
-          <p className="text-text-muted text-[13px]">
-            No files in this session yet.
-          </p>
-        ) : (
-          <div className="bg-bg-elev border border-border rounded-[16px] overflow-hidden">
-            <table className="w-full text-[13px]">
-              <thead>
-                <tr className="text-text-muted text-[11px] uppercase tracking-wider border-b border-border">
-                  <th className="text-left p-4 font-medium">File</th>
-                  <th className="text-left p-4 font-medium">Size</th>
-                  <th className="text-left p-4 font-medium">Uploaded</th>
-                  <th className="text-right p-4 font-medium">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {files.map((f) => (
-                  <tr
-                    key={f.key}
-                    className="border-b border-border last:border-0 hover:bg-bg-elev-2"
-                  >
-                    <td className="p-4 font-mono text-[12px]">{f.filename}</td>
-                    <td className="p-4 text-text-muted">{fmt(f.sizeBytes)}</td>
-                    <td className="p-4 text-text-muted">
-                      {f.lastModified
-                        ? new Date(f.lastModified).toLocaleString()
-                        : "—"}
-                    </td>
-                    <td className="p-4 text-right">
-                      <a
-                        href={f.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-block px-3 py-1.5 rounded-[8px] bg-accent text-white text-[12px]"
-                      >
-                        Download
-                      </a>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <div className="mt-6">
+          <h2 className="display text-[20px] text-text-muted mb-4">Files</h2>
+          <SessionFileList
+            studio={studio}
+            bucket="clients"
+            folder={folder}
+            files={files}
+            canEdit={false}
+            canDelete={false}
+          />
+        </div>
       </main>
     </>
   );

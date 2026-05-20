@@ -37,6 +37,13 @@ export default async function SessionPage({
   const parsed = parseSessionFolder(folder);
   const files = await listSessionFiles(studio, bucket, folder);
 
+  const rows = files.map((f) => ({
+    key: f.key,
+    filename: f.filename,
+    fileId: encodeFileId(f.key),
+    url: f.url,
+  }));
+
   return (
     <>
       <div className="mb-2 text-[12px] text-text-muted">
@@ -53,66 +60,54 @@ export default async function SessionPage({
           className="hover:text-text underline"
         >
           {BUCKET_LABEL[bucket]}
-        </Link>
+        </Link>{" "}
+        /{" "}
+        <span className="text-text">
+          {parsed ? `${parsed.date} ${parsed.time}` : folder}
+        </span>
       </div>
 
-      <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
-        <div>
-          <h1 className="display text-[28px]">
-            {parsed ? `${parsed.date} ${parsed.time}` : folder}
-          </h1>
-          <p className="text-text-muted text-[13px] mt-1">
-            {parsed ? parsed.email : "Unparseable folder name"} ·{" "}
-            {files.length} files
-          </p>
-        </div>
-      </div>
+      <h1 className="display text-[28px] sm:text-[32px] mb-1">
+        {parsed ? `${parsed.date} ${parsed.time}` : folder}
+      </h1>
+      <p className="text-text-muted text-[13px] mb-6">
+        {STUDIO_LABEL[studio]} studio
+        {parsed?.email ? <> · {parsed.email}</> : null} · {files.length} files
+      </p>
 
       <div className="mb-4">
         <SessionUploader studio={studio} bucket={bucket} folder={folder} />
       </div>
 
-      {(() => {
-        const rows = files.map((f) => ({
-          key: f.key,
-          filename: f.filename,
-          fileId: encodeFileId(f.key),
-          url: f.url,
-        }));
-        return (
-          <>
-            <SessionAITools files={rows} />
-            <AIMetadataPanel files={rows} />
-            <ThumbnailMaker
-              files={rows}
-              defaultSubtitle={parsed?.email ?? ""}
-            />
-            <BannerbearGenerator
-              files={rows}
-              defaultTitle={parsed ? `${parsed.date} session` : folder}
-            />
-            <OpusClipPanel files={rows} />
-            <PodcastPublish
-              files={rows}
-              ownerEmail={parsed?.email ?? null}
-              showSettingsHref={
-                parsed?.email
-                  ? `/admin/podcast?email=${encodeURIComponent(parsed.email)}`
-                  : "/settings/podcast"
-              }
-            />
-          </>
-        );
-      })()}
-
-      <SessionFileList
-        studio={studio}
-        bucket={bucket}
-        folder={folder}
-        files={files}
-        canEdit={user.role === "admin" || user.role === "editor"}
-        canDelete={user.role === "admin"}
+      <SessionAITools files={rows} />
+      <AIMetadataPanel files={rows} />
+      <ThumbnailMaker files={rows} defaultSubtitle={parsed?.email ?? ""} />
+      <BannerbearGenerator
+        files={rows}
+        defaultTitle={parsed ? `${parsed.date} session` : folder}
       />
+      <OpusClipPanel files={rows} />
+      <PodcastPublish
+        files={rows}
+        ownerEmail={parsed?.email ?? null}
+        showSettingsHref={
+          parsed?.email
+            ? `/admin/podcast?email=${encodeURIComponent(parsed.email)}`
+            : "/settings/podcast"
+        }
+      />
+
+      <div className="mt-6">
+        <h2 className="display text-[20px] text-text-muted mb-4">Files</h2>
+        <SessionFileList
+          studio={studio}
+          bucket={bucket}
+          folder={folder}
+          files={files}
+          canEdit={user.role === "admin" || user.role === "editor"}
+          canDelete={user.role === "admin"}
+        />
+      </div>
     </>
   );
 }
