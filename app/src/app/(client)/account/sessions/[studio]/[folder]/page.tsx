@@ -16,6 +16,7 @@ import { AIMetadataPanel } from "@/components/AIMetadataPanel";
 import { OpusClipPanel } from "@/components/OpusClipPanel";
 import { BannerbearGenerator } from "@/components/BannerbearGenerator";
 import { ThumbnailMaker } from "@/components/ThumbnailMaker";
+import { PodcastPublish } from "@/components/PodcastPublish";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +82,7 @@ export default async function ClientSessionPage({
                 defaultTitle={parsed ? `${parsed.date} session` : folder}
               />
               <OpusClipPanel files={rows} />
+              <PodcastPublish files={rows} />
             </>
           );
         })()}

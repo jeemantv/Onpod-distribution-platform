@@ -18,6 +18,7 @@ import { AIMetadataPanel } from "@/components/AIMetadataPanel";
 import { OpusClipPanel } from "@/components/OpusClipPanel";
 import { BannerbearGenerator } from "@/components/BannerbearGenerator";
 import { ThumbnailMaker } from "@/components/ThumbnailMaker";
+import { PodcastPublish } from "@/components/PodcastPublish";
 import { encodeFileId } from "@/lib/b2";
 
 export const dynamic = "force-dynamic";
@@ -91,6 +92,15 @@ export default async function SessionPage({
               defaultTitle={parsed ? `${parsed.date} session` : folder}
             />
             <OpusClipPanel files={rows} />
+            <PodcastPublish
+              files={rows}
+              ownerEmail={parsed?.email ?? null}
+              showSettingsHref={
+                parsed?.email
+                  ? `/admin/podcast?email=${encodeURIComponent(parsed.email)}`
+                  : "/settings/podcast"
+              }
+            />
           </>
         );
       })()}
