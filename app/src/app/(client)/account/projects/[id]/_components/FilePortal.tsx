@@ -331,6 +331,18 @@ export function FilePortal({
     }
   };
 
+  // ThumbnailStudio dispatches this when the user clicks "Save & post to
+  // YouTube" — open the YT modal for that file with the new cover preselected.
+  useEffect(() => {
+    function onOpenYT(e: Event) {
+      const detail = (e as CustomEvent).detail as { fileId?: string } | undefined;
+      if (!detail?.fileId) return;
+      setModal({ kind: "youtube", fileId: detail.fileId });
+    }
+    window.addEventListener("onpod:open-youtube", onOpenYT);
+    return () => window.removeEventListener("onpod:open-youtube", onOpenYT);
+  }, []);
+
   const startAI = async (fileId: string) => {
     if (aiReady[fileId]) {
       setModal({ kind: "ai", fileId });

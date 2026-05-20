@@ -2,16 +2,21 @@
 
 // Unified thumbnail flow:
 //   1. Pick a video file from the session
-//   2. Pull frames in the browser
-//   3. Pick the frame you want
-//   4. Optional: enhance it with Gemini (in-place upgrade)
-//   5. Pick a Bannerbear template, fill text fields, render
+//   2. Pull frames in the browser (auto-pick via Claude Vision or all 6)
+//   3. Pick a frame; optionally Enhance (Gemini) or Remove background
+//      (remove.bg) and/or Adjust crop (CropZoom)
+//   4. Pick a Bannerbear template; each image-typed layer gets its own
+//      independent picker so you can set background, foreground, logo
+//      etc. without one auto-overriding another
+//   5. Render, save (also writes .cover.jpg so YouTube picks it up)
 //
-// The chosen frame URL is auto-injected into the first image-typed
-// modification on the template (image / photo / avatar / logo).
+// "Use selected frame" sets a layer to the currently-selected frame URL.
+// "Clear" empties a layer so the template's default applies — useful
+// when the template has a background layer you don't want to override.
 
 import { useEffect, useMemo, useState } from "react";
 import { extractFrames } from "@/lib/frame-extract";
+import { CropZoom } from "./CropZoom";
 
 interface FileRow {
   key: string;
@@ -30,7 +35,7 @@ interface Template {
 interface FrameOption {
   url: string;
   label: string;
-  source: "auto-pick" | "all" | "enhanced" | "no-bg";
+  source: "auto-pick" | "all" | "enhanced" | "no-bg" | "adjusted";
 }
 
 const FRAME_COUNT = 6;
@@ -40,7 +45,7 @@ function isVideo(name: string): boolean {
 }
 
 function isImageField(name: string): boolean {
-  return /(image|photo|avatar|logo|picture|pic|background)/i.test(name);
+  return /(image|photo|avatar|logo|picture|pic|background|container)/i.test(name);
 }
 
 export function ThumbnailStudio({
@@ -64,7 +69,7 @@ export function ThumbnailStudio({
   const [frames, setFrames] = useState<FrameOption[]>([]);
   const [activeFrameUrl, setActiveFrameUrl] = useState<string>("");
   const [stage, setStage] = useState<
-    "idle" | "extracting" | "vision" | "enhancing" | "removing-bg" | "rendering"
+    "idle" | "extracting" | "vision" | "enhancing" | "removing-bg" | "saving-crop" | "rendering"
   >("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -74,6 +79,8 @@ export function ThumbnailStudio({
   const [values, setValues] = useState<Record<string, string>>({});
   const [aiSuggested, setAiSuggested] = useState(false);
   const [result, setResult] = useState<{ url: string } | null>(null);
+  const [cropOpen, setCropOpen] = useState(false);
+  const [cropTarget, setCropTarget] = useState<{ layer?: string }>({});
 
   // Default file selection
   useEffect(() => {
@@ -114,19 +121,23 @@ export function ThumbnailStudio({
   }, []);
 
   const tmpl = templates.find((t) => t.uid === selectedTemplate);
-  const imageFieldName = tmpl?.available_modifications?.find((m) =>
-    isImageField(m.name),
-  )?.name;
 
-  // Prefill text fields when template changes
+  // Prefill text fields when template changes (but DON'T auto-set image fields)
   useEffect(() => {
     if (!tmpl) return;
     const next: Record<string, string> = {};
     for (const m of tmpl.available_modifications ?? []) {
-      if (isImageField(m.name)) continue;
+      if (isImageField(m.name)) {
+        next[m.name] = "";
+        continue;
+      }
       if (m.type === "text" && /title/i.test(m.name) && defaultTitle) {
         next[m.name] = defaultTitle;
-      } else if (m.type === "text" && /subtitle|host|guest/i.test(m.name) && defaultSubtitle) {
+      } else if (
+        m.type === "text" &&
+        /subtitle|host|guest/i.test(m.name) &&
+        defaultSubtitle
+      ) {
         next[m.name] = defaultSubtitle;
       } else {
         next[m.name] = "";
@@ -151,7 +162,9 @@ export function ThumbnailStudio({
           );
           if (titleField) {
             setValues((prev) =>
-              prev[titleField.name] ? prev : { ...prev, [titleField.name]: data.ai.title },
+              prev[titleField.name]
+                ? prev
+                : { ...prev, [titleField.name]: data.ai.title },
             );
           }
         }
@@ -187,15 +200,11 @@ export function ThumbnailStudio({
           (t) => ({ url: t.url, label: t.label, source: "auto-pick" }),
         );
         setFrames(list);
-        if (list[0]) {
-          setActiveFrameUrl(list[0].url);
-          autofillImageField(list[0].url);
-        }
+        if (list[0]) setActiveFrameUrl(list[0].url);
         setStage("idle");
         return;
       }
 
-      // mode === "all": upload each frame to B2 and show all 6
       const all: FrameOption[] = [];
       for (let i = 0; i < raw.length; i++) {
         const res = await fetch("/api/ai/thumbnails", {
@@ -211,54 +220,7 @@ export function ThumbnailStudio({
         if (t) all.push({ url: t.url, label: `Frame ${i + 1}`, source: "all" });
       }
       setFrames(all);
-      if (all[0]) {
-        setActiveFrameUrl(all[0].url);
-        autofillImageField(all[0].url);
-      }
-      setStage("idle");
-    } catch (err) {
-      setError((err as Error).message);
-      setStage("idle");
-    }
-  }
-
-  function autofillImageField(url: string) {
-    if (!imageFieldName) return;
-    setValues((prev) => ({ ...prev, [imageFieldName]: url }));
-  }
-
-  function chooseFrame(url: string) {
-    setActiveFrameUrl(url);
-    autofillImageField(url);
-  }
-
-  async function removeBg() {
-    if (!sourceFileId || !activeFrameUrl) return;
-    setStage("removing-bg");
-    setError(null);
-    try {
-      const res = await fetch("/api/ai/remove-background", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fileId: sourceFileId,
-          imageUrl: activeFrameUrl,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.message || `Remove-bg failed (${res.status})`);
-        setStage("idle");
-        return;
-      }
-      const newFrame: FrameOption = {
-        url: data.url,
-        label: "No background",
-        source: "no-bg",
-      };
-      setFrames((prev) => [newFrame, ...prev]);
-      setActiveFrameUrl(data.url);
-      autofillImageField(data.url);
+      if (all[0]) setActiveFrameUrl(all[0].url);
       setStage("idle");
     } catch (err) {
       setError((err as Error).message);
@@ -293,7 +255,83 @@ export function ThumbnailStudio({
       };
       setFrames((prev) => [newFrame, ...prev]);
       setActiveFrameUrl(data.url);
-      autofillImageField(data.url);
+      setStage("idle");
+    } catch (err) {
+      setError((err as Error).message);
+      setStage("idle");
+    }
+  }
+
+  async function removeBg() {
+    if (!sourceFileId || !activeFrameUrl) return;
+    setStage("removing-bg");
+    setError(null);
+    try {
+      const res = await fetch("/api/ai/remove-background", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileId: sourceFileId,
+          imageUrl: activeFrameUrl,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.message || `Remove-bg failed (${res.status})`);
+        setStage("idle");
+        return;
+      }
+      const newFrame: FrameOption = {
+        url: data.url,
+        label: "No background",
+        source: "no-bg",
+      };
+      setFrames((prev) => [newFrame, ...prev]);
+      setActiveFrameUrl(data.url);
+      setStage("idle");
+    } catch (err) {
+      setError((err as Error).message);
+      setStage("idle");
+    }
+  }
+
+  function openCrop(layerName?: string) {
+    if (!activeFrameUrl) return;
+    setCropTarget({ layer: layerName });
+    setCropOpen(true);
+  }
+
+  async function applyCrop(b64: string) {
+    if (!sourceFileId) return;
+    setCropOpen(false);
+    setStage("saving-crop");
+    try {
+      const res = await fetch("/api/ai/upload-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileId: sourceFileId,
+          imageBase64: b64,
+          label: `adj-${Date.now()}`,
+          mimeType: "image/jpeg",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.message || "Save crop failed");
+        setStage("idle");
+        return;
+      }
+      const newFrame: FrameOption = {
+        url: data.url,
+        label: "Adjusted",
+        source: "adjusted",
+      };
+      setFrames((prev) => [newFrame, ...prev]);
+      setActiveFrameUrl(data.url);
+      if (cropTarget.layer) {
+        setValues((prev) => ({ ...prev, [cropTarget.layer!]: data.url }));
+      }
       setStage("idle");
     } catch (err) {
       setError((err as Error).message);
@@ -307,6 +345,9 @@ export function ThumbnailStudio({
     setError(null);
     setResult(null);
     try {
+      // Only send modifications the user explicitly set. Leaving a value
+      // empty lets the template's default apply — important when a
+      // template has multiple image layers and only one is being changed.
       const modifications = Object.entries(values)
         .filter(([, v]) => v && v.trim().length > 0)
         .map(([name, v]) =>
@@ -329,13 +370,19 @@ export function ThumbnailStudio({
         return;
       }
       setResult({ url: data.url });
-      // Tell open YouTubeModals on the page to refresh their thumbnail list
       window.dispatchEvent(new CustomEvent("onpod:thumbnail-saved"));
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setStage("idle");
     }
+  }
+
+  function openYouTube() {
+    if (!sourceFileId) return;
+    window.dispatchEvent(
+      new CustomEvent("onpod:open-youtube", { detail: { fileId: sourceFileId } }),
+    );
   }
 
   if (videoFiles.length === 0) return null;
@@ -348,8 +395,8 @@ export function ThumbnailStudio({
         <div>
           <h2 className="text-[14px] font-semibold">Thumbnail studio</h2>
           <p className="text-[12px] text-text-muted">
-            Pick a frame from the video, enhance it if needed, then drop it
-            into a Bannerbear template.
+            Pick frames, polish them, then drop into Bannerbear. Each
+            template layer is set independently.
           </p>
         </div>
         <select
@@ -375,9 +422,9 @@ export function ThumbnailStudio({
       </div>
 
       {/* Step 1 — pick frames */}
-      <div className="mb-4">
+      <div className="mb-5">
         <div className="text-[11px] uppercase tracking-wider text-text-dim mb-2">
-          1 · Pick a frame
+          1 · Pick + polish a frame
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <button
@@ -405,7 +452,7 @@ export function ThumbnailStudio({
             {frames.map((f) => (
               <button
                 key={f.url}
-                onClick={() => chooseFrame(f.url)}
+                onClick={() => setActiveFrameUrl(f.url)}
                 className={`relative rounded-[10px] overflow-hidden border-2 transition ${
                   activeFrameUrl === f.url
                     ? "border-accent"
@@ -413,10 +460,12 @@ export function ThumbnailStudio({
                 }`}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={f.url} alt={f.label} className="w-full block" />
+                <img src={f.url} alt={f.label} className="w-full block bg-bg-elev-3" />
                 <div
                   className={`absolute top-1 left-1 px-2 py-0.5 rounded-full text-[10px] uppercase ${
-                    f.source === "enhanced" || f.source === "no-bg"
+                    f.source === "enhanced" ||
+                    f.source === "no-bg" ||
+                    f.source === "adjusted"
                       ? "bg-accent-2 text-bg"
                       : "bg-black/70 text-white"
                   }`}
@@ -435,18 +484,25 @@ export function ThumbnailStudio({
               disabled={busy}
               className="px-3 py-2 rounded-[10px] bg-bg-elev-2 border border-border text-[12px] disabled:opacity-50"
             >
-              {stage === "enhancing" ? "Enhancing…" : "✨ Enhance (Gemini)"}
+              {stage === "enhancing" ? "Enhancing…" : "✨ Enhance"}
             </button>
             <button
               onClick={removeBg}
               disabled={busy}
               className="px-3 py-2 rounded-[10px] bg-bg-elev-2 border border-border text-[12px] disabled:opacity-50"
             >
-              {stage === "removing-bg" ? "Removing…" : "✂️ Remove background"}
+              {stage === "removing-bg" ? "Removing…" : "✂️ Remove BG"}
+            </button>
+            <button
+              onClick={() => openCrop()}
+              disabled={busy}
+              className="px-3 py-2 rounded-[10px] bg-bg-elev-2 border border-border text-[12px] disabled:opacity-50"
+            >
+              {stage === "saving-crop" ? "Saving…" : "🔍 Adjust / zoom"}
             </button>
             <span className="text-[11px] text-text-dim">
-              Enhance polishes the frame. Remove-bg cuts the subject out as PNG so
-              you can drop it over a Bannerbear backdrop.
+              Enhance: crisp + bright for thumbnails · BG: cutout PNG · Adjust:
+              pan + zoom into the frame.
             </span>
           </div>
         ) : null}
@@ -455,7 +511,7 @@ export function ThumbnailStudio({
       {/* Step 2 — Bannerbear template */}
       <div>
         <div className="text-[11px] uppercase tracking-wider text-text-dim mb-2">
-          2 · Bannerbear template
+          2 · Drop into template
         </div>
 
         {templatesError ? (
@@ -491,43 +547,78 @@ export function ThumbnailStudio({
                 className="rounded-[10px] border border-border w-full"
               />
             ) : null}
-            <div className="space-y-2">
+            <div className="space-y-3">
               {(tmpl.available_modifications ?? []).map((m) => {
                 const isImg = isImageField(m.name);
                 if (isImg) {
+                  const currentVal = values[m.name] ?? "";
                   return (
-                    <div key={m.name} className="text-[11px] text-text-muted">
-                      {m.name}{" "}
-                      <span className="text-text-dim">
-                        (auto-set to selected frame)
-                      </span>
-                      {values[m.name] ? (
+                    <div key={m.name} className="space-y-1">
+                      <div className="text-[11px] text-text-muted">
+                        <code className="text-accent-2">{m.name}</code>
+                        <span className="text-text-dim ml-2">
+                          (image layer · empty = template default)
+                        </span>
+                      </div>
+                      {currentVal ? (
                         /* eslint-disable-next-line @next/next/no-img-element */
                         <img
-                          src={values[m.name]}
+                          src={currentVal}
                           alt=""
-                          className="mt-1 rounded-[8px] border border-border w-full"
+                          className="rounded-[8px] border border-border w-full bg-bg-elev-3"
                         />
                       ) : (
-                        <input
-                          type="url"
-                          value={values[m.name] ?? ""}
-                          onChange={(e) =>
-                            setValues((prev) => ({
-                              ...prev,
-                              [m.name]: e.target.value,
-                            }))
-                          }
-                          placeholder="Pick a frame above, or paste an image URL"
-                          className="mt-1 w-full px-3 py-2 bg-bg-elev-2 border border-border rounded-[8px] text-[13px]"
-                        />
+                        <div className="rounded-[8px] border border-dashed border-border bg-bg-elev-3 text-center text-[11px] text-text-dim py-6">
+                          (empty — template default will be used)
+                        </div>
                       )}
+                      <div className="flex items-center gap-2 flex-wrap mt-1">
+                        <button
+                          onClick={() =>
+                            setValues((prev) => ({ ...prev, [m.name]: activeFrameUrl }))
+                          }
+                          disabled={!activeFrameUrl}
+                          className="px-2.5 py-1.5 rounded-[8px] bg-accent text-white text-[11px] disabled:opacity-40"
+                        >
+                          Use selected frame
+                        </button>
+                        <button
+                          onClick={() => openCrop(m.name)}
+                          disabled={!activeFrameUrl}
+                          className="px-2.5 py-1.5 rounded-[8px] bg-bg-elev-2 border border-border text-[11px] disabled:opacity-40"
+                        >
+                          Adjust + apply
+                        </button>
+                        <button
+                          onClick={() =>
+                            setValues((prev) => ({ ...prev, [m.name]: "" }))
+                          }
+                          className="px-2.5 py-1.5 rounded-[8px] bg-bg-elev-2 border border-border text-[11px]"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                      <input
+                        type="url"
+                        value={currentVal}
+                        onChange={(e) =>
+                          setValues((prev) => ({
+                            ...prev,
+                            [m.name]: e.target.value,
+                          }))
+                        }
+                        placeholder="…or paste an image URL"
+                        className="w-full px-3 py-1.5 bg-bg-elev-2 border border-border rounded-[8px] text-[12px] font-mono"
+                      />
                     </div>
                   );
                 }
                 return (
-                  <label key={m.name} className="block text-[11px] text-text-muted">
-                    {m.name}
+                  <label
+                    key={m.name}
+                    className="block text-[11px] text-text-muted"
+                  >
+                    <code className="text-accent-2">{m.name}</code>
                     <input
                       type="text"
                       value={values[m.name] ?? ""}
@@ -557,18 +648,44 @@ export function ThumbnailStudio({
       {error ? <p className="mt-3 text-[12px] text-danger">{error}</p> : null}
 
       {result ? (
-        <div className="mt-4">
+        <div className="mt-5 p-3 bg-bg-elev-2 border border-border rounded-[10px]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={result.url}
             alt="Final thumbnail"
-            className="rounded-[10px] border border-border max-w-full"
+            className="rounded-[8px] border border-border max-w-full"
           />
-          <p className="text-[11px] text-text-muted mt-1 break-all">
+          <p className="text-[11px] text-text-muted mt-2 break-all">
             Saved to: {result.url}
           </p>
+          <p className="text-[11px] text-success mt-1">
+            ✓ Also saved as <code>.cover.jpg</code> — YouTube modal will preselect it.
+          </p>
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
+            <button
+              onClick={openYouTube}
+              className="px-3 py-2 rounded-[10px] bg-accent text-white text-[12px]"
+            >
+              🚀 Save & post to YouTube
+            </button>
+            <a
+              href={result.url}
+              target="_blank"
+              rel="noreferrer"
+              className="px-3 py-2 rounded-[10px] bg-bg-elev-3 border border-border text-[12px]"
+            >
+              Open full size
+            </a>
+          </div>
         </div>
       ) : null}
+
+      <CropZoom
+        open={cropOpen}
+        imageUrl={activeFrameUrl}
+        onCancel={() => setCropOpen(false)}
+        onApply={applyCrop}
+      />
     </div>
   );
 }
