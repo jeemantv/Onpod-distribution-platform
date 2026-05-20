@@ -39,9 +39,13 @@ type Props = {
   fileId: string;
   fileUrl: string;
   fileLabel: string;
-  // Role determines edit permissions on each note
   canMarkDone: boolean;
   currentEmail: string;
+  // When embedded inside a Modal (e.g. PreviewModal), the wrapper
+  // already shows the title so this header can be hidden.
+  hideHeader?: boolean;
+  // Compact mode renders a smaller video — fits a modal nicely.
+  compact?: boolean;
 };
 
 function fmtTime(seconds: number): string {
@@ -67,6 +71,8 @@ export function VideoReviewer({
   fileLabel,
   canMarkDone,
   currentEmail,
+  hideHeader,
+  compact,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -296,47 +302,78 @@ export function VideoReviewer({
   return (
     <div
       ref={wrapRef}
-      className="bg-bg-elev border border-border rounded-[16px] p-4 mb-4"
+      className={
+        hideHeader
+          ? ""
+          : "bg-bg-elev border border-border rounded-[16px] p-4 mb-4"
+      }
       tabIndex={-1}
     >
-      <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
-        <div>
-          <h2 className="text-[14px] font-semibold">Review · {fileLabel}</h2>
-          <p className="text-[12px] text-text-muted">
-            Space/K play · J/L shuttle · ←/→ step a frame while paused.
-          </p>
+      {hideHeader ? null : (
+        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+          <div>
+            <h2 className="text-[14px] font-semibold">Review · {fileLabel}</h2>
+            <p className="text-[12px] text-text-muted">
+              Space/K play · J/L shuttle · ←/→ step a frame while paused.
+            </p>
+          </div>
+          {revisions ? (
+            <div className="flex items-center gap-2 text-[11px] flex-wrap">
+              <span className="px-2 py-0.5 rounded-full bg-bg-elev-3 border border-border">
+                {openCount} open
+              </span>
+              <span className="px-2 py-0.5 rounded-full bg-bg-elev-3 border border-border">
+                {doneCount} done
+              </span>
+              <span
+                className={`px-2 py-0.5 rounded-full ${
+                  revisions.status === "completed"
+                    ? "bg-[rgba(16,185,129,0.12)] text-[#34d399]"
+                    : revisions.status === "in_review"
+                      ? "bg-[rgba(245,158,11,0.12)] text-[#fbbf24]"
+                      : "bg-bg-elev-3 text-text-muted"
+                }`}
+              >
+                {revisions.status}
+              </span>
+            </div>
+          ) : null}
         </div>
-        {revisions ? (
-          <div className="flex items-center gap-2 text-[11px] flex-wrap">
-            <span className="px-2 py-0.5 rounded-full bg-bg-elev-3 border border-border">
-              {openCount} open
-            </span>
-            <span className="px-2 py-0.5 rounded-full bg-bg-elev-3 border border-border">
-              {doneCount} done
-            </span>
-            <span
-              className={`px-2 py-0.5 rounded-full ${
-                revisions.status === "completed"
-                  ? "bg-[rgba(16,185,129,0.12)] text-[#34d399]"
-                  : revisions.status === "in_review"
-                    ? "bg-[rgba(245,158,11,0.12)] text-[#fbbf24]"
-                    : "bg-bg-elev-3 text-text-muted"
-              }`}
-            >
-              {revisions.status}
-            </span>
+      )}
+
+      <div className="relative">
+        <video
+          ref={videoRef}
+          src={fileUrl}
+          controls
+          preload="metadata"
+          crossOrigin="anonymous"
+          className={`w-full rounded-[10px] bg-black ${compact ? "max-h-[50vh] object-contain" : ""}`}
+        />
+        {/* Timeline markers — bubbles below the video where each note lives */}
+        {duration > 0 && notes.length > 0 ? (
+          <div className="relative h-6 mt-1">
+            <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[2px] bg-border" />
+            {notes.map((n) => {
+              if (n.timeSeconds < 0) return null;
+              const pct = Math.min(100, Math.max(0, (n.timeSeconds / duration) * 100));
+              return (
+                <button
+                  key={n.id}
+                  onClick={() => seekTo(n.timeSeconds)}
+                  title={`${fmtTime(n.timeSeconds)} — ${n.text}`}
+                  className={`absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border-2 transition hover:scale-125 ${
+                    n.status === "done"
+                      ? "bg-bg-elev-3 border-text-dim"
+                      : "bg-accent border-bg shadow"
+                  }`}
+                  style={{ left: `calc(${pct}% - 6px)` }}
+                />
+              );
+            })}
           </div>
         ) : null}
       </div>
-
-      <video
-        ref={videoRef}
-        src={fileUrl}
-        controls
-        preload="metadata"
-        crossOrigin="anonymous"
-        className="w-full rounded-[10px] bg-black"
-      />
 
       {/* Add-note row */}
       <div className="mt-3 flex items-end gap-2 flex-wrap">

@@ -30,18 +30,22 @@ export function FilePortal({
   aiReadyByFile,
   shareToken,
   studioContext,
+  currentUserEmail = "",
+  canMarkDone = false,
 }: {
   projectId: string;
   files: FileItem[];
   aiReadyByFile: Record<string, boolean>;
   shareToken: string;
-  // When set, the file rows are studio-path files; the project-scoped
-  // UploadButton is hidden (use the dedicated SessionUploader above).
   studioContext?: {
     studio: string;
     bucket: string;
     folder: string;
   };
+  // Passed down to PreviewModal so the embedded VideoReviewer knows
+  // who's logged in and whether they can mark notes done.
+  currentUserEmail?: string;
+  canMarkDone?: boolean;
 }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<FileType>("edited");
@@ -650,6 +654,8 @@ export function FilePortal({
       {modal?.kind === "preview" ? (
         <PreviewModal
           file={files.find((f) => f.id === modal.fileId)!}
+          currentEmail={currentUserEmail}
+          canMarkDone={canMarkDone}
           onClose={() => setModal(null)}
         />
       ) : null}

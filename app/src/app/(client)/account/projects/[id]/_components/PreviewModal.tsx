@@ -1,14 +1,24 @@
 "use client";
 
+// Opens when the user clicks the eye on a file row. For videos, this is
+// also where the client requests revisions: VideoReviewer is embedded
+// so they can scrub, pause, drop timed notes, and send the review off
+// to the assigned editor — all in one modal.
+
 import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
+import { VideoReviewer } from "@/components/VideoReviewer";
 import type { FileItem } from "@/lib/types";
 
 export function PreviewModal({
   file,
+  currentEmail = "",
+  canMarkDone = false,
   onClose,
 }: {
   file: FileItem;
+  currentEmail?: string;
+  canMarkDone?: boolean;
   onClose: () => void;
 }) {
   const [url, setUrl] = useState<string | null>(null);
@@ -36,21 +46,30 @@ export function PreviewModal({
   const isImage = file.mimeType.startsWith("image/");
 
   return (
-    <Modal title="Preview" subtitle={file.name} onClose={onClose} size="xl">
+    <Modal
+      title={isVideo ? "Review & request revisions" : "Preview"}
+      subtitle={file.name}
+      onClose={onClose}
+      size="xl"
+    >
       {error ? (
         <div className="text-[13px] text-danger">{error}</div>
       ) : !url ? (
-        <div className="text-[13px] text-text-muted">Generating signed URL…</div>
+        <div className="text-[13px] text-text-muted">Loading…</div>
       ) : isVideo ? (
-        <video
-          src={url}
-          controls
-          autoPlay
-          className="w-full max-h-[70vh] rounded-lg bg-black"
+        <VideoReviewer
+          fileId={file.id}
+          fileUrl={url}
+          fileLabel={file.name}
+          canMarkDone={canMarkDone}
+          currentEmail={currentEmail}
+          hideHeader
+          compact
         />
       ) : isAudio ? (
         <audio src={url} controls autoPlay className="w-full" />
       ) : isImage ? (
+        /* eslint-disable-next-line @next/next/no-img-element */
         <img src={url} alt={file.name} className="max-h-[70vh] mx-auto rounded-lg" />
       ) : (
         <div className="text-[13px] text-text-muted">
