@@ -15,6 +15,7 @@ import { SessionAITools } from "@/components/SessionAITools";
 import { AIMetadataPanel } from "@/components/AIMetadataPanel";
 import { OpusClipPanel } from "@/components/OpusClipPanel";
 import { BannerbearGenerator } from "@/components/BannerbearGenerator";
+import { ThumbnailMaker } from "@/components/ThumbnailMaker";
 
 export const dynamic = "force-dynamic";
 
@@ -65,11 +66,16 @@ export default async function ClientSessionPage({
             key: f.key,
             filename: f.filename,
             fileId: encodeFileId(f.key),
+            url: f.url,
           }));
           return (
             <>
               <SessionAITools files={rows} />
               <AIMetadataPanel files={rows} />
+              <ThumbnailMaker
+                files={rows}
+                defaultSubtitle={parsed?.email ?? ""}
+              />
               <BannerbearGenerator
                 files={rows}
                 defaultTitle={parsed ? `${parsed.date} session` : folder}
