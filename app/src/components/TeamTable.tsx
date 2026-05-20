@@ -29,17 +29,37 @@ export function TeamTable({
   users,
   canChangeRoles,
   currentUserId,
+  canDelete = false,
   allClients = [],
 }: {
   users: UserRow[];
   canChangeRoles: boolean;
   currentUserId: string;
+  canDelete?: boolean;
   allClients?: { email: string; name: string }[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [showInvite, setShowInvite] = useState(false);
   const [assignFor, setAssignFor] = useState<UserRow | null>(null);
+
+  async function deleteMember(u: UserRow) {
+    if (!confirm(`Remove ${u.firstName} ${u.lastName} (${u.email})?`)) return;
+    setBusy(u.id);
+    try {
+      const res = await fetch(`/api/admin/users/${u.id}`, { method: "DELETE" });
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : {};
+      if (!res.ok) {
+        alert(data.message || `Failed (${res.status})`);
+        setBusy(null);
+        return;
+      }
+      router.refresh();
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function setRole(id: string, role: string) {
     setBusy(id);
@@ -154,6 +174,16 @@ export function TeamTable({
                           className="px-3 py-1.5 rounded-[8px] bg-bg-elev-3 border border-border text-[12px]"
                         >
                           Manage
+                        </button>
+                      ) : null}
+                      {canDelete && u.id !== currentUserId ? (
+                        <button
+                          onClick={() => deleteMember(u)}
+                          disabled={busy === u.id}
+                          className="px-3 py-1.5 rounded-[8px] bg-bg-elev-3 border border-border text-[12px] text-danger disabled:opacity-50"
+                          title="Remove this team member"
+                        >
+                          Delete
                         </button>
                       ) : null}
                     </div>

@@ -53,6 +53,36 @@ export function FilePortal({
   const [search, setSearch] = useState("");
   const [aiReady, setAiReady] = useState(aiReadyByFile);
   const [aiProgress, setAiProgress] = useState<Record<string, number>>({});
+  // Per-file flag: true when there's at least one open revision note.
+  // Hydrated lazily on mount; null until first check, then boolean.
+  const [revisionByFile, setRevisionByFile] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const next: Record<string, boolean> = {};
+      for (const f of files) {
+        if (!/\.(mp4|mov|webm)$/i.test(f.name)) continue;
+        try {
+          const r = await fetch(`/api/revisions/${f.id}`, { cache: "no-store" });
+          if (!r.ok) continue;
+          const data = await r.json();
+          const open = (data.revisions?.notes ?? []).filter(
+            (n: { status: string }) => n.status === "open",
+          ).length;
+          if (open > 0) next[f.id] = true;
+        } catch {
+          /* ignore */
+        }
+        if (cancelled) return;
+      }
+      if (!cancelled) setRevisionByFile(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [toast, setToast] = useState<{
@@ -526,6 +556,7 @@ export function FilePortal({
                   <ApprovalToggle
                     value={f.approvalStatus}
                     onChange={(next) => updateApproval(f.id, next)}
+                    inRevision={!!revisionByFile[f.id]}
                   />
                 ) : (
                   <div className="hidden sm:block w-[170px] shrink-0" aria-hidden="true" />

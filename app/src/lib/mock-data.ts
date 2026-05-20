@@ -51,34 +51,6 @@ export const mockUsers: User[] = [
     creditsResetAt: "2026-06-01T00:00:00Z",
     createdAt: "2025-11-12T14:30:00Z",
   },
-  {
-    id: "u_client_2",
-    email: "sofia@example.com",
-    firstName: "Sofia",
-    lastName: "Tremblay",
-    avatar: "ST",
-    avatarColor: "linear-gradient(135deg,#14b8a6,#60a5fa)",
-    role: "client",
-    plan: "onpod_studio",
-    stripeCustomerId: "cus_mock_2",
-    stripeSubscriptionId: "sub_mock_2",
-    creditsResetAt: "2026-06-01T00:00:00Z",
-    createdAt: "2026-01-22T10:15:00Z",
-  },
-  {
-    id: "u_client_3",
-    email: "olivier@example.com",
-    firstName: "Olivier",
-    lastName: "Bouchard",
-    avatar: "OB",
-    avatarColor: "linear-gradient(135deg,#f59e0b,#ef4444)",
-    role: "client",
-    plan: "ext_studio_base",
-    stripeCustomerId: "cus_mock_3",
-    stripeSubscriptionId: "sub_mock_3",
-    creditsResetAt: "2026-06-01T00:00:00Z",
-    createdAt: "2025-08-04T09:00:00Z",
-  },
 ];
 
 export const mockCredits: Credits[] = [
@@ -87,10 +59,6 @@ export const mockCredits: Credits[] = [
   { userId: "u_editor",   podcastsUsed: 0, articlesUsed: 0,  opusClipsUsed: 0,  coverArtsUsed: 0,
     bonusPodcasts: 0, bonusArticles: 0, bonusOpusClips: 0, bonusCoverArts: 0 },
   { userId: "u_client_1", podcastsUsed: 2, articlesUsed: 14, opusClipsUsed: 11, coverArtsUsed: 3,
-    bonusPodcasts: 0, bonusArticles: 0, bonusOpusClips: 0, bonusCoverArts: 0 },
-  { userId: "u_client_2", podcastsUsed: 1, articlesUsed: 4,  opusClipsUsed: 2,  coverArtsUsed: 1,
-    bonusPodcasts: 0, bonusArticles: 0, bonusOpusClips: 0, bonusCoverArts: 0 },
-  { userId: "u_client_3", podcastsUsed: 5, articlesUsed: 22, opusClipsUsed: 18, coverArtsUsed: 6,
     bonusPodcasts: 0, bonusArticles: 0, bonusOpusClips: 0, bonusCoverArts: 0 },
 ];
 

@@ -154,6 +154,15 @@ export async function updateUserRole(
   await writeUsers(users);
 }
 
+export async function deleteUser(userId: string): Promise<boolean> {
+  const users = await readUsers();
+  const before = users.length;
+  const next = users.filter((u) => u.id !== userId);
+  if (next.length === before) return false;
+  await writeUsers(next);
+  return true;
+}
+
 export async function updateUserAssignedEditor(
   userId: string,
   assignedEditorEmail: string | null,
