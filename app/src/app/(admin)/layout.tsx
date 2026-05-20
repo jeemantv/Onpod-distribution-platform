@@ -4,6 +4,8 @@ import { requireEditorOrAdmin } from "@/lib/session";
 
 const ADMIN_NAV = [
   { href: "/admin/studios", label: "Studios" },
+  { href: "/admin/edits", label: "Edits" },
+  { href: "/admin/reviews", label: "Reviews" },
   { href: "/admin/clients", label: "Clients" },
   { href: "/admin/team", label: "Team" },
   { href: "/admin/projects", label: "All projects" },
@@ -12,6 +14,8 @@ const ADMIN_NAV = [
 ];
 
 const EDITOR_NAV = [
+  { href: "/admin/edits", label: "Edits" },
+  { href: "/admin/reviews", label: "Reviews" },
   { href: "/admin/studios", label: "Studios" },
   { href: "/admin/clients", label: "Clients" },
   { href: "/admin/projects", label: "All projects" },
