@@ -82,6 +82,9 @@ export function ThumbnailStudio({
   const [sourceUrl, setSourceUrl] = useState<string>("");
   const [frames, setFrames] = useState<FrameOption[]>([]);
   const [activeFrameUrl, setActiveFrameUrl] = useState<string>("");
+  // Layers in this set follow activeFrameUrl as it changes. Cleared
+  // when the user pastes a URL, clears, or uses Adjust+apply.
+  const [liveLayers, setLiveLayers] = useState<Set<string>>(new Set());
   const [stage, setStage] = useState<
     | "idle"
     | "extracting"
@@ -124,7 +127,19 @@ export function ThumbnailStudio({
     setActiveFrameUrl("");
     setAiSuggested(false);
     setResult(null);
+    setLiveLayers(new Set());
   }, [focusFileId, videoFiles]);
+
+  // When the selected frame changes, push that URL into every layer
+  // marked as live.
+  useEffect(() => {
+    if (!activeFrameUrl || liveLayers.size === 0) return;
+    setValues((prev) => {
+      const next = { ...prev };
+      for (const layer of liveLayers) next[layer] = activeFrameUrl;
+      return next;
+    });
+  }, [activeFrameUrl, liveLayers]);
 
   // Load Bannerbear templates once
   useEffect(() => {
@@ -168,6 +183,7 @@ export function ThumbnailStudio({
       }
     }
     setValues(next);
+    setLiveLayers(new Set());
   }, [tmpl, defaultTitle, defaultSubtitle]);
 
   // Pull title suggestion from AI metadata once per source change
@@ -199,6 +215,14 @@ export function ThumbnailStudio({
     })();
   }, [sourceFileId, aiSuggested, tmpl]);
 
+  // Append a per-call cache buster so a regenerated thumbnail (same B2
+  // key, new bytes) reloads in the browser instead of showing the cached
+  // old image.
+  function bust(url: string): string {
+    const sep = url.includes("?") ? "&" : "?";
+    return `${url}${sep}_r=${Date.now()}`;
+  }
+
   async function pickFrames(mode: "auto" | "all") {
     if (!sourceFileId || !sourceUrl) return;
     setError(null);
@@ -221,7 +245,7 @@ export function ThumbnailStudio({
           return;
         }
         const list: FrameOption[] = (data.thumbnails as { label: string; url: string }[]).map(
-          (t) => ({ url: t.url, label: t.label, source: "auto-pick" }),
+          (t) => ({ url: bust(t.url), label: t.label, source: "auto-pick" }),
         );
         setFrames(list);
         if (list[0]) setActiveFrameUrl(list[0].url);
@@ -241,7 +265,7 @@ export function ThumbnailStudio({
         });
         const data = await res.json();
         const t = data.thumbnails?.[0];
-        if (t) all.push({ url: t.url, label: `Frame ${i + 1}`, source: "all" });
+        if (t) all.push({ url: bust(t.url), label: `Frame ${i + 1}`, source: "all" });
       }
       setFrames(all);
       if (all[0]) setActiveFrameUrl(all[0].url);
@@ -278,7 +302,7 @@ export function ThumbnailStudio({
         source: "enhanced",
       };
       setFrames((prev) => [newFrame, ...prev]);
-      setActiveFrameUrl(data.url);
+      setActiveFrameUrl(bust(data.url));
       setStage("idle");
     } catch (err) {
       setError((err as Error).message);
@@ -317,7 +341,7 @@ export function ThumbnailStudio({
         const without = prev.filter((f) => f.url !== activeFrameUrl);
         return [replaced, ...without];
       });
-      setActiveFrameUrl(data.url);
+      setActiveFrameUrl(bust(data.url));
       setStage("idle");
     } catch (err) {
       setError((err as Error).message);
@@ -356,7 +380,7 @@ export function ThumbnailStudio({
         transparent: src?.transparent ?? activeFrameUrl.endsWith(".png"),
       };
       setFrames((prev) => [next, ...prev]);
-      setActiveFrameUrl(data.url);
+      setActiveFrameUrl(bust(data.url));
       setStage("idle");
     } catch (err) {
       setError((err as Error).message);
@@ -390,7 +414,7 @@ export function ThumbnailStudio({
           transparent: mime.includes("png"),
         };
         setFrames((prev) => [next, ...prev]);
-        setActiveFrameUrl(data.url);
+        setActiveFrameUrl(bust(data.url));
       }
       setStage("idle");
     } catch (err) {
@@ -529,7 +553,7 @@ export function ThumbnailStudio({
         transparent: isTransparent,
       };
       setFrames((prev) => [newFrame, ...prev]);
-      setActiveFrameUrl(data.url);
+      setActiveFrameUrl(bust(data.url));
       if (cropTarget.layer) {
         setValues((prev) => ({ ...prev, [cropTarget.layer!]: data.url }));
       }
@@ -570,20 +594,13 @@ export function ThumbnailStudio({
         setStage("idle");
         return;
       }
-      setResult({ url: data.url });
+      setResult({ url: bust(data.url) });
       window.dispatchEvent(new CustomEvent("onpod:thumbnail-saved"));
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setStage("idle");
     }
-  }
-
-  function openYouTube() {
-    if (!sourceFileId) return;
-    window.dispatchEvent(
-      new CustomEvent("onpod:open-youtube", { detail: { fileId: sourceFileId } }),
-    );
   }
 
   if (videoFiles.length === 0) return null;
@@ -802,12 +819,20 @@ export function ThumbnailStudio({
                 const isImg = isImageField(m.name);
                 if (isImg) {
                   const currentVal = values[m.name] ?? "";
+                  const isLive = liveLayers.has(m.name);
                   return (
                     <div key={m.name} className="space-y-1">
-                      <div className="text-[11px] text-text-muted">
+                      <div className="text-[11px] text-text-muted flex items-center gap-2 flex-wrap">
                         <code className="text-accent-2">{m.name}</code>
-                        <span className="text-text-dim ml-2">
-                          (image layer · empty = template default)
+                        {isLive ? (
+                          <span className="px-1.5 py-0.5 rounded-full bg-accent-2 text-bg text-[9px] uppercase">
+                            ● Live
+                          </span>
+                        ) : null}
+                        <span className="text-text-dim">
+                          {isLive
+                            ? "follows the selected frame"
+                            : "empty = template default"}
                         </span>
                       </div>
                       {currentVal ? (
@@ -824,13 +849,21 @@ export function ThumbnailStudio({
                       )}
                       <div className="flex items-center gap-2 flex-wrap mt-1">
                         <button
-                          onClick={() =>
-                            setValues((prev) => ({ ...prev, [m.name]: activeFrameUrl }))
-                          }
+                          onClick={() => {
+                            setValues((prev) => ({
+                              ...prev,
+                              [m.name]: activeFrameUrl,
+                            }));
+                            setLiveLayers((prev) => {
+                              const next = new Set(prev);
+                              next.add(m.name);
+                              return next;
+                            });
+                          }}
                           disabled={!activeFrameUrl}
                           className="px-2.5 py-1.5 rounded-[8px] bg-accent text-white text-[11px] disabled:opacity-40"
                         >
-                          Use selected frame
+                          {isLive ? "✓ Live · selected frame" : "Use selected frame"}
                         </button>
                         <button
                           onClick={() => openCrop(m.name)}
@@ -840,9 +873,14 @@ export function ThumbnailStudio({
                           Adjust + apply
                         </button>
                         <button
-                          onClick={() =>
-                            setValues((prev) => ({ ...prev, [m.name]: "" }))
-                          }
+                          onClick={() => {
+                            setValues((prev) => ({ ...prev, [m.name]: "" }));
+                            setLiveLayers((prev) => {
+                              const next = new Set(prev);
+                              next.delete(m.name);
+                              return next;
+                            });
+                          }}
                           className="px-2.5 py-1.5 rounded-[8px] bg-bg-elev-2 border border-border text-[11px]"
                         >
                           Clear
@@ -851,12 +889,17 @@ export function ThumbnailStudio({
                       <input
                         type="url"
                         value={currentVal}
-                        onChange={(e) =>
+                        onChange={(e) => {
                           setValues((prev) => ({
                             ...prev,
                             [m.name]: e.target.value,
-                          }))
-                        }
+                          }));
+                          setLiveLayers((prev) => {
+                            const next = new Set(prev);
+                            next.delete(m.name);
+                            return next;
+                          });
+                        }}
                         placeholder="…or paste an image URL"
                         className="w-full px-3 py-1.5 bg-bg-elev-2 border border-border rounded-[8px] text-[12px] font-mono"
                       />
@@ -905,19 +948,14 @@ export function ThumbnailStudio({
             alt="Final thumbnail"
             className="rounded-[8px] border border-border max-w-full"
           />
-          <p className="text-[11px] text-text-muted mt-2 break-all">
-            Saved to: {result.url}
+          <p className="text-[11px] text-success mt-2">
+            ✓ Saved as the file&apos;s cover. The YouTube tab will pre-select it
+            when you open that file&apos;s YouTube modal.
           </p>
-          <p className="text-[11px] text-success mt-1">
-            ✓ Also saved as <code>.cover.jpg</code> — YouTube modal will preselect it.
+          <p className="text-[11px] text-text-muted mt-1 break-all">
+            {result.url}
           </p>
           <div className="mt-3 flex items-center gap-2 flex-wrap">
-            <button
-              onClick={openYouTube}
-              className="px-3 py-2 rounded-[10px] bg-accent text-white text-[12px]"
-            >
-              🚀 Save & post to YouTube
-            </button>
             <a
               href={result.url}
               target="_blank"
@@ -926,6 +964,14 @@ export function ThumbnailStudio({
             >
               Open full size
             </a>
+            <button
+              onClick={() => {
+                setResult(null);
+              }}
+              className="px-3 py-2 rounded-[10px] bg-bg-elev-3 border border-border text-[12px]"
+            >
+              Make another
+            </button>
           </div>
         </div>
       ) : null}
