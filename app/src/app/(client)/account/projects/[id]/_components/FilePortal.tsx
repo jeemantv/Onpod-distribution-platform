@@ -7,6 +7,7 @@ import { formatBytes } from "@/lib/format";
 import { FileActionButtons } from "./FileActionButtons";
 import { ApprovalToggle } from "./ApprovalToggle";
 import { FileStatusBadges } from "./FileStatusBadges";
+import { VersionMenu } from "@/components/VersionMenu";
 import { AIStudioModal } from "./AIStudioModal";
 import { YouTubeModal, type PublishedInfo as YTPublishedInfo } from "./YouTubeModal";
 import { uploadToYouTube, type UploadProgress } from "@/lib/yt-uploader";
@@ -546,6 +547,9 @@ export function FilePortal({
                     <span>{formatBytes(f.sizeBytes)}</span>
                     <span>·</span>
                     <span>{new Date(f.uploadedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+                    {/(\.(mp4|mov|webm))$/i.test(f.name) ? (
+                      <VersionMenu fileId={f.id} canManage={canMarkDone} />
+                    ) : null}
                     <FileStatusBadges file={f} />
                   </div>
                 </div>

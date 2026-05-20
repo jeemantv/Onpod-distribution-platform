@@ -21,6 +21,11 @@ import { AI_SUFFIX, TRANSCRIPT_SUFFIX } from "@/lib/transcript-store";
 import type { FileItem } from "@/lib/types";
 import { SessionUploader } from "@/components/SessionUploader";
 import { FilePortal } from "@/app/(client)/account/projects/[id]/_components/FilePortal";
+import {
+  canonicalKey,
+  isVersionedKey,
+  resolveActive,
+} from "@/lib/versions-store";
 
 export const dynamic = "force-dynamic";
 
@@ -47,32 +52,44 @@ export default async function SessionPage({
       !o.key.endsWith(AI_SUFFIX) &&
       !o.key.endsWith(TRANSCRIPT_SUFFIX) &&
       !o.key.endsWith(".file-meta.json") &&
+      !o.key.endsWith(".versions.json") &&
+      !o.key.endsWith(".revisions.json") &&
       !o.key.includes(".cover-") &&
       !o.key.includes(".bb-") &&
       !o.key.includes(".thumb-") &&
       !o.key.includes(".enhanced") &&
-      !o.key.includes(".nobg-"),
+      !o.key.includes(".nobg-") &&
+      // Hide versioned siblings (foo.v2.mp4) — the canonical row
+      // resolves to the active version under the hood.
+      !isVersionedKey(o.key),
   );
 
-  // Synthetic projectId = the session folder; FilePortal uses it only
-  // for caching keys / contextMenu UI, no API call depends on it when
-  // studioContext is set.
   const syntheticProjectId = `studio:${studio}:${bucket}:${folder}`;
   void listFiles;
 
-  const files: FileItem[] = visibleObjects.map((o) => ({
-    id: encodeFileId(o.key),
-    projectId: syntheticProjectId,
-    name: o.filename,
-    type: classifyByFilename(o.filename),
-    mimeType: guessMimeType(o.filename),
-    sizeBytes: o.sizeBytes,
-    backblazeKey: o.key,
-    uploadedAt: o.lastModified ?? new Date().toISOString(),
-    approvalStatus: "none",
-    publishStates: [],
-    downloadCount: 0,
-  }));
+  const files: FileItem[] = await Promise.all(
+    visibleObjects.map(async (o) => {
+      // For video files, resolve the active version (which may be a
+      // .vN sibling) so the row points at the latest edit.
+      const isVideo = /\.(mp4|mov|webm)$/i.test(o.filename);
+      const canonical = canonicalKey(o.key);
+      const active = isVideo ? await resolveActive(canonical) : null;
+      const liveKey = active && active.n > 1 ? active.key : o.key;
+      return {
+        id: encodeFileId(canonical), // stable identifier = canonical (v1) key
+        projectId: syntheticProjectId,
+        name: o.filename,
+        type: classifyByFilename(o.filename),
+        mimeType: guessMimeType(o.filename),
+        sizeBytes: o.sizeBytes,
+        backblazeKey: liveKey,
+        uploadedAt: o.lastModified ?? new Date().toISOString(),
+        approvalStatus: "none",
+        publishStates: [],
+        downloadCount: 0,
+      };
+    }),
+  );
 
   const aiByFile: Record<string, boolean> = {};
   for (const f of files) {

@@ -18,6 +18,7 @@ import {
 import { AI_SUFFIX, TRANSCRIPT_SUFFIX } from "@/lib/transcript-store";
 import type { FileItem } from "@/lib/types";
 import { FilePortal } from "@/app/(client)/account/projects/[id]/_components/FilePortal";
+import { canonicalKey, isVersionedKey, resolveActive } from "@/lib/versions-store";
 
 export const dynamic = "force-dynamic";
 
@@ -45,26 +46,37 @@ export default async function ClientSessionPage({
       !o.key.endsWith(AI_SUFFIX) &&
       !o.key.endsWith(TRANSCRIPT_SUFFIX) &&
       !o.key.endsWith(".file-meta.json") &&
+      !o.key.endsWith(".versions.json") &&
+      !o.key.endsWith(".revisions.json") &&
       !o.key.includes(".cover-") &&
       !o.key.includes(".bb-") &&
       !o.key.includes(".thumb-") &&
       !o.key.includes(".enhanced") &&
-      !o.key.includes(".nobg-"),
+      !o.key.includes(".nobg-") &&
+      !isVersionedKey(o.key),
   );
   const syntheticProjectId = `studio:${studio}:clients:${folder}`;
-  const files: FileItem[] = visibleObjects.map((o) => ({
-    id: encodeFileId(o.key),
-    projectId: syntheticProjectId,
-    name: o.filename,
-    type: classifyByFilename(o.filename),
-    mimeType: guessMimeType(o.filename),
-    sizeBytes: o.sizeBytes,
-    backblazeKey: o.key,
-    uploadedAt: o.lastModified ?? new Date().toISOString(),
-    approvalStatus: "none",
-    publishStates: [],
-    downloadCount: 0,
-  }));
+  const files: FileItem[] = await Promise.all(
+    visibleObjects.map(async (o) => {
+      const isVideo = /\.(mp4|mov|webm)$/i.test(o.filename);
+      const canonical = canonicalKey(o.key);
+      const active = isVideo ? await resolveActive(canonical) : null;
+      const liveKey = active && active.n > 1 ? active.key : o.key;
+      return {
+        id: encodeFileId(canonical),
+        projectId: syntheticProjectId,
+        name: o.filename,
+        type: classifyByFilename(o.filename),
+        mimeType: guessMimeType(o.filename),
+        sizeBytes: o.sizeBytes,
+        backblazeKey: liveKey,
+        uploadedAt: o.lastModified ?? new Date().toISOString(),
+        approvalStatus: "none",
+        publishStates: [],
+        downloadCount: 0,
+      };
+    }),
+  );
   const aiByFile: Record<string, boolean> = {};
   for (const f of files) {
     aiByFile[f.id] = aiKeys.has(f.backblazeKey + AI_SUFFIX);
