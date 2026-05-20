@@ -3,6 +3,7 @@ import { decodeFileId, getDownloadUrl } from "@/lib/b2";
 import { getFreshAccessToken, getConnection } from "@/lib/youtube-store";
 import { setThumbnail, uploadVideo } from "@/lib/youtube";
 import { getSession } from "@/lib/session";
+import { canAccessKey } from "@/lib/access";
 import { getAI } from "@/lib/transcript-store";
 import { recordPublish } from "@/lib/publish-history-store";
 
@@ -37,8 +38,7 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "invalid_file_id" }, { status: 400 });
   }
-  const [ownerId] = key.split("/", 1);
-  if (user.role !== "admin" && ownerId !== user.id) {
+  if (!canAccessKey(user, key)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
