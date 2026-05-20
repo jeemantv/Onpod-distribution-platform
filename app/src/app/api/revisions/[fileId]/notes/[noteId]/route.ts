@@ -1,4 +1,6 @@
-// PATCH — toggle a note's status (done/open). Editor + admin can mark done.
+// PATCH — toggle a note's status (done/open) OR edit the text. Status
+//         can be flipped by editor/admin. Text can be edited by the
+//         note's author or any staff.
 // DELETE — remove a note (only its author or staff).
 
 import { NextResponse } from "next/server";
@@ -8,6 +10,10 @@ import { canAccessKey } from "@/lib/access";
 import { getRevisions, saveRevisions } from "@/lib/revisions-store";
 
 export const maxDuration = 30;
+
+function isStaff(role: string): boolean {
+  return role === "admin" || role === "editor";
+}
 
 export async function PATCH(
   req: Request,
@@ -23,7 +29,12 @@ export async function PATCH(
   if (!canAccessKey(user, key)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
-  const body = (await req.json()) as { status?: "open" | "done" };
+  let body: { status?: "open" | "done"; text?: string };
+  try {
+    body = (await req.json()) as typeof body;
+  } catch {
+    return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+  }
   const file = await getRevisions(key);
   if (!file) {
     return NextResponse.json({ error: "no_revisions" }, { status: 404 });
@@ -32,27 +43,47 @@ export async function PATCH(
   if (idx < 0) {
     return NextResponse.json({ error: "note_not_found" }, { status: 404 });
   }
-  if (body.status === "done") {
-    file.notes[idx] = {
-      ...file.notes[idx],
-      status: "done",
-      doneAt: Date.now(),
-      doneByEmail: user.email,
-    };
-  } else {
-    file.notes[idx] = {
-      ...file.notes[idx],
-      status: "open",
-      doneAt: undefined,
-      doneByEmail: undefined,
-    };
+  const note = file.notes[idx];
+
+  // Text edit — only author or staff
+  if (body.text !== undefined) {
+    if (note.createdByEmail !== user.email && !isStaff(user.role)) {
+      return NextResponse.json({ error: "forbidden_edit" }, { status: 403 });
+    }
+    const trimmed = body.text.trim();
+    if (!trimmed) {
+      return NextResponse.json({ error: "empty_text" }, { status: 400 });
+    }
+    file.notes[idx] = { ...note, text: trimmed };
   }
-  // If all notes done, mark the file completed
-  if (file.notes.every((n) => n.status === "done")) {
-    file.status = "completed";
-  } else if (file.status === "completed") {
-    file.status = "in_review";
+
+  // Status change — only staff (clients can't mark their own notes done)
+  if (body.status !== undefined) {
+    if (!isStaff(user.role)) {
+      return NextResponse.json({ error: "forbidden_status" }, { status: 403 });
+    }
+    if (body.status === "done") {
+      file.notes[idx] = {
+        ...file.notes[idx],
+        status: "done",
+        doneAt: Date.now(),
+        doneByEmail: user.email,
+      };
+    } else {
+      file.notes[idx] = {
+        ...file.notes[idx],
+        status: "open",
+        doneAt: undefined,
+        doneByEmail: undefined,
+      };
+    }
+    if (file.notes.every((n) => n.status === "done")) {
+      file.status = "completed";
+    } else if (file.status === "completed") {
+      file.status = "in_review";
+    }
   }
+
   await saveRevisions(key, file);
   return NextResponse.json({ revisions: file });
 }
@@ -79,11 +110,15 @@ export async function DELETE(
   if (!note) {
     return NextResponse.json({ error: "note_not_found" }, { status: 404 });
   }
-  const isStaff = user.role === "admin" || (user.role as string) === "editor";
-  if (note.createdByEmail !== user.email && !isStaff) {
+  if (note.createdByEmail !== user.email && !isStaff(user.role)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   file.notes = file.notes.filter((n) => n.id !== params.noteId);
+  if (file.notes.length > 0 && file.notes.every((n) => n.status === "done")) {
+    file.status = "completed";
+  } else if (file.notes.length === 0) {
+    file.status = "open";
+  }
   await saveRevisions(key, file);
   return NextResponse.json({ revisions: file });
 }

@@ -91,6 +91,10 @@ export function VideoReviewer({
     recipient?: string;
     message?: string;
   } | null>(null);
+  // Inline edit state — note id currently being edited, plus the
+  // draft text. null means no edit in progress.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState("");
 
   // Load revisions on mount + when file changes
   useEffect(() => {
@@ -245,6 +249,32 @@ export function VideoReviewer({
         return;
       }
       setRevisions(data.revisions);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveEditedText(note: Note, newText: string) {
+    const trimmed = newText.trim();
+    if (!trimmed || trimmed === note.text) {
+      setEditingId(null);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/revisions/${fileId}/notes/${note.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: trimmed }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.message || "Could not update note");
+        return;
+      }
+      setRevisions(data.revisions);
+      setEditingId(null);
     } finally {
       setBusy(false);
     }
@@ -418,59 +448,123 @@ export function VideoReviewer({
           </p>
         ) : (
           <ul className="space-y-2">
-            {notes.map((n) => (
-              <li
-                key={n.id}
-                className={`flex items-start gap-3 px-3 py-2 rounded-[10px] border ${
-                  n.status === "done"
-                    ? "bg-bg-elev-2 border-border opacity-70"
-                    : "bg-bg-elev-2 border-border"
-                }`}
-              >
-                <button
-                  onClick={() => seekTo(n.timeSeconds)}
-                  className="text-[11px] font-mono px-2 py-1 rounded-[6px] bg-bg-elev-3 border border-border shrink-0"
-                  title="Jump to this time"
+            {notes.map((n) => {
+              const isMine = n.createdByEmail === currentEmail;
+              const canEdit = isMine || canMarkDone;
+              const isEditing = editingId === n.id;
+              return (
+                <li
+                  key={n.id}
+                  className={`flex items-start gap-3 px-3 py-2 rounded-[10px] border ${
+                    n.status === "done"
+                      ? "bg-bg-elev-2 border-border opacity-70"
+                      : "bg-bg-elev-2 border-border"
+                  }`}
                 >
-                  {n.timeSeconds >= 0 ? fmtTime(n.timeSeconds) : "—"}
-                </button>
-                <div className="flex-1 min-w-0">
-                  <div
-                    className={`text-[13px] ${n.status === "done" ? "line-through text-text-muted" : ""}`}
+                  <button
+                    onClick={() => seekTo(n.timeSeconds)}
+                    className="text-[11px] font-mono px-2 py-1 rounded-[6px] bg-bg-elev-3 border border-border shrink-0"
+                    title="Jump to this time"
                   >
-                    {n.text}
+                    {n.timeSeconds >= 0 ? fmtTime(n.timeSeconds) : "—"}
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    {isEditing ? (
+                      <textarea
+                        autoFocus
+                        rows={2}
+                        value={editingText}
+                        onChange={(e) => setEditingText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") {
+                            setEditingId(null);
+                          } else if (
+                            e.key === "Enter" &&
+                            (e.metaKey || e.ctrlKey)
+                          ) {
+                            e.preventDefault();
+                            void saveEditedText(n, editingText);
+                          }
+                        }}
+                        className="w-full px-2 py-1.5 bg-bg border border-border rounded-[6px] text-[13px]"
+                      />
+                    ) : (
+                      <div
+                        className={`text-[13px] ${
+                          n.status === "done" ? "line-through text-text-muted" : ""
+                        }`}
+                      >
+                        {n.text}
+                      </div>
+                    )}
+                    <div className="text-[10px] text-text-dim mt-0.5">
+                      {n.createdByName} · {fmtAge(n.createdAt)}
+                      {isMine ? (
+                        <span className="ml-1 px-1.5 py-0.5 rounded-full bg-bg-elev-3 border border-border text-[9px] uppercase">
+                          you
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="text-[10px] text-text-dim mt-0.5">
-                    {n.createdByName} · {fmtAge(n.createdAt)}
+                  <div className="flex items-center gap-1 shrink-0">
+                    {canMarkDone && !isEditing ? (
+                      <button
+                        onClick={() => toggleDone(n)}
+                        disabled={busy}
+                        className={`px-2.5 py-1 rounded-[6px] text-[11px] disabled:opacity-50 ${
+                          n.status === "done"
+                            ? "bg-bg-elev-3 border border-border"
+                            : "bg-accent-2 text-bg"
+                        }`}
+                      >
+                        {n.status === "done" ? "Reopen" : "✓ Done"}
+                      </button>
+                    ) : null}
+                    {canEdit && !isEditing ? (
+                      <button
+                        onClick={() => {
+                          setEditingId(n.id);
+                          setEditingText(n.text);
+                        }}
+                        disabled={busy}
+                        className="px-2.5 py-1 rounded-[6px] bg-bg-elev-3 border border-border text-[11px] disabled:opacity-50"
+                        title="Edit this note"
+                      >
+                        Edit
+                      </button>
+                    ) : null}
+                    {canEdit && isEditing ? (
+                      <>
+                        <button
+                          onClick={() => void saveEditedText(n, editingText)}
+                          disabled={busy}
+                          className="px-2.5 py-1 rounded-[6px] bg-accent text-white text-[11px] disabled:opacity-50"
+                        >
+                          Save
+                        </button>
+                        <button
+                          onClick={() => setEditingId(null)}
+                          disabled={busy}
+                          className="px-2.5 py-1 rounded-[6px] bg-bg-elev-3 border border-border text-[11px]"
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    ) : null}
+                    {canEdit && !isEditing ? (
+                      <button
+                        onClick={() => deleteNote(n)}
+                        disabled={busy}
+                        className="px-2.5 py-1 rounded-[6px] bg-bg-elev-3 border border-border text-[11px] text-danger disabled:opacity-50"
+                        title="Delete this note"
+                      >
+                        Delete
+                      </button>
+                    ) : null}
                   </div>
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  {canMarkDone ? (
-                    <button
-                      onClick={() => toggleDone(n)}
-                      disabled={busy}
-                      className={`px-2.5 py-1 rounded-[6px] text-[11px] disabled:opacity-50 ${
-                        n.status === "done"
-                          ? "bg-bg-elev-3 border border-border"
-                          : "bg-accent-2 text-bg"
-                      }`}
-                    >
-                      {n.status === "done" ? "Reopen" : "✓ Done"}
-                    </button>
-                  ) : null}
-                  {n.createdByEmail === currentEmail || canMarkDone ? (
-                    <button
-                      onClick={() => deleteNote(n)}
-                      disabled={busy}
-                      className="px-2.5 py-1 rounded-[6px] bg-bg-elev-3 border border-border text-[11px] disabled:opacity-50"
-                      title="Delete note"
-                    >
-                      ×
-                    </button>
-                  ) : null}
-                </div>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
