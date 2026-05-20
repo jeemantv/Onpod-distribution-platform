@@ -20,7 +20,13 @@ type JobState = {
   fetchError?: string;
 };
 
-export function OpusClipPanel({ files }: { files: FileRow[] }) {
+export function OpusClipPanel({
+  files,
+  focusFileId,
+}: {
+  files: FileRow[];
+  focusFileId?: string;
+}) {
   const videoFiles = useMemo(
     () => files.filter((f) => isVideo(f.filename)),
     [files],
@@ -36,6 +42,12 @@ export function OpusClipPanel({ files }: { files: FileRow[] }) {
       setActiveFileId(videoFiles[0].fileId);
     }
   }, [videoFiles, activeFileId]);
+
+  useEffect(() => {
+    if (focusFileId && videoFiles.some((f) => f.fileId === focusFileId)) {
+      setActiveFileId(focusFileId);
+    }
+  }, [focusFileId, videoFiles]);
 
   useEffect(() => {
     if (!job) return;

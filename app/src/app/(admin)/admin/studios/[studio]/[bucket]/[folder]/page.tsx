@@ -11,13 +11,8 @@ import {
   type Bucket,
   type StudioSlug,
 } from "@/lib/studio";
-import { SessionFileList } from "@/components/SessionFileList";
 import { SessionUploader } from "@/components/SessionUploader";
-import { SessionAITools } from "@/components/SessionAITools";
-import { AIMetadataPanel } from "@/components/AIMetadataPanel";
-import { OpusClipPanel } from "@/components/OpusClipPanel";
-import { ThumbnailStudio } from "@/components/ThumbnailStudio";
-import { PodcastPublish } from "@/components/PodcastPublish";
+import { SessionVideoList } from "@/components/SessionVideoList";
 import { encodeFileId } from "@/lib/b2";
 
 export const dynamic = "force-dynamic";
@@ -41,6 +36,8 @@ export default async function SessionPage({
     filename: f.filename,
     fileId: encodeFileId(f.key),
     url: f.url,
+    sizeBytes: f.sizeBytes,
+    lastModified: f.lastModified,
   }));
 
   return (
@@ -74,39 +71,26 @@ export default async function SessionPage({
         {parsed?.email ? <> · {parsed.email}</> : null} · {files.length} files
       </p>
 
-      <div className="mb-4">
+      <div className="mb-6">
         <SessionUploader studio={studio} bucket={bucket} folder={folder} />
       </div>
 
-      <SessionAITools files={rows} />
-      <AIMetadataPanel files={rows} />
-      <ThumbnailStudio
+      <SessionVideoList
+        studio={studio}
+        bucket={bucket}
+        folder={folder}
         files={rows}
         defaultTitle={parsed ? `${parsed.date} session` : folder}
         defaultSubtitle={parsed?.email ?? ""}
-      />
-      <OpusClipPanel files={rows} />
-      <PodcastPublish
-        files={rows}
         ownerEmail={parsed?.email ?? null}
-        showSettingsHref={
+        podcastSettingsHref={
           parsed?.email
             ? `/admin/podcast?email=${encodeURIComponent(parsed.email)}`
             : "/settings/podcast"
         }
+        canEdit={user.role === "admin" || user.role === "editor"}
+        canDelete={user.role === "admin"}
       />
-
-      <div className="mt-6">
-        <h2 className="display text-[20px] text-text-muted mb-4">Files</h2>
-        <SessionFileList
-          studio={studio}
-          bucket={bucket}
-          folder={folder}
-          files={files}
-          canEdit={user.role === "admin" || user.role === "editor"}
-          canDelete={user.role === "admin"}
-        />
-      </div>
     </>
   );
 }

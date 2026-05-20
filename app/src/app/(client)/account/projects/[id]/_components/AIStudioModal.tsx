@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
 import type { FileItem, ArticleFormat } from "@/lib/types";
-import { ThumbnailGenerator } from "./ThumbnailGenerator";
+import { ThumbnailStudio } from "@/components/ThumbnailStudio";
+import { publicUrl } from "@/lib/b2-public";
 
 interface AIData {
   title: string;
@@ -359,7 +360,17 @@ export function AIStudioModal({
       ) : null}
 
       {tab === "thumbnails" ? (
-        <ThumbnailGenerator fileId={fileId} file={file} aiTitle={data.title} />
+        <ThumbnailStudio
+          files={[
+            {
+              key: file.backblazeKey,
+              filename: file.name,
+              fileId,
+              url: publicUrl(file.backblazeKey),
+            },
+          ]}
+          defaultTitle={data.title || ""}
+        />
       ) : null}
 
       {tab === "transcript" ? (

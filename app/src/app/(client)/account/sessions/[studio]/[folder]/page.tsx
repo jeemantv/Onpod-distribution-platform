@@ -11,12 +11,7 @@ import {
   type StudioSlug,
 } from "@/lib/studio";
 import { encodeFileId } from "@/lib/b2";
-import { SessionAITools } from "@/components/SessionAITools";
-import { AIMetadataPanel } from "@/components/AIMetadataPanel";
-import { OpusClipPanel } from "@/components/OpusClipPanel";
-import { ThumbnailStudio } from "@/components/ThumbnailStudio";
-import { PodcastPublish } from "@/components/PodcastPublish";
-import { SessionFileList } from "@/components/SessionFileList";
+import { SessionVideoList } from "@/components/SessionVideoList";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +36,8 @@ export default async function ClientSessionPage({
     filename: f.filename,
     fileId: encodeFileId(f.key),
     url: f.url,
+    sizeBytes: f.sizeBytes,
+    lastModified: f.lastModified,
   }));
 
   return (
@@ -63,27 +60,16 @@ export default async function ClientSessionPage({
           {STUDIO_LABEL[studio]} studio · {files.length} files
         </p>
 
-        <SessionAITools files={rows} />
-        <AIMetadataPanel files={rows} />
-        <ThumbnailStudio
+        <SessionVideoList
+          studio={studio}
+          bucket="clients"
+          folder={folder}
           files={rows}
           defaultTitle={parsed ? `${parsed.date} session` : folder}
           defaultSubtitle={parsed?.email ?? ""}
+          canEdit={false}
+          canDelete={false}
         />
-        <OpusClipPanel files={rows} />
-        <PodcastPublish files={rows} />
-
-        <div className="mt-6">
-          <h2 className="display text-[20px] text-text-muted mb-4">Files</h2>
-          <SessionFileList
-            studio={studio}
-            bucket="clients"
-            folder={folder}
-            files={files}
-            canEdit={false}
-            canDelete={false}
-          />
-        </div>
       </main>
     </>
   );

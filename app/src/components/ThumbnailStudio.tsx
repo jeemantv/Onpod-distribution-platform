@@ -30,7 +30,7 @@ interface Template {
 interface FrameOption {
   url: string;
   label: string;
-  source: "auto-pick" | "all" | "enhanced";
+  source: "auto-pick" | "all" | "enhanced" | "no-bg";
 }
 
 const FRAME_COUNT = 6;
@@ -47,10 +47,12 @@ export function ThumbnailStudio({
   files,
   defaultTitle = "",
   defaultSubtitle = "",
+  focusFileId,
 }: {
   files: FileRow[];
   defaultTitle?: string;
   defaultSubtitle?: string;
+  focusFileId?: string;
 }) {
   const videoFiles = useMemo(
     () => files.filter((f) => isVideo(f.filename)),
@@ -62,7 +64,7 @@ export function ThumbnailStudio({
   const [frames, setFrames] = useState<FrameOption[]>([]);
   const [activeFrameUrl, setActiveFrameUrl] = useState<string>("");
   const [stage, setStage] = useState<
-    "idle" | "extracting" | "vision" | "enhancing" | "rendering"
+    "idle" | "extracting" | "vision" | "enhancing" | "removing-bg" | "rendering"
   >("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -80,6 +82,18 @@ export function ThumbnailStudio({
       setSourceUrl(videoFiles[0].url);
     }
   }, [videoFiles, sourceFileId]);
+
+  useEffect(() => {
+    if (!focusFileId) return;
+    const row = videoFiles.find((v) => v.fileId === focusFileId);
+    if (!row) return;
+    setSourceFileId(row.fileId);
+    setSourceUrl(row.url);
+    setFrames([]);
+    setActiveFrameUrl("");
+    setAiSuggested(false);
+    setResult(null);
+  }, [focusFileId, videoFiles]);
 
   // Load Bannerbear templates once
   useEffect(() => {
@@ -216,6 +230,40 @@ export function ThumbnailStudio({
   function chooseFrame(url: string) {
     setActiveFrameUrl(url);
     autofillImageField(url);
+  }
+
+  async function removeBg() {
+    if (!sourceFileId || !activeFrameUrl) return;
+    setStage("removing-bg");
+    setError(null);
+    try {
+      const res = await fetch("/api/ai/remove-background", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileId: sourceFileId,
+          imageUrl: activeFrameUrl,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.message || `Remove-bg failed (${res.status})`);
+        setStage("idle");
+        return;
+      }
+      const newFrame: FrameOption = {
+        url: data.url,
+        label: "No background",
+        source: "no-bg",
+      };
+      setFrames((prev) => [newFrame, ...prev]);
+      setActiveFrameUrl(data.url);
+      autofillImageField(data.url);
+      setStage("idle");
+    } catch (err) {
+      setError((err as Error).message);
+      setStage("idle");
+    }
   }
 
   async function enhance() {
@@ -366,7 +414,7 @@ export function ThumbnailStudio({
                 <img src={f.url} alt={f.label} className="w-full block" />
                 <div
                   className={`absolute top-1 left-1 px-2 py-0.5 rounded-full text-[10px] uppercase ${
-                    f.source === "enhanced"
+                    f.source === "enhanced" || f.source === "no-bg"
                       ? "bg-accent-2 text-bg"
                       : "bg-black/70 text-white"
                   }`}
@@ -379,16 +427,24 @@ export function ThumbnailStudio({
         ) : null}
 
         {activeFrameUrl ? (
-          <div className="flex items-center gap-2 mt-3">
+          <div className="flex items-center gap-2 mt-3 flex-wrap">
             <button
               onClick={enhance}
               disabled={busy}
               className="px-3 py-2 rounded-[10px] bg-bg-elev-2 border border-border text-[12px] disabled:opacity-50"
             >
-              {stage === "enhancing" ? "Enhancing with Gemini…" : "✨ Enhance with Gemini"}
+              {stage === "enhancing" ? "Enhancing…" : "✨ Enhance (Gemini)"}
+            </button>
+            <button
+              onClick={removeBg}
+              disabled={busy}
+              className="px-3 py-2 rounded-[10px] bg-bg-elev-2 border border-border text-[12px] disabled:opacity-50"
+            >
+              {stage === "removing-bg" ? "Removing…" : "✂️ Remove background"}
             </button>
             <span className="text-[11px] text-text-dim">
-              Sharpens, lifts shadows, balances color. Slow (~10–20s).
+              Enhance polishes the frame. Remove-bg cuts the subject out as PNG so
+              you can drop it over a Bannerbear backdrop.
             </span>
           </div>
         ) : null}

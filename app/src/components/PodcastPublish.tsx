@@ -30,10 +30,12 @@ export function PodcastPublish({
   files,
   ownerEmail,
   showSettingsHref = "/settings/podcast",
+  focusFileId,
 }: {
   files: FileRow[];
   ownerEmail?: string | null;
   showSettingsHref?: string;
+  focusFileId?: string;
 }) {
   const episodes = useMemo(
     () => files.filter((f) => isAudioOrVideo(f.filename)),
@@ -51,6 +53,12 @@ export function PodcastPublish({
       setActiveFileId(episodes[0].fileId);
     }
   }, [episodes, activeFileId]);
+
+  useEffect(() => {
+    if (focusFileId && episodes.some((f) => f.fileId === focusFileId)) {
+      setActiveFileId(focusFileId);
+    }
+  }, [focusFileId, episodes]);
 
   useEffect(() => {
     void (async () => {

@@ -22,7 +22,13 @@ function isVideo(name: string): boolean {
   return /\.(mp4|mov|webm|m4a|mp3|wav|flac)$/i.test(name);
 }
 
-export function AIMetadataPanel({ files }: { files: FileRow[] }) {
+export function AIMetadataPanel({
+  files,
+  focusFileId,
+}: {
+  files: FileRow[];
+  focusFileId?: string;
+}) {
   const videoFiles = useMemo(
     () => files.filter((f) => isVideo(f.filename)),
     [files],
@@ -36,6 +42,12 @@ export function AIMetadataPanel({ files }: { files: FileRow[] }) {
       setActiveFileId(videoFiles[0].fileId);
     }
   }, [videoFiles, activeFileId]);
+
+  useEffect(() => {
+    if (focusFileId && videoFiles.some((f) => f.fileId === focusFileId)) {
+      setActiveFileId(focusFileId);
+    }
+  }, [focusFileId, videoFiles]);
 
   useEffect(() => {
     if (!activeFileId) return;
