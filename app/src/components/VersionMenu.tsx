@@ -35,9 +35,11 @@ function fmtAge(ms: number): string {
 export function VersionMenu({
   fileId,
   canManage,
+  onChange,
 }: {
   fileId: string;
   canManage: boolean;
+  onChange?: () => void;
 }) {
   const router = useRouter();
   const [data, setData] = useState<VersionsResponse["versions"]>(null);
@@ -87,6 +89,7 @@ export function VersionMenu({
         onProgress: setProgress,
       });
       await load();
+      onChange?.();
       router.refresh();
     } catch (err) {
       setError((err as Error).message);
@@ -112,6 +115,8 @@ export function VersionMenu({
         return;
       }
       await load();
+      onChange?.();
+      setOpen(false);
       router.refresh();
     } finally {
       setBusy(false);
