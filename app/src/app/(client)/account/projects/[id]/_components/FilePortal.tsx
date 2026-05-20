@@ -468,16 +468,20 @@ export function FilePortal({
           >
             Select all
           </button>
-          <button
-            onClick={() => setModal({ kind: "request-approval" })}
-            className="px-3 py-2 rounded-[8px] bg-bg-elev border border-border hover:border-border-strong text-[12px] sm:text-[13px]"
-          >
-            Request approval
-          </button>
+          {canMarkDone ? (
+            <button
+              onClick={() => setModal({ kind: "request-approval" })}
+              className="px-3 py-2 rounded-[8px] bg-bg-elev border border-border hover:border-border-strong text-[12px] sm:text-[13px]"
+            >
+              Request approval
+            </button>
+          ) : null}
           <button className="px-3 py-2 rounded-[8px] bg-bg-elev border border-border hover:border-border-strong text-[12px] sm:text-[13px]">
             Download all
           </button>
-          {studioContext ? null : <UploadButton projectId={projectId} />}
+          {canMarkDone && !studioContext ? (
+            <UploadButton projectId={projectId} />
+          ) : null}
         </div>
       </div>
 
