@@ -45,20 +45,26 @@ export function CropZoom({
     baseY: number;
   }>({ dragging: false, startX: 0, startY: 0, baseX: 0, baseY: 0 });
 
-  const W = 1280;
+  // Larger canvas so users can zoom WAY out and still capture the full
+  // image — Bannerbear downsamples anyway, and bigger inputs mean less
+  // accidental cropping when the user is unsure of the framing.
+  const W = 2048;
   const H = Math.round(W / aspect);
 
-  // Compute the "fit-cover" scale for the loaded image
-  function fitCoverScale(img: HTMLImageElement): number {
+  // Compute the "fit-contain" scale: shows the whole image, never crops.
+  // Fit-contain (Math.min) lets the user zoom out and see everything;
+  // fit-cover (Math.max) crops the smaller side. We default to contain
+  // so the initial state never hides any pixels.
+  function fitContainScale(img: HTMLImageElement): number {
     const sx = W / img.width;
     const sy = H / img.height;
-    return Math.max(sx, sy);
+    return Math.min(sx, sy);
   }
 
   function applyFit() {
     const img = imgRef.current;
     if (!img) return;
-    setScale(fitCoverScale(img));
+    setScale(fitContainScale(img));
     setPan({ x: 0, y: 0 });
   }
 
@@ -74,7 +80,7 @@ export function CropZoom({
     img.crossOrigin = "anonymous";
     function done(loaded: HTMLImageElement) {
       imgRef.current = loaded;
-      setScale(fitCoverScale(loaded));
+      setScale(fitContainScale(loaded));
       setPan({ x: 0, y: 0 });
       setLoaded(true);
     }

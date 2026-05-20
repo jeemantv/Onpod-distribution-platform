@@ -13,6 +13,7 @@ import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { b2, bucket, decodeFileId, publicUrl } from "@/lib/b2";
 import { enhanceImage, ENHANCE_PROMPT_DEFAULT } from "@/lib/gemini";
 import { upscaleImage } from "@/lib/replicate";
+import { applyToneGrade } from "@/lib/tone-grade";
 import { getSession } from "@/lib/session";
 import { canAccessKey } from "@/lib/access";
 
@@ -73,28 +74,41 @@ export async function POST(req: Request) {
       // upload it first. For simplicity, only run upscale when we have
       // a URL (which is what ThumbnailStudio always passes).
       if (body.imageUrl) {
-        const result = await upscaleImage({
+        const upscaled = await upscaleImage({
           imageUrl: body.imageUrl,
           scale: 4,
           faceEnhance: true,
         });
-        const ext = result.mime.includes("png") ? "png" : "jpg";
+        // Apply a graphics-grade tone curve on top of the upscale:
+        // crushes blacks ~10/255, lifts brightness slope ~12%, and
+        // boosts saturation ~12%. This is what gives thumbnails that
+        // "punchy video graphic" look — Real-ESRGAN alone is sharper
+        // but flat.
+        let graded: { buf: Buffer; mime: string };
+        try {
+          graded = await applyToneGrade(upscaled.buf);
+        } catch (err) {
+          // If sharp throws for some reason, fall back to the raw upscale
+          console.error("[enhance] tone-grade failed", err);
+          graded = upscaled;
+        }
+        const ext = graded.mime.includes("png") ? "png" : "jpg";
         const label = (body.label ?? "enhanced").replace(/[^\w-]/g, "");
         const outKey = `${key}.${label}.${ext}`;
         await b2.send(
           new PutObjectCommand({
             Bucket: bucket,
             Key: outKey,
-            Body: result.buf,
-            ContentType: result.mime,
+            Body: graded.buf,
+            ContentType: graded.mime,
             CacheControl: "public, max-age=3600",
           }),
         );
         return NextResponse.json({
           url: publicUrl(outKey),
           key: outKey,
-          engine: "real-esrgan",
-          mimeType: result.mime,
+          engine: "real-esrgan+grade",
+          mimeType: graded.mime,
         });
       } else {
         errors.push("upscale: no public URL (got base64 only)");

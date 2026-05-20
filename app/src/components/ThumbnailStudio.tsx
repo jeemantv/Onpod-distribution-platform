@@ -30,6 +30,12 @@ interface Template {
 interface PersonCard {
   id: string;
   url: string;
+  // The full, unmodified source URL — Adjust always reopens against this
+  // so the user never loses pixels by re-cropping the previously-cropped
+  // image. Flip and Remove BG do replace `url`, but only after producing
+  // a NEW source from the original (so the strip thumbnail follows the
+  // latest version while Adjust still has the full image to work with).
+  originalUrl: string;
   label: string;
   transparent: boolean;
 }
@@ -266,12 +272,12 @@ export function ThumbnailStudio({
         if (!upRes.ok) continue;
         const idStr = `p${i + 1}-${Date.now()}`;
 
+        const rawUrl = bust(upData.url);
         if (!autoRemoveBg) {
-          // Keep the original frame crop — useful when the template
-          // already has its own backdrop you want behind the person.
           next.push({
             id: idStr,
-            url: bust(upData.url),
+            url: rawUrl,
+            originalUrl: rawUrl,
             label: p.label || `Person ${i + 1}`,
             transparent: false,
           });
@@ -292,13 +298,15 @@ export function ThumbnailStudio({
           next.push({
             id: idStr,
             url: bust(rbData.url),
+            originalUrl: bust(rbData.url),
             label: p.label || `Person ${i + 1}`,
             transparent: true,
           });
         } else {
           next.push({
             id: idStr,
-            url: bust(upData.url),
+            url: rawUrl,
+            originalUrl: rawUrl,
             label: p.label || `Person ${i + 1}`,
             transparent: false,
           });
@@ -420,6 +428,7 @@ export function ThumbnailStudio({
         next.push({
           id: `up-${Date.now()}-${f.name.slice(0, 6)}`,
           url: bust(data.url),
+          originalUrl: bust(data.url),
           label: f.name.slice(0, 24),
           transparent: mime.includes("png"),
         });
@@ -1048,10 +1057,13 @@ export function ThumbnailStudio({
 
       <CropZoom
         open={cropOpen}
+        // Always crop against the originalUrl so re-opening Adjust gives
+        // the user the full image to work with — they can zoom OUT to
+        // recover anything a prior aggressive zoom cut off.
         imageUrl={
           adjustLayer
-            ? cards.find((c) => c.id === layerCard[adjustLayer])?.url ?? ""
-            : activeCard?.url ?? ""
+            ? cards.find((c) => c.id === layerCard[adjustLayer])?.originalUrl ?? ""
+            : activeCard?.originalUrl ?? ""
         }
         contextImageUrl={result?.url}
         contextLabel={
