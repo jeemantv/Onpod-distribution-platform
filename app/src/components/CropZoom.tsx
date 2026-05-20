@@ -51,17 +51,29 @@ export function CropZoom({
   const W = 2048;
   const H = Math.round(W / aspect);
 
-  // Compute the "fit-contain" scale: shows the whole image, never crops.
-  // Fit-contain (Math.min) lets the user zoom out and see everything;
-  // fit-cover (Math.max) crops the smaller side. We default to contain
-  // so the initial state never hides any pixels.
   function fitContainScale(img: HTMLImageElement): number {
     const sx = W / img.width;
     const sy = H / img.height;
     return Math.min(sx, sy);
   }
 
+  // Fit-cover: image fills the canvas, may overflow. Matches what
+  // Bannerbear's image layer typically displays, so the user starts
+  // at the framing closest to the rendered result.
+  function fitCoverScale(img: HTMLImageElement): number {
+    const sx = W / img.width;
+    const sy = H / img.height;
+    return Math.max(sx, sy);
+  }
+
   function applyFit() {
+    const img = imgRef.current;
+    if (!img) return;
+    setScale(fitCoverScale(img));
+    setPan({ x: 0, y: 0 });
+  }
+
+  function applyFitWhole() {
     const img = imgRef.current;
     if (!img) return;
     setScale(fitContainScale(img));
@@ -80,7 +92,7 @@ export function CropZoom({
     img.crossOrigin = "anonymous";
     function done(loaded: HTMLImageElement) {
       imgRef.current = loaded;
-      setScale(fitContainScale(loaded));
+      setScale(fitCoverScale(loaded));
       setPan({ x: 0, y: 0 });
       setLoaded(true);
     }
@@ -103,7 +115,9 @@ export function CropZoom({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imageUrl, open]);
 
-  // Re-draw on any state change
+  // Re-draw on any state change. Also overlays a rule-of-thirds grid
+  // to help with subject placement (faces usually look best on the
+  // intersection points).
   useEffect(() => {
     const canvas = canvasRef.current;
     const img = imgRef.current;
@@ -118,6 +132,22 @@ export function CropZoom({
     const cx = W / 2 + pan.x - drawW / 2;
     const cy = H / 2 + pan.y - drawH / 2;
     ctx.drawImage(img, cx, cy, drawW, drawH);
+
+    // Rule-of-thirds grid
+    ctx.save();
+    ctx.strokeStyle = "rgba(255,255,255,0.18)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let i = 1; i < 3; i++) {
+      const x = (W * i) / 3;
+      const y = (H * i) / 3;
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, H);
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+    }
+    ctx.stroke();
+    ctx.restore();
   }, [scale, pan, loaded, W, H]);
 
   function startDrag(e: React.MouseEvent) {
@@ -239,8 +269,8 @@ export function CropZoom({
             Zoom
             <input
               type="range"
-              min={0.2}
-              max={4}
+              min={0.1}
+              max={6}
               step={0.01}
               value={scale}
               onChange={(e) => setScale(parseFloat(e.target.value))}
@@ -249,9 +279,17 @@ export function CropZoom({
           </label>
           <button
             onClick={applyFit}
+            title="Fit the image to fill the frame"
             className="px-3 py-2 rounded-[8px] bg-bg-elev-2 border border-border text-[12px]"
           >
-            Fit
+            Fit (cover)
+          </button>
+          <button
+            onClick={applyFitWhole}
+            title="Show the whole image, may leave empty space"
+            className="px-3 py-2 rounded-[8px] bg-bg-elev-2 border border-border text-[12px]"
+          >
+            Fit (whole)
           </button>
         </div>
 

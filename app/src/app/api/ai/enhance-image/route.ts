@@ -74,11 +74,31 @@ export async function POST(req: Request) {
       // upload it first. For simplicity, only run upscale when we have
       // a URL (which is what ThumbnailStudio always passes).
       if (body.imageUrl) {
-        const upscaled = await upscaleImage({
-          imageUrl: body.imageUrl,
-          scale: 4,
-          faceEnhance: true,
-        });
+        // Replicate's first call often hits a cold-start that times out
+        // before the model is warm. Retry once after a short delay; the
+        // second attempt almost always succeeds on a warm instance.
+        let upscaled;
+        try {
+          upscaled = await upscaleImage({
+            imageUrl: body.imageUrl,
+            scale: 4,
+            faceEnhance: true,
+          });
+        } catch (firstErr) {
+          await new Promise((r) => setTimeout(r, 1500));
+          try {
+            upscaled = await upscaleImage({
+              imageUrl: body.imageUrl,
+              scale: 4,
+              faceEnhance: true,
+            });
+          } catch (secondErr) {
+            // Surface BOTH so the user sees a single coherent failure
+            throw new Error(
+              `Real-ESRGAN failed twice: ${(firstErr as Error).message} | retry: ${(secondErr as Error).message}`,
+            );
+          }
+        }
         // Apply a graphics-grade tone curve on top of the upscale:
         // crushes blacks ~10/255, lifts brightness slope ~12%, and
         // boosts saturation ~12%. This is what gives thumbnails that
