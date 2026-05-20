@@ -48,9 +48,11 @@ export default function AdminClientDetailPage({
           <div>
             <label className="block text-[12px] text-text-muted mb-2">Plan</label>
             <select defaultValue={client.plan} className="w-full px-4 py-2.5 bg-bg-elev-2 border border-border rounded-[10px] text-[13px]">
-              <option value="starter">Starter — $299 CAD</option>
-              <option value="pro">Pro — $699 CAD</option>
-              <option value="authority">Authority — $1,499 CAD</option>
+              <option value="onpod_studio">OnPod Studio — free (bundled)</option>
+              <option value="direct_base">Direct — $39 / mo</option>
+              <option value="direct_double">Direct 2× — $89 / mo</option>
+              <option value="ext_studio_base">External studio — $89 / mo</option>
+              <option value="ext_studio_double">External studio 2× — $120 / mo</option>
               <option value="unlimited">Unlimited (admin)</option>
             </select>
           </div>

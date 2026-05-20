@@ -38,23 +38,66 @@ export default function SettingsPage() {
         <Card title="Billing">
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div>
-              <div className="text-[14px] capitalize">{user.plan} plan</div>
+              <div className="text-[14px]">{limits.label}</div>
               <div className="text-[12px] text-text-muted mt-1">
-                Renews automatically each month.
+                {limits.priceUsd === 0
+                  ? limits.source === "onpod"
+                    ? "Bundled with your OnPod studio package — no charge."
+                    : "Admin-granted plan."
+                  : `$${limits.priceUsd} USD / month · renews automatically`}
               </div>
             </div>
             <button className="px-4 py-2 rounded-[8px] bg-bg-elev-3 border border-border-strong text-[13px]">
               Manage billing
             </button>
           </div>
+
+          <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <BundleStat label="Episodes / month" value={fmtCap(limits.episodes)} />
+            <BundleStat label="Reels / month" value={fmtCap(limits.reels)} />
+            <BundleStat label="Thumbnails / month" value={fmtCap(limits.thumbnails)} />
+          </div>
+
           {credits ? (
-            <div className="grid grid-cols-4 gap-3 mt-5">
-              <Quota label="Podcasts" used={credits.podcastsUsed} total={limits.podcasts} />
-              <Quota label="Articles" used={credits.articlesUsed} total={limits.articles} />
-              <Quota label="Clips" used={credits.opusClipsUsed} total={limits.opusClips} />
-              <Quota label="Cover arts" used={credits.coverArtsUsed} total={limits.coverArts} />
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5">
+              <Quota label="Episodes used" used={credits.podcastsUsed} total={limits.episodes} />
+              <Quota label="Reels used" used={credits.opusClipsUsed} total={limits.reels} />
+              <Quota label="Thumbnails used" used={credits.coverArtsUsed} total={limits.thumbnails} />
+              <Quota label="Articles used" used={credits.articlesUsed} total={limits.articles} />
             </div>
           ) : null}
+        </Card>
+
+        <Card title="Other plans">
+          <p className="text-[12px] text-text-muted mb-3">
+            Need more? Upgrade or get in touch.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <PlanCard
+              title="Direct"
+              price="$39 / mo"
+              bundle="6 · 60 · 10"
+              note="Episodes · reels · thumbnails per month"
+            />
+            <PlanCard
+              title="Direct 2×"
+              price="$89 / mo"
+              bundle="12 · 120 · 20"
+              note="For higher-volume creators"
+            />
+            <PlanCard
+              title="External studio"
+              price="$89 / mo"
+              bundle="6 · 60 · 10"
+              note="For clients of partner studios"
+            />
+            <PlanCard
+              title="External studio 2×"
+              price="$120 / mo"
+              bundle="12 · 120 · 20"
+              note="2× bundle for partner-studio clients"
+            />
+          </div>
         </Card>
 
         <Card title="Email notifications">
@@ -109,6 +152,42 @@ function Card({
       <h2 className="display text-[18px] mb-4">{title}</h2>
       {children}
     </section>
+  );
+}
+
+function fmtCap(n: number): string {
+  return isFinite(n) ? String(n) : "∞";
+}
+
+function BundleStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[10px] bg-bg-elev-2 border border-border px-3 py-2.5">
+      <div className="text-[11px] text-text-muted">{label}</div>
+      <div className="display text-[20px] mt-0.5">{value}</div>
+    </div>
+  );
+}
+
+function PlanCard({
+  title,
+  price,
+  bundle,
+  note,
+}: {
+  title: string;
+  price: string;
+  bundle: string;
+  note: string;
+}) {
+  return (
+    <div className="rounded-[10px] bg-bg-elev-2 border border-border px-4 py-3">
+      <div className="flex items-baseline justify-between">
+        <div className="font-medium text-[14px]">{title}</div>
+        <div className="text-[13px] text-text-muted">{price}</div>
+      </div>
+      <div className="text-[13px] mt-1">{bundle}</div>
+      <div className="text-[11px] text-text-dim mt-1">{note}</div>
+    </div>
   );
 }
 

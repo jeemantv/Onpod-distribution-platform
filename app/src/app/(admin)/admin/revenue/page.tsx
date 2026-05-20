@@ -1,25 +1,31 @@
 import { mockUsers } from "@/lib/mock-data";
-import { PLAN_LIMITS } from "@/lib/types";
+import { PLAN_LIMITS, type Plan } from "@/lib/types";
+
+const PAID_PLANS: Plan[] = [
+  "onpod_studio",
+  "direct_base",
+  "direct_double",
+  "ext_studio_base",
+  "ext_studio_double",
+];
 
 export default function AdminRevenuePage() {
   const clients = mockUsers.filter((u) => u.role === "client");
   const mrr = clients.reduce(
-    (sum, u) => sum + PLAN_LIMITS[u.plan].priceCad,
+    (sum, u) => sum + PLAN_LIMITS[u.plan].priceUsd,
     0,
   );
   const arr = mrr * 12;
   const avg = clients.length === 0 ? 0 : Math.round(mrr / clients.length);
 
-  const distribution: { plan: string; count: number; revenue: number }[] = [
-    "starter",
-    "pro",
-    "authority",
-  ].map((p) => {
+  const distribution = PAID_PLANS.map((p) => {
     const c = clients.filter((u) => u.plan === p);
     return {
       plan: p,
+      label: PLAN_LIMITS[p].label,
+      price: PLAN_LIMITS[p].priceUsd,
       count: c.length,
-      revenue: c.reduce((s, u) => s + PLAN_LIMITS[u.plan].priceCad, 0),
+      revenue: c.reduce((s, u) => s + PLAN_LIMITS[u.plan].priceUsd, 0),
     };
   });
 
@@ -31,9 +37,9 @@ export default function AdminRevenuePage() {
       </p>
 
       <div className="grid grid-cols-3 gap-4 mb-8">
-        <Stat label="MRR" value={`$${mrr.toLocaleString()} CAD`} />
-        <Stat label="ARR" value={`$${arr.toLocaleString()} CAD`} />
-        <Stat label="Avg revenue / client" value={`$${avg.toLocaleString()} CAD`} />
+        <Stat label="MRR" value={`$${mrr.toLocaleString()} USD`} />
+        <Stat label="ARR" value={`$${arr.toLocaleString()} USD`} />
+        <Stat label="Avg revenue / client" value={`$${avg.toLocaleString()} USD`} />
       </div>
 
       <div className="bg-bg-elev border border-border rounded-[16px] p-6">
@@ -42,6 +48,7 @@ export default function AdminRevenuePage() {
           <thead>
             <tr className="text-text-muted text-[11px] uppercase tracking-wider border-b border-border">
               <th className="text-left p-3 font-medium">Plan</th>
+              <th className="text-left p-3 font-medium">Price</th>
               <th className="text-left p-3 font-medium">Active</th>
               <th className="text-left p-3 font-medium">Monthly revenue</th>
               <th className="text-left p-3 font-medium">Share</th>
@@ -50,9 +57,12 @@ export default function AdminRevenuePage() {
           <tbody>
             {distribution.map((d) => (
               <tr key={d.plan} className="border-b border-border last:border-0">
-                <td className="p-3 capitalize">{d.plan}</td>
+                <td className="p-3">{d.label}</td>
+                <td className="p-3 text-text-muted">
+                  {d.price === 0 ? "free" : `$${d.price}/mo`}
+                </td>
                 <td className="p-3">{d.count}</td>
-                <td className="p-3">${d.revenue.toLocaleString()} CAD</td>
+                <td className="p-3">${d.revenue.toLocaleString()} USD</td>
                 <td className="p-3 text-text-muted">
                   {mrr === 0 ? "—" : `${Math.round((d.revenue / mrr) * 100)}%`}
                 </td>

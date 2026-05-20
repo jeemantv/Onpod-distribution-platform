@@ -57,7 +57,10 @@ export default async function AccountPage() {
         <div className="flex items-center gap-2 flex-wrap">
           <span className="inline-flex items-center gap-2 px-3 py-1.5 bg-[rgba(20,184,166,0.1)] text-accent-2 rounded-full text-[12px] font-medium">
             <span className="w-[6px] h-[6px] rounded-full bg-current" />
-            {user.plan === "unlimited" ? "Unlimited admin" : `${user.plan} plan`}
+            {(() => {
+              const limit = require("@/lib/types").PLAN_LIMITS[user.plan];
+              return limit?.label ?? user.plan;
+            })()}
           </span>
           <Link
             href="/settings"

@@ -1,5 +1,19 @@
 export type Role = "client" | "editor" | "admin";
-export type Plan = "starter" | "pro" | "authority" | "unlimited";
+// Pricing tiers. Each gives the same monthly bundle of 6 episodes / 60 reels /
+// 10 thumbnails on the base tiers, and 2x on the double tiers.
+// "onpod_studio" is bundled (paid by the OnPod studio, free for the client).
+// "direct_*" is sold to clients not attached to an OnPod studio.
+// "ext_studio_*" is for clients of external (white-label) studios.
+export type Plan =
+  | "onpod_studio"
+  | "direct_base"
+  | "direct_double"
+  | "ext_studio_base"
+  | "ext_studio_double"
+  | "unlimited";
+
+export type PlanSource = "onpod" | "direct" | "external" | "admin";
+export type PlanTier = "base" | "double";
 export type StudioLocation = "ottawa" | "montreal" | "brossard" | "laval";
 export type ProjectStatus =
   | "processing"
@@ -111,17 +125,103 @@ export interface PublishHistoryEntry {
   createdAt: string;
 }
 
-export const PLAN_LIMITS: Record<Plan, {
+export interface PlanLimit {
+  label: string;
+  tier: PlanTier;
+  source: PlanSource;
+  // Monthly bundle
+  episodes: number;
+  reels: number;
+  thumbnails: number;
+  // Legacy aliases (other files still read these names)
   podcasts: number;
   articles: number;
   opusClips: number;
   coverArts: number;
+  priceUsd: number;
   priceCad: number;
-}> = {
-  starter:   { podcasts: 2, articles: 10,        opusClips: 6,        coverArts: 2,        priceCad: 299 },
-  pro:       { podcasts: 4, articles: 30,        opusClips: 20,       coverArts: 8,        priceCad: 699 },
-  authority: { podcasts: 8, articles: Infinity,  opusClips: Infinity, coverArts: Infinity, priceCad: 1499 },
-  unlimited: { podcasts: Infinity, articles: Infinity, opusClips: Infinity, coverArts: Infinity, priceCad: 0 },
+  billed: "free" | "client" | "studio";
+}
+
+const BASE = { episodes: 6, reels: 60, thumbnails: 10, articles: 30 };
+const DOUBLE = { episodes: 12, reels: 120, thumbnails: 20, articles: 60 };
+
+export const PLAN_LIMITS: Record<Plan, PlanLimit> = {
+  onpod_studio: {
+    label: "OnPod Studio (free)",
+    tier: "base",
+    source: "onpod",
+    ...BASE,
+    podcasts: BASE.episodes,
+    opusClips: BASE.reels,
+    coverArts: BASE.thumbnails,
+    priceUsd: 0,
+    priceCad: 0,
+    billed: "free",
+  },
+  direct_base: {
+    label: "Direct",
+    tier: "base",
+    source: "direct",
+    ...BASE,
+    podcasts: BASE.episodes,
+    opusClips: BASE.reels,
+    coverArts: BASE.thumbnails,
+    priceUsd: 39,
+    priceCad: 53,
+    billed: "client",
+  },
+  direct_double: {
+    label: "Direct 2×",
+    tier: "double",
+    source: "direct",
+    ...DOUBLE,
+    podcasts: DOUBLE.episodes,
+    opusClips: DOUBLE.reels,
+    coverArts: DOUBLE.thumbnails,
+    priceUsd: 89,
+    priceCad: 122,
+    billed: "client",
+  },
+  ext_studio_base: {
+    label: "External studio",
+    tier: "base",
+    source: "external",
+    ...BASE,
+    podcasts: BASE.episodes,
+    opusClips: BASE.reels,
+    coverArts: BASE.thumbnails,
+    priceUsd: 89,
+    priceCad: 122,
+    billed: "client",
+  },
+  ext_studio_double: {
+    label: "External studio 2×",
+    tier: "double",
+    source: "external",
+    ...DOUBLE,
+    podcasts: DOUBLE.episodes,
+    opusClips: DOUBLE.reels,
+    coverArts: DOUBLE.thumbnails,
+    priceUsd: 120,
+    priceCad: 164,
+    billed: "client",
+  },
+  unlimited: {
+    label: "Unlimited (admin)",
+    tier: "double",
+    source: "admin",
+    episodes: Infinity,
+    reels: Infinity,
+    thumbnails: Infinity,
+    podcasts: Infinity,
+    articles: Infinity,
+    opusClips: Infinity,
+    coverArts: Infinity,
+    priceUsd: 0,
+    priceCad: 0,
+    billed: "free",
+  },
 };
 
 export const LOCATION_LABEL: Record<StudioLocation, string> = {
