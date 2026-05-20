@@ -16,8 +16,7 @@ import { SessionUploader } from "@/components/SessionUploader";
 import { SessionAITools } from "@/components/SessionAITools";
 import { AIMetadataPanel } from "@/components/AIMetadataPanel";
 import { OpusClipPanel } from "@/components/OpusClipPanel";
-import { BannerbearGenerator } from "@/components/BannerbearGenerator";
-import { ThumbnailMaker } from "@/components/ThumbnailMaker";
+import { ThumbnailStudio } from "@/components/ThumbnailStudio";
 import { PodcastPublish } from "@/components/PodcastPublish";
 import { encodeFileId } from "@/lib/b2";
 
@@ -81,10 +80,10 @@ export default async function SessionPage({
 
       <SessionAITools files={rows} />
       <AIMetadataPanel files={rows} />
-      <ThumbnailMaker files={rows} defaultSubtitle={parsed?.email ?? ""} />
-      <BannerbearGenerator
+      <ThumbnailStudio
         files={rows}
         defaultTitle={parsed ? `${parsed.date} session` : folder}
+        defaultSubtitle={parsed?.email ?? ""}
       />
       <OpusClipPanel files={rows} />
       <PodcastPublish

@@ -3,6 +3,7 @@ import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { b2, bucket, decodeFileId, publicUrl } from "@/lib/b2";
 import { enhanceImage, ENHANCE_PROMPT_DEFAULT } from "@/lib/gemini";
 import { getSession } from "@/lib/session";
+import { canAccessKey } from "@/lib/access";
 
 // Up to ~30s of model calls + retries; bump Vercel function ceiling
 // past the 10s default. Hobby caps at 60s, Pro at 300s.
@@ -32,8 +33,7 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "invalid_file_id" }, { status: 400 });
   }
-  const [ownerId] = key.split("/", 1);
-  if (user.role !== "admin" && ownerId !== user.id) {
+  if (!canAccessKey(user, key)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
