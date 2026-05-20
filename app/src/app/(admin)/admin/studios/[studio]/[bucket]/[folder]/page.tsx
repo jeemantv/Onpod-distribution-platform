@@ -14,6 +14,9 @@ import {
 import { SessionFileList } from "@/components/SessionFileList";
 import { SessionUploader } from "@/components/SessionUploader";
 import { SessionAITools } from "@/components/SessionAITools";
+import { AIMetadataPanel } from "@/components/AIMetadataPanel";
+import { OpusClipPanel } from "@/components/OpusClipPanel";
+import { BannerbearGenerator } from "@/components/BannerbearGenerator";
 import { encodeFileId } from "@/lib/b2";
 
 export const dynamic = "force-dynamic";
@@ -67,13 +70,24 @@ export default async function SessionPage({
         <SessionUploader studio={studio} bucket={bucket} folder={folder} />
       </div>
 
-      <SessionAITools
-        files={files.map((f) => ({
+      {(() => {
+        const rows = files.map((f) => ({
           key: f.key,
           filename: f.filename,
           fileId: encodeFileId(f.key),
-        }))}
-      />
+        }));
+        return (
+          <>
+            <SessionAITools files={rows} />
+            <AIMetadataPanel files={rows} />
+            <BannerbearGenerator
+              files={rows}
+              defaultTitle={parsed ? `${parsed.date} session` : folder}
+            />
+            <OpusClipPanel files={rows} />
+          </>
+        );
+      })()}
 
       <SessionFileList
         studio={studio}

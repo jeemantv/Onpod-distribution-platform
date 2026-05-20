@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getJob as getStoredJob, updateJob } from "@/lib/opus-job-store";
 import { getClipProject, type OpusClipResult } from "@/lib/opusclip";
 import { getSession } from "@/lib/session";
+import { canAccessKey } from "@/lib/access";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { b2, bucket, guessMimeType } from "@/lib/b2";
 
@@ -14,7 +15,12 @@ export async function GET(req: Request) {
 
   const stored = await getStoredJob(jobId);
   if (!stored) return NextResponse.json({ error: "not_found" }, { status: 404 });
-  if (user.role !== "admin" && stored.userId !== user.id) {
+  if (
+    user.role !== "admin" &&
+    user.role !== "editor" &&
+    stored.userId !== user.id &&
+    !canAccessKey(user, stored.videoKey)
+  ) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 

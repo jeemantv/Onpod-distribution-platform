@@ -12,6 +12,9 @@ import {
 } from "@/lib/studio";
 import { encodeFileId } from "@/lib/b2";
 import { SessionAITools } from "@/components/SessionAITools";
+import { AIMetadataPanel } from "@/components/AIMetadataPanel";
+import { OpusClipPanel } from "@/components/OpusClipPanel";
+import { BannerbearGenerator } from "@/components/BannerbearGenerator";
 
 export const dynamic = "force-dynamic";
 
@@ -57,13 +60,24 @@ export default async function ClientSessionPage({
           {STUDIO_LABEL[studio]} studio · {files.length} files
         </p>
 
-        <SessionAITools
-          files={files.map((f) => ({
+        {(() => {
+          const rows = files.map((f) => ({
             key: f.key,
             filename: f.filename,
             fileId: encodeFileId(f.key),
-          }))}
-        />
+          }));
+          return (
+            <>
+              <SessionAITools files={rows} />
+              <AIMetadataPanel files={rows} />
+              <BannerbearGenerator
+                files={rows}
+                defaultTitle={parsed ? `${parsed.date} session` : folder}
+              />
+              <OpusClipPanel files={rows} />
+            </>
+          );
+        })()}
 
         {files.length === 0 ? (
           <p className="text-text-muted text-[13px]">
