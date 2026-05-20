@@ -1,27 +1,17 @@
 "use client";
 
-// Unified thumbnail flow:
-//   1. Pick a video file from the session
-//   2. Pull frames in the browser (auto-pick via Claude Vision or all 6)
-//   3. Pick a frame; optionally Enhance (Gemini) or Remove background
-//      (remove.bg) and/or Adjust crop (CropZoom)
-//   4. Pick a Bannerbear template; each image-typed layer gets its own
-//      independent picker so you can set background, foreground, logo
-//      etc. without one auto-overriding another
-//   5. Render, save (also writes .cover.jpg so YouTube picks it up)
-//
-// "Use selected frame" sets a layer to the currently-selected frame URL.
-// "Clear" empties a layer so the template's default applies — useful
-// when the template has a background layer you don't want to override.
+// Simplified thumbnail flow:
+//   1. Click "Pick from podcast" — detects up to 4 people, cuts each
+//      out with remove.bg. Each person becomes ONE card in the strip;
+//      flip + remove-bg act in place (no duplicate cards).
+//   2. Choose a card, drop into Bannerbear template, render.
+//   3. Post-render: Adjust (re-crops the source frame + re-renders),
+//      Enhance (Gemini on the rendered output), Save to YouTube.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { extractFrames } from "@/lib/frame-extract";
 import { CropZoom } from "./CropZoom";
-import {
-  cropBase64Region,
-  fileToBase64,
-  flipImageHorizontal,
-} from "@/lib/image-ops";
+import { fileToBase64, flipImageHorizontal, cropBase64Region } from "@/lib/image-ops";
 
 interface FileRow {
   key: string;
@@ -37,19 +27,11 @@ interface Template {
   available_modifications?: { name: string; type: string }[];
 }
 
-interface FrameOption {
+interface PersonCard {
+  id: string;
   url: string;
   label: string;
-  source:
-    | "auto-pick"
-    | "all"
-    | "enhanced"
-    | "no-bg"
-    | "adjusted"
-    | "person"
-    | "upload"
-    | "flipped";
-  transparent?: boolean;
+  transparent: boolean;
 }
 
 const FRAME_COUNT = 6;
@@ -60,6 +42,11 @@ function isVideo(name: string): boolean {
 
 function isImageField(name: string): boolean {
   return /(image|photo|avatar|logo|picture|pic|background|container)/i.test(name);
+}
+
+function bust(url: string): string {
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}_r=${Date.now()}`;
 }
 
 export function ThumbnailStudio({
@@ -80,36 +67,35 @@ export function ThumbnailStudio({
 
   const [sourceFileId, setSourceFileId] = useState<string>("");
   const [sourceUrl, setSourceUrl] = useState<string>("");
-  const [frames, setFrames] = useState<FrameOption[]>([]);
-  const [activeFrameUrl, setActiveFrameUrl] = useState<string>("");
-  // Layers in this set follow activeFrameUrl as it changes. Cleared
-  // when the user pastes a URL, clears, or uses Adjust+apply.
-  const [liveLayers, setLiveLayers] = useState<Set<string>>(new Set());
+  const [cards, setCards] = useState<PersonCard[]>([]);
+  const [activeCardId, setActiveCardId] = useState<string>("");
   const [stage, setStage] = useState<
     | "idle"
     | "extracting"
-    | "vision"
-    | "enhancing"
+    | "finding"
     | "removing-bg"
-    | "saving-crop"
     | "flipping"
     | "uploading"
-    | "finding-people"
     | "rendering"
+    | "re-cropping"
+    | "enhancing-final"
   >("idle");
-  const uploadRef = useRef<HTMLInputElement | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const uploadRef = useRef<HTMLInputElement | null>(null);
 
   const [templates, setTemplates] = useState<Template[]>([]);
   const [templatesError, setTemplatesError] = useState<string | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
   const [values, setValues] = useState<Record<string, string>>({});
+  const [liveLayers, setLiveLayers] = useState<Set<string>>(new Set());
   const [aiSuggested, setAiSuggested] = useState(false);
   const [result, setResult] = useState<{ url: string } | null>(null);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
   const [cropOpen, setCropOpen] = useState(false);
-  const [cropTarget, setCropTarget] = useState<{ layer?: string }>({});
 
-  // Default file selection
+  const activeCard = cards.find((c) => c.id === activeCardId);
+  const activeUrl = activeCard?.url ?? "";
+
   useEffect(() => {
     if (videoFiles.length > 0 && !sourceFileId) {
       setSourceFileId(videoFiles[0].fileId);
@@ -123,25 +109,22 @@ export function ThumbnailStudio({
     if (!row) return;
     setSourceFileId(row.fileId);
     setSourceUrl(row.url);
-    setFrames([]);
-    setActiveFrameUrl("");
+    setCards([]);
+    setActiveCardId("");
     setAiSuggested(false);
     setResult(null);
     setLiveLayers(new Set());
   }, [focusFileId, videoFiles]);
 
-  // When the selected frame changes, push that URL into every layer
-  // marked as live.
   useEffect(() => {
-    if (!activeFrameUrl || liveLayers.size === 0) return;
+    if (!activeUrl || liveLayers.size === 0) return;
     setValues((prev) => {
       const next = { ...prev };
-      for (const layer of liveLayers) next[layer] = activeFrameUrl;
+      for (const layer of liveLayers) next[layer] = activeUrl;
       return next;
     });
-  }, [activeFrameUrl, liveLayers]);
+  }, [activeUrl, liveLayers]);
 
-  // Load Bannerbear templates once
   useEffect(() => {
     void (async () => {
       try {
@@ -161,7 +144,6 @@ export function ThumbnailStudio({
 
   const tmpl = templates.find((t) => t.uid === selectedTemplate);
 
-  // Prefill text fields when template changes (but DON'T auto-set image fields)
   useEffect(() => {
     if (!tmpl) return;
     const next: Record<string, string> = {};
@@ -184,9 +166,10 @@ export function ThumbnailStudio({
     }
     setValues(next);
     setLiveLayers(new Set());
+    setResult(null);
+    setSavedAt(null);
   }, [tmpl, defaultTitle, defaultSubtitle]);
 
-  // Pull title suggestion from AI metadata once per source change
   useEffect(() => {
     if (!sourceFileId || aiSuggested) return;
     void (async () => {
@@ -215,221 +198,15 @@ export function ThumbnailStudio({
     })();
   }, [sourceFileId, aiSuggested, tmpl]);
 
-  // Append a per-call cache buster so a regenerated thumbnail (same B2
-  // key, new bytes) reloads in the browser instead of showing the cached
-  // old image.
-  function bust(url: string): string {
-    const sep = url.includes("?") ? "&" : "?";
-    return `${url}${sep}_r=${Date.now()}`;
-  }
-
-  async function pickFrames(mode: "auto" | "all") {
+  async function pickFromPodcast() {
     if (!sourceFileId || !sourceUrl) return;
     setError(null);
-    setFrames([]);
-    setActiveFrameUrl("");
+    setCards([]);
+    setActiveCardId("");
     setStage("extracting");
     try {
       const raw = await extractFrames(sourceUrl, FRAME_COUNT);
-      if (mode === "auto") {
-        setStage("vision");
-        const res = await fetch("/api/ai/thumbnails", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fileId: sourceFileId, framesBase64: raw }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          setError(data.message || `Pick failed (${res.status})`);
-          setStage("idle");
-          return;
-        }
-        const list: FrameOption[] = (data.thumbnails as { label: string; url: string }[]).map(
-          (t) => ({ url: bust(t.url), label: t.label, source: "auto-pick" }),
-        );
-        setFrames(list);
-        if (list[0]) setActiveFrameUrl(list[0].url);
-        setStage("idle");
-        return;
-      }
-
-      const all: FrameOption[] = [];
-      for (let i = 0; i < raw.length; i++) {
-        const res = await fetch("/api/ai/thumbnails", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            fileId: sourceFileId,
-            framesBase64: [raw[i]],
-          }),
-        });
-        const data = await res.json();
-        const t = data.thumbnails?.[0];
-        if (t) all.push({ url: bust(t.url), label: `Frame ${i + 1}`, source: "all" });
-      }
-      setFrames(all);
-      if (all[0]) setActiveFrameUrl(all[0].url);
-      setStage("idle");
-    } catch (err) {
-      setError((err as Error).message);
-      setStage("idle");
-    }
-  }
-
-  async function enhance() {
-    if (!sourceFileId || !activeFrameUrl) return;
-    setStage("enhancing");
-    setError(null);
-    try {
-      const res = await fetch("/api/ai/enhance-image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fileId: sourceFileId,
-          imageUrl: activeFrameUrl,
-          label: `enhanced-${Date.now()}`,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.message || `Enhance failed (${res.status})`);
-        setStage("idle");
-        return;
-      }
-      const newFrame: FrameOption = {
-        url: data.url,
-        label: "Enhanced",
-        source: "enhanced",
-      };
-      setFrames((prev) => [newFrame, ...prev]);
-      setActiveFrameUrl(bust(data.url));
-      setStage("idle");
-    } catch (err) {
-      setError((err as Error).message);
-      setStage("idle");
-    }
-  }
-
-  async function removeBg() {
-    if (!sourceFileId || !activeFrameUrl) return;
-    setStage("removing-bg");
-    setError(null);
-    try {
-      const res = await fetch("/api/ai/remove-background", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fileId: sourceFileId,
-          imageUrl: activeFrameUrl,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.message || `Remove-bg failed (${res.status})`);
-        setStage("idle");
-        return;
-      }
-      // Replace the input frame in the strip rather than prepending, so
-      // we don't accumulate duplicates each time the user clicks.
-      const replaced: FrameOption = {
-        url: data.url,
-        label: "No background",
-        source: "no-bg",
-        transparent: true,
-      };
-      setFrames((prev) => {
-        const without = prev.filter((f) => f.url !== activeFrameUrl);
-        return [replaced, ...without];
-      });
-      setActiveFrameUrl(bust(data.url));
-      setStage("idle");
-    } catch (err) {
-      setError((err as Error).message);
-      setStage("idle");
-    }
-  }
-
-  async function flip() {
-    if (!sourceFileId || !activeFrameUrl) return;
-    setStage("flipping");
-    setError(null);
-    try {
-      const b64 = await flipImageHorizontal(activeFrameUrl);
-      const res = await fetch("/api/ai/upload-image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fileId: sourceFileId,
-          imageBase64: b64,
-          label: `flipped-${Date.now()}`,
-          mimeType: "image/png",
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.message || "Flip failed");
-        setStage("idle");
-        return;
-      }
-      // Carry forward transparency flag if the source was a no-bg PNG.
-      const src = frames.find((f) => f.url === activeFrameUrl);
-      const next: FrameOption = {
-        url: data.url,
-        label: "Flipped",
-        source: "flipped",
-        transparent: src?.transparent ?? activeFrameUrl.endsWith(".png"),
-      };
-      setFrames((prev) => [next, ...prev]);
-      setActiveFrameUrl(bust(data.url));
-      setStage("idle");
-    } catch (err) {
-      setError((err as Error).message);
-      setStage("idle");
-    }
-  }
-
-  async function uploadFiles(fileList: FileList | null) {
-    if (!fileList || !sourceFileId) return;
-    setStage("uploading");
-    setError(null);
-    try {
-      for (const f of Array.from(fileList)) {
-        const { base64, mime } = await fileToBase64(f);
-        const res = await fetch("/api/ai/upload-image", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            fileId: sourceFileId,
-            imageBase64: base64,
-            label: `upload-${Date.now()}`,
-            mimeType: mime,
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message || `Upload failed (${res.status})`);
-        const next: FrameOption = {
-          url: data.url,
-          label: f.name.slice(0, 24),
-          source: "upload",
-          transparent: mime.includes("png"),
-        };
-        setFrames((prev) => [next, ...prev]);
-        setActiveFrameUrl(bust(data.url));
-      }
-      setStage("idle");
-    } catch (err) {
-      setError((err as Error).message);
-      setStage("idle");
-    }
-  }
-
-  async function findPeople() {
-    if (!sourceFileId || !sourceUrl) return;
-    setError(null);
-    setStage("extracting");
-    try {
-      const raw = await extractFrames(sourceUrl, FRAME_COUNT);
-      setStage("finding-people");
+      setStage("finding");
       const visionRes = await fetch("/api/ai/find-people", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -450,20 +227,18 @@ export function ThumbnailStudio({
         label: string;
       }>;
       if (people.length === 0) {
-        setError("No people detected in the sampled frames.");
+        setError("No people detected. Try uploading an image instead.");
         setStage("idle");
         return;
       }
 
-      // Browser-side crop + upload + remove-bg per person
       setStage("removing-bg");
-      const newFrames: FrameOption[] = [];
+      const next: PersonCard[] = [];
       for (let i = 0; i < people.length; i++) {
         const p = people[i];
         const frameB64 = raw[p.frameIndex];
         if (!frameB64) continue;
         const cropped = await cropBase64Region(frameB64, p, 0.12);
-        // Save cropped JPEG so remove.bg can fetch it by URL.
         const upRes = await fetch("/api/ai/upload-image", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -477,7 +252,6 @@ export function ThumbnailStudio({
         const upData = await upRes.json();
         if (!upRes.ok) continue;
 
-        // Now strip the background
         const rbRes = await fetch("/api/ai/remove-background", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -488,29 +262,30 @@ export function ThumbnailStudio({
           }),
         });
         const rbData = await rbRes.json();
+        const idStr = `p${i + 1}-${Date.now()}`;
         if (rbRes.ok) {
-          newFrames.push({
-            url: rbData.url,
+          next.push({
+            id: idStr,
+            url: bust(rbData.url),
             label: p.label || `Person ${i + 1}`,
-            source: "person",
             transparent: true,
           });
         } else {
-          // Fall back to the raw crop if remove-bg fails
-          newFrames.push({
-            url: upData.url,
-            label: `${p.label || `Person ${i + 1}`} (raw)`,
-            source: "person",
+          next.push({
+            id: idStr,
+            url: bust(upData.url),
+            label: p.label || `Person ${i + 1}`,
+            transparent: false,
           });
         }
       }
-      if (newFrames.length === 0) {
+      if (next.length === 0) {
         setError("Detected people but cutout failed for all of them.");
         setStage("idle");
         return;
       }
-      setFrames((prev) => [...newFrames, ...prev]);
-      setActiveFrameUrl(newFrames[0].url);
+      setCards(next);
+      setActiveCardId(next[0].id);
       setStage("idle");
     } catch (err) {
       setError((err as Error).message);
@@ -518,45 +293,124 @@ export function ThumbnailStudio({
     }
   }
 
-  function openCrop(layerName?: string) {
-    if (!activeFrameUrl) return;
-    setCropTarget({ layer: layerName });
-    setCropOpen(true);
-  }
-
-  async function applyCrop(payload: { base64: string; mime: string }) {
-    if (!sourceFileId) return;
-    setCropOpen(false);
-    setStage("saving-crop");
+  async function flipActive() {
+    if (!activeCard || !sourceFileId) return;
+    setStage("flipping");
+    setError(null);
     try {
+      const b64 = await flipImageHorizontal(activeCard.url);
       const res = await fetch("/api/ai/upload-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           fileId: sourceFileId,
-          imageBase64: payload.base64,
-          label: `adj-${Date.now()}`,
-          mimeType: payload.mime,
+          imageBase64: b64,
+          label: `flipped-${activeCard.id}-${Date.now()}`,
+          mimeType: "image/png",
         }),
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.message || "Save crop failed");
+        setError(data.message || "Flip failed");
         setStage("idle");
         return;
       }
-      const isTransparent = payload.mime.includes("png");
-      const newFrame: FrameOption = {
-        url: data.url,
-        label: "Adjusted",
-        source: "adjusted",
-        transparent: isTransparent,
-      };
-      setFrames((prev) => [newFrame, ...prev]);
-      setActiveFrameUrl(bust(data.url));
-      if (cropTarget.layer) {
-        setValues((prev) => ({ ...prev, [cropTarget.layer!]: data.url }));
+      // Replace the active card in place, don't append
+      setCards((prev) =>
+        prev.map((c) =>
+          c.id === activeCard.id
+            ? {
+                ...c,
+                url: bust(data.url),
+                transparent: c.transparent || activeCard.url.endsWith(".png"),
+              }
+            : c,
+        ),
+      );
+      // Propagate to any live layer
+      setValues((prev) => {
+        const next = { ...prev };
+        for (const layer of liveLayers) next[layer] = bust(data.url);
+        return next;
+      });
+      setStage("idle");
+    } catch (err) {
+      setError((err as Error).message);
+      setStage("idle");
+    }
+  }
+
+  async function removeBgActive() {
+    if (!activeCard || !sourceFileId) return;
+    if (activeCard.transparent) {
+      setError("This image is already a cutout.");
+      return;
+    }
+    setStage("removing-bg");
+    setError(null);
+    try {
+      const res = await fetch("/api/ai/remove-background", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileId: sourceFileId,
+          imageUrl: activeCard.url,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.message || "Remove-bg failed");
+        setStage("idle");
+        return;
       }
+      setCards((prev) =>
+        prev.map((c) =>
+          c.id === activeCard.id
+            ? { ...c, url: bust(data.url), transparent: true }
+            : c,
+        ),
+      );
+      setValues((prev) => {
+        const next = { ...prev };
+        for (const layer of liveLayers) next[layer] = bust(data.url);
+        return next;
+      });
+      setStage("idle");
+    } catch (err) {
+      setError((err as Error).message);
+      setStage("idle");
+    }
+  }
+
+  async function uploadFiles(fileList: FileList | null) {
+    if (!fileList || !sourceFileId) return;
+    setStage("uploading");
+    setError(null);
+    try {
+      const next: PersonCard[] = [];
+      for (const f of Array.from(fileList)) {
+        const { base64, mime } = await fileToBase64(f);
+        const res = await fetch("/api/ai/upload-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fileId: sourceFileId,
+            imageBase64: base64,
+            label: `upload-${Date.now()}`,
+            mimeType: mime,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || `Upload failed (${res.status})`);
+        next.push({
+          id: `up-${Date.now()}-${f.name.slice(0, 6)}`,
+          url: bust(data.url),
+          label: f.name.slice(0, 24),
+          transparent: mime.includes("png"),
+        });
+      }
+      setCards((prev) => [...next, ...prev]);
+      if (next[0]) setActiveCardId(next[0].id);
       setStage("idle");
     } catch (err) {
       setError((err as Error).message);
@@ -569,10 +423,8 @@ export function ThumbnailStudio({
     setStage("rendering");
     setError(null);
     setResult(null);
+    setSavedAt(null);
     try {
-      // Only send modifications the user explicitly set. Leaving a value
-      // empty lets the template's default apply — important when a
-      // template has multiple image layers and only one is being changed.
       const modifications = Object.entries(values)
         .filter(([, v]) => v && v.trim().length > 0)
         .map(([name, v]) =>
@@ -603,6 +455,158 @@ export function ThumbnailStudio({
     }
   }
 
+  // After render: re-crop the active source image, then re-render the
+  // template using the new cropped URL on the same image layer.
+  async function applyAdjust(payload: { base64: string; mime: string }) {
+    if (!activeCard || !sourceFileId || !tmpl) return;
+    setCropOpen(false);
+    setStage("re-cropping");
+    setError(null);
+    try {
+      const upRes = await fetch("/api/ai/upload-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileId: sourceFileId,
+          imageBase64: payload.base64,
+          label: `adj-${activeCard.id}-${Date.now()}`,
+          mimeType: payload.mime,
+        }),
+      });
+      const upData = await upRes.json();
+      if (!upRes.ok) {
+        setError(upData.message || "Save crop failed");
+        setStage("idle");
+        return;
+      }
+      const newUrl = bust(upData.url);
+      // Update the card and any live layer to point at the new image
+      setCards((prev) =>
+        prev.map((c) =>
+          c.id === activeCard.id
+            ? { ...c, url: newUrl, transparent: payload.mime.includes("png") }
+            : c,
+        ),
+      );
+      const liveNext: Record<string, string> = {};
+      for (const layer of liveLayers) liveNext[layer] = newUrl;
+      // If the user hadn't marked a layer live, just push to the first image layer
+      let nextValues = { ...values, ...liveNext };
+      if (liveLayers.size === 0) {
+        const firstImg = tmpl.available_modifications?.find((m) =>
+          isImageField(m.name),
+        );
+        if (firstImg) nextValues = { ...nextValues, [firstImg.name]: newUrl };
+      }
+      setValues(nextValues);
+      // Re-render the template
+      setStage("rendering");
+      const modifications = Object.entries(nextValues)
+        .filter(([, v]) => v && v.trim().length > 0)
+        .map(([name, v]) =>
+          isImageField(name) ? { name, image_url: v } : { name, text: v },
+        );
+      const rres = await fetch("/api/ai/bannerbear/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileId: sourceFileId,
+          templateId: tmpl.uid,
+          modifications,
+          slug: tmpl.name,
+        }),
+      });
+      const rdata = await rres.json();
+      if (!rres.ok) {
+        setError(rdata.message || `Re-render failed (${rres.status})`);
+        setStage("idle");
+        return;
+      }
+      setResult({ url: bust(rdata.url) });
+      window.dispatchEvent(new CustomEvent("onpod:thumbnail-saved"));
+      setStage("idle");
+    } catch (err) {
+      setError((err as Error).message);
+      setStage("idle");
+    }
+  }
+
+  async function enhanceFinal() {
+    if (!result || !sourceFileId) return;
+    setStage("enhancing-final");
+    setError(null);
+    try {
+      const res = await fetch("/api/ai/enhance-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileId: sourceFileId,
+          imageUrl: result.url,
+          label: `cover-enhanced-${Date.now()}`,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.message || "Enhance failed");
+        setStage("idle");
+        return;
+      }
+      setResult({ url: bust(data.url) });
+      window.dispatchEvent(new CustomEvent("onpod:thumbnail-saved"));
+      setStage("idle");
+    } catch (err) {
+      setError((err as Error).message);
+      setStage("idle");
+    }
+  }
+
+  async function saveToYouTube() {
+    if (!result || !sourceFileId) return;
+    // Push the current result over the canonical .cover.jpg key so the
+    // YouTube modal picks it up on its next open.
+    try {
+      // Mirror via /api/ai/upload-image with label "cover" — the route
+      // saves arbitrary base64, but we only have a URL. Use a tiny
+      // server-side endpoint pattern: fetch + upload-image.
+      const r = await fetch(result.url);
+      const buf = new Uint8Array(await r.arrayBuffer());
+      const b64 = bufferToBase64(buf);
+      const up = await fetch("/api/ai/upload-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileId: sourceFileId,
+          imageBase64: b64,
+          label: "cover",
+          mimeType: "image/jpeg",
+        }),
+      });
+      if (!up.ok) {
+        const d = await up.json().catch(() => ({}));
+        setError(d.message || "Save failed");
+        return;
+      }
+      setSavedAt(Date.now());
+      window.dispatchEvent(new CustomEvent("onpod:thumbnail-saved"));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  function reset() {
+    setResult(null);
+    setSavedAt(null);
+    setValues((prev) => {
+      const next: Record<string, string> = {};
+      for (const k of Object.keys(prev)) {
+        if (!isImageField(k)) next[k] = prev[k];
+        else next[k] = "";
+      }
+      return next;
+    });
+    setLiveLayers(new Set());
+  }
+
   if (videoFiles.length === 0) return null;
 
   const busy = stage !== "idle";
@@ -613,8 +617,8 @@ export function ThumbnailStudio({
         <div>
           <h2 className="text-[14px] font-semibold">Thumbnail studio</h2>
           <p className="text-[12px] text-text-muted">
-            Pick frames, polish them, then drop into Bannerbear. Each
-            template layer is set independently.
+            Pick people from the podcast, drop them into a template, then
+            adjust + enhance on the final image.
           </p>
         </div>
         <select
@@ -624,8 +628,8 @@ export function ThumbnailStudio({
             const row = videoFiles.find((v) => v.fileId === fid);
             setSourceFileId(fid);
             setSourceUrl(row?.url ?? "");
-            setFrames([]);
-            setActiveFrameUrl("");
+            setCards([]);
+            setActiveCardId("");
             setAiSuggested(false);
             setResult(null);
           }}
@@ -639,38 +643,24 @@ export function ThumbnailStudio({
         </select>
       </div>
 
-      {/* Step 1 — pick frames */}
+      {/* Step 1 — pick people */}
       <div className="mb-5">
         <div className="text-[11px] uppercase tracking-wider text-text-dim mb-2">
-          1 · Pick + polish a frame
+          1 · People from the podcast
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <button
-            onClick={() => pickFrames("auto")}
+            onClick={pickFromPodcast}
             disabled={busy}
             className="px-3 py-2 rounded-[10px] bg-accent text-white text-[12px] disabled:opacity-50"
           >
             {stage === "extracting"
               ? "Extracting…"
-              : stage === "vision"
-                ? "Vision picking…"
-                : "Auto-pick best frames"}
-          </button>
-          <button
-            onClick={findPeople}
-            disabled={busy}
-            className="px-3 py-2 rounded-[10px] bg-bg-elev-2 border border-border text-[12px] disabled:opacity-50"
-          >
-            {stage === "finding-people"
-              ? "Vision finding people…"
-              : "👥 Find 1–4 speakers (auto cutout)"}
-          </button>
-          <button
-            onClick={() => pickFrames("all")}
-            disabled={busy}
-            className="px-3 py-2 rounded-[10px] bg-bg-elev-2 border border-border text-[12px] disabled:opacity-50"
-          >
-            Show all {FRAME_COUNT} frames
+              : stage === "finding"
+                ? "Finding people…"
+                : stage === "removing-bg" && cards.length === 0
+                  ? "Cutting out…"
+                  : "👥 Pick from podcast"}
           </button>
           <button
             onClick={() => uploadRef.current?.click()}
@@ -689,25 +679,25 @@ export function ThumbnailStudio({
           />
         </div>
 
-        {frames.length > 0 ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-3">
-            {frames.map((f) => (
-              <button
-                key={f.url}
-                onClick={() => setActiveFrameUrl(f.url)}
-                className={`relative rounded-[10px] overflow-hidden border-2 transition ${
-                  activeFrameUrl === f.url
+        {cards.length > 0 ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
+            {cards.map((c) => (
+              <div
+                key={c.id}
+                className={`relative rounded-[10px] overflow-hidden border-2 transition cursor-pointer ${
+                  activeCardId === c.id
                     ? "border-accent"
                     : "border-border hover:border-border-strong"
                 }`}
+                onClick={() => setActiveCardId(c.id)}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={f.url}
-                  alt={f.label}
+                  src={c.url}
+                  alt={c.label}
                   className="w-full block"
                   style={
-                    f.transparent
+                    c.transparent
                       ? {
                           backgroundImage:
                             "linear-gradient(45deg, rgba(255,255,255,0.06) 25%, transparent 25%), linear-gradient(-45deg, rgba(255,255,255,0.06) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.06) 75%), linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.06) 75%)",
@@ -718,64 +708,40 @@ export function ThumbnailStudio({
                       : undefined
                   }
                 />
-                <div
-                  className={`absolute top-1 left-1 px-2 py-0.5 rounded-full text-[10px] uppercase ${
-                    f.source === "enhanced" ||
-                    f.source === "no-bg" ||
-                    f.source === "adjusted" ||
-                    f.source === "person" ||
-                    f.source === "flipped"
-                      ? "bg-accent-2 text-bg"
-                      : f.source === "upload"
-                        ? "bg-accent text-white"
-                        : "bg-black/70 text-white"
-                  }`}
-                >
-                  {f.label}
+                <div className="absolute top-1 left-1 px-2 py-0.5 rounded-full text-[10px] uppercase bg-black/70 text-white">
+                  {c.label}
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         ) : null}
 
-        {activeFrameUrl ? (
-          <div className="flex items-center gap-2 mt-3 flex-wrap">
-            <button
-              onClick={enhance}
-              disabled={busy}
-              className="px-3 py-2 rounded-[10px] bg-bg-elev-2 border border-border text-[12px] disabled:opacity-50"
-            >
-              {stage === "enhancing" ? "Enhancing…" : "✨ Enhance"}
-            </button>
-            <button
-              onClick={removeBg}
-              disabled={busy}
-              className="px-3 py-2 rounded-[10px] bg-bg-elev-2 border border-border text-[12px] disabled:opacity-50"
-            >
-              {stage === "removing-bg" ? "Removing…" : "✂️ Remove BG"}
-            </button>
-            <button
-              onClick={() => openCrop()}
-              disabled={busy}
-              className="px-3 py-2 rounded-[10px] bg-bg-elev-2 border border-border text-[12px] disabled:opacity-50"
-            >
-              {stage === "saving-crop" ? "Saving…" : "🔍 Adjust / zoom"}
-            </button>
-            <button
-              onClick={flip}
-              disabled={busy}
-              className="px-3 py-2 rounded-[10px] bg-bg-elev-2 border border-border text-[12px] disabled:opacity-50"
-            >
-              {stage === "flipping" ? "Flipping…" : "⇆ Flip horizontal"}
-            </button>
-            <span className="text-[11px] text-text-dim">
-              Enhance · cutout · adjust · flip · or upload your own.
+        {activeCard ? (
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] text-text-muted">
+              Selected: <b>{activeCard.label}</b>
             </span>
+            <button
+              onClick={flipActive}
+              disabled={busy}
+              className="px-3 py-1.5 rounded-[8px] bg-bg-elev-2 border border-border text-[12px] disabled:opacity-50"
+            >
+              {stage === "flipping" ? "Flipping…" : "⇆ Flip"}
+            </button>
+            {!activeCard.transparent ? (
+              <button
+                onClick={removeBgActive}
+                disabled={busy}
+                className="px-3 py-1.5 rounded-[8px] bg-bg-elev-2 border border-border text-[12px] disabled:opacity-50"
+              >
+                {stage === "removing-bg" ? "Removing…" : "✂️ Remove BG"}
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>
 
-      {/* Step 2 — Bannerbear template */}
+      {/* Step 2 — template + layers */}
       <div>
         <div className="text-[11px] uppercase tracking-wider text-text-dim mb-2">
           2 · Drop into template
@@ -789,10 +755,7 @@ export function ThumbnailStudio({
 
         <select
           value={selectedTemplate}
-          onChange={(e) => {
-            setSelectedTemplate(e.target.value);
-            setResult(null);
-          }}
+          onChange={(e) => setSelectedTemplate(e.target.value)}
           className="w-full px-3 py-2 bg-bg-elev-2 border border-border rounded-[8px] text-[13px] mb-3"
           disabled={templates.length === 0}
         >
@@ -829,11 +792,6 @@ export function ThumbnailStudio({
                             ● Live
                           </span>
                         ) : null}
-                        <span className="text-text-dim">
-                          {isLive
-                            ? "follows the selected frame"
-                            : "empty = template default"}
-                        </span>
                       </div>
                       {currentVal ? (
                         /* eslint-disable-next-line @next/next/no-img-element */
@@ -852,7 +810,7 @@ export function ThumbnailStudio({
                           onClick={() => {
                             setValues((prev) => ({
                               ...prev,
-                              [m.name]: activeFrameUrl,
+                              [m.name]: activeUrl,
                             }));
                             setLiveLayers((prev) => {
                               const next = new Set(prev);
@@ -860,17 +818,10 @@ export function ThumbnailStudio({
                               return next;
                             });
                           }}
-                          disabled={!activeFrameUrl}
+                          disabled={!activeUrl}
                           className="px-2.5 py-1.5 rounded-[8px] bg-accent text-white text-[11px] disabled:opacity-40"
                         >
-                          {isLive ? "✓ Live · selected frame" : "Use selected frame"}
-                        </button>
-                        <button
-                          onClick={() => openCrop(m.name)}
-                          disabled={!activeFrameUrl}
-                          className="px-2.5 py-1.5 rounded-[8px] bg-bg-elev-2 border border-border text-[11px] disabled:opacity-40"
-                        >
-                          Adjust + apply
+                          {isLive ? "✓ Live · selected card" : "Use selected card"}
                         </button>
                         <button
                           onClick={() => {
@@ -940,6 +891,7 @@ export function ThumbnailStudio({
 
       {error ? <p className="mt-3 text-[12px] text-danger">{error}</p> : null}
 
+      {/* Step 3 — result + post-render controls */}
       {result ? (
         <div className="mt-5 p-3 bg-bg-elev-2 border border-border rounded-[10px]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -948,40 +900,68 @@ export function ThumbnailStudio({
             alt="Final thumbnail"
             className="rounded-[8px] border border-border max-w-full"
           />
-          <p className="text-[11px] text-success mt-2">
-            ✓ Saved as the file&apos;s cover. The YouTube tab will pre-select it
-            when you open that file&apos;s YouTube modal.
-          </p>
-          <p className="text-[11px] text-text-muted mt-1 break-all">
-            {result.url}
-          </p>
           <div className="mt-3 flex items-center gap-2 flex-wrap">
-            <a
-              href={result.url}
-              target="_blank"
-              rel="noreferrer"
-              className="px-3 py-2 rounded-[10px] bg-bg-elev-3 border border-border text-[12px]"
+            <button
+              onClick={() => setCropOpen(true)}
+              disabled={busy || !activeCard}
+              className="px-3 py-2 rounded-[10px] bg-bg-elev-3 border border-border text-[12px] disabled:opacity-50"
             >
-              Open full size
-            </a>
+              {stage === "re-cropping" ? "Re-cropping…" : "🔍 Adjust person"}
+            </button>
+            <button
+              onClick={enhanceFinal}
+              disabled={busy}
+              className="px-3 py-2 rounded-[10px] bg-bg-elev-3 border border-border text-[12px] disabled:opacity-50"
+            >
+              {stage === "enhancing-final" ? "Enhancing…" : "✨ Enhance (HD + bright)"}
+            </button>
+            <button
+              onClick={saveToYouTube}
+              disabled={busy}
+              className="px-3 py-2 rounded-[10px] bg-accent text-white text-[12px] disabled:opacity-50"
+            >
+              💾 Save to YouTube
+            </button>
             <button
               onClick={() => {
-                setResult(null);
+                void saveToYouTube();
+                reset();
               }}
-              className="px-3 py-2 rounded-[10px] bg-bg-elev-3 border border-border text-[12px]"
+              disabled={busy}
+              className="px-3 py-2 rounded-[10px] bg-bg-elev-2 border border-border text-[12px] disabled:opacity-50"
             >
-              Make another
+              💾 + Make another
             </button>
           </div>
+          {savedAt ? (
+            <p className="text-[11px] text-success mt-2">
+              ✓ Saved as the file&apos;s cover · YouTube modal will pre-select it.
+            </p>
+          ) : (
+            <p className="text-[11px] text-text-muted mt-2">
+              Saved next to the source. Click <b>Save to YouTube</b> to also
+              promote it as the canonical <code>.cover.jpg</code>.
+            </p>
+          )}
         </div>
       ) : null}
 
       <CropZoom
         open={cropOpen}
-        imageUrl={activeFrameUrl}
+        imageUrl={activeCard?.url ?? ""}
         onCancel={() => setCropOpen(false)}
-        onApply={applyCrop}
+        onApply={applyAdjust}
       />
     </div>
   );
+}
+
+function bufferToBase64(buf: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < buf.length; i += chunkSize) {
+    const chunk = buf.subarray(i, i + chunkSize);
+    binary += String.fromCharCode.apply(null, Array.from(chunk));
+  }
+  return btoa(binary);
 }

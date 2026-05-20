@@ -129,7 +129,7 @@ export async function listSessionFiles(
       lastModified: item.lastModified ? item.lastModified.toISOString() : null,
       url: publicUrl(item.key),
     }))
-    .sort((a, b) => a.filename.localeCompare(b.filename));
+    .sort((a, b) => (b.lastModified ?? "").localeCompare(a.lastModified ?? ""));
 }
 
 /**
