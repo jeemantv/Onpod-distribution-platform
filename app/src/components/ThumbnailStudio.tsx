@@ -87,11 +87,15 @@ export function ThumbnailStudio({
   const [templatesError, setTemplatesError] = useState<string | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
   const [values, setValues] = useState<Record<string, string>>({});
-  const [liveLayers, setLiveLayers] = useState<Set<string>>(new Set());
+  // Tracks WHICH card is assigned to each image layer (by card id).
+  // Layers track the card, not the URL, so when a card's URL changes
+  // (flip / bg removal / re-crop) only the assigned layer updates.
+  const [layerCard, setLayerCard] = useState<Record<string, string>>({});
   const [aiSuggested, setAiSuggested] = useState(false);
   const [result, setResult] = useState<{ url: string } | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [cropOpen, setCropOpen] = useState(false);
+  const [adjustLayer, setAdjustLayer] = useState<string | null>(null);
 
   const activeCard = cards.find((c) => c.id === activeCardId);
   const activeUrl = activeCard?.url ?? "";
@@ -113,17 +117,22 @@ export function ThumbnailStudio({
     setActiveCardId("");
     setAiSuggested(false);
     setResult(null);
-    setLiveLayers(new Set());
+    setLayerCard({});
   }, [focusFileId, videoFiles]);
 
+  // Whenever a card's URL changes (in-place flip / bg removal / re-crop),
+  // update only the layers that have that card assigned.
   useEffect(() => {
-    if (!activeUrl || liveLayers.size === 0) return;
+    if (Object.keys(layerCard).length === 0) return;
     setValues((prev) => {
       const next = { ...prev };
-      for (const layer of liveLayers) next[layer] = activeUrl;
+      for (const [layer, cardId] of Object.entries(layerCard)) {
+        const c = cards.find((card) => card.id === cardId);
+        if (c) next[layer] = c.url;
+      }
       return next;
     });
-  }, [activeUrl, liveLayers]);
+  }, [cards, layerCard]);
 
   useEffect(() => {
     void (async () => {
@@ -165,7 +174,7 @@ export function ThumbnailStudio({
       }
     }
     setValues(next);
-    setLiveLayers(new Set());
+    setLayerCard({});
     setResult(null);
     setSavedAt(null);
   }, [tmpl, defaultTitle, defaultSubtitle]);
@@ -327,12 +336,7 @@ export function ThumbnailStudio({
             : c,
         ),
       );
-      // Propagate to any live layer
-      setValues((prev) => {
-        const next = { ...prev };
-        for (const layer of liveLayers) next[layer] = bust(data.url);
-        return next;
-      });
+      // layerCard useEffect re-pushes the new URL into any assigned layer
       setStage("idle");
     } catch (err) {
       setError((err as Error).message);
@@ -370,11 +374,6 @@ export function ThumbnailStudio({
             : c,
         ),
       );
-      setValues((prev) => {
-        const next = { ...prev };
-        for (const layer of liveLayers) next[layer] = bust(data.url);
-        return next;
-      });
       setStage("idle");
     } catch (err) {
       setError((err as Error).message);
@@ -455,11 +454,18 @@ export function ThumbnailStudio({
     }
   }
 
-  // After render: re-crop the active source image, then re-render the
-  // template using the new cropped URL on the same image layer.
+  // After render: re-crop the chosen card (whichever was selected for
+  // adjustment), then re-render the template with the new image.
   async function applyAdjust(payload: { base64: string; mime: string }) {
-    if (!activeCard || !sourceFileId || !tmpl) return;
+    // Determine which card we're adjusting: either the one assigned to
+    // the layer the user picked, or the active card if none specified.
+    const targetCardId = adjustLayer
+      ? layerCard[adjustLayer]
+      : activeCard?.id;
+    const targetCard = cards.find((c) => c.id === targetCardId);
+    if (!targetCard || !sourceFileId || !tmpl) return;
     setCropOpen(false);
+    setAdjustLayer(null);
     setStage("re-cropping");
     setError(null);
     try {
@@ -469,7 +475,7 @@ export function ThumbnailStudio({
         body: JSON.stringify({
           fileId: sourceFileId,
           imageBase64: payload.base64,
-          label: `adj-${activeCard.id}-${Date.now()}`,
+          label: `adj-${targetCard.id}-${Date.now()}`,
           mimeType: payload.mime,
         }),
       });
@@ -480,25 +486,34 @@ export function ThumbnailStudio({
         return;
       }
       const newUrl = bust(upData.url);
-      // Update the card and any live layer to point at the new image
+      // Update the card; this triggers the per-layer-card useEffect to
+      // refresh ONLY the layers assigned to this card.
       setCards((prev) =>
         prev.map((c) =>
-          c.id === activeCard.id
+          c.id === targetCard.id
             ? { ...c, url: newUrl, transparent: payload.mime.includes("png") }
             : c,
         ),
       );
-      const liveNext: Record<string, string> = {};
-      for (const layer of liveLayers) liveNext[layer] = newUrl;
-      // If the user hadn't marked a layer live, just push to the first image layer
-      let nextValues = { ...values, ...liveNext };
-      if (liveLayers.size === 0) {
+
+      // Build the next values manually since state update is async
+      const nextValues: Record<string, string> = { ...values };
+      for (const [ln, cid] of Object.entries(layerCard)) {
+        if (cid === targetCard.id) nextValues[ln] = newUrl;
+      }
+      // If this card wasn't assigned to any layer yet, drop it into the
+      // first image layer of the template.
+      if (!Object.values(layerCard).includes(targetCard.id)) {
         const firstImg = tmpl.available_modifications?.find((m) =>
           isImageField(m.name),
         );
-        if (firstImg) nextValues = { ...nextValues, [firstImg.name]: newUrl };
+        if (firstImg) {
+          nextValues[firstImg.name] = newUrl;
+          setLayerCard((prev) => ({ ...prev, [firstImg.name]: targetCard.id }));
+        }
       }
       setValues(nextValues);
+
       // Re-render the template
       setStage("rendering");
       const modifications = Object.entries(nextValues)
@@ -523,6 +538,7 @@ export function ThumbnailStudio({
         return;
       }
       setResult({ url: bust(rdata.url) });
+      setSavedAt(null);
       window.dispatchEvent(new CustomEvent("onpod:thumbnail-saved"));
       setStage("idle");
     } catch (err) {
@@ -604,7 +620,7 @@ export function ThumbnailStudio({
       }
       return next;
     });
-    setLiveLayers(new Set());
+    setLayerCard({});
   }
 
   if (videoFiles.length === 0) return null;
@@ -782,14 +798,15 @@ export function ThumbnailStudio({
                 const isImg = isImageField(m.name);
                 if (isImg) {
                   const currentVal = values[m.name] ?? "";
-                  const isLive = liveLayers.has(m.name);
+                  const assignedCardId = layerCard[m.name];
+                  const assignedCard = cards.find((c) => c.id === assignedCardId);
                   return (
                     <div key={m.name} className="space-y-1">
                       <div className="text-[11px] text-text-muted flex items-center gap-2 flex-wrap">
                         <code className="text-accent-2">{m.name}</code>
-                        {isLive ? (
+                        {assignedCard ? (
                           <span className="px-1.5 py-0.5 rounded-full bg-accent-2 text-bg text-[9px] uppercase">
-                            ● Live
+                            {assignedCard.label}
                           </span>
                         ) : null}
                       </div>
@@ -805,38 +822,61 @@ export function ThumbnailStudio({
                           (empty — template default will be used)
                         </div>
                       )}
-                      <div className="flex items-center gap-2 flex-wrap mt-1">
-                        <button
-                          onClick={() => {
-                            setValues((prev) => ({
-                              ...prev,
-                              [m.name]: activeUrl,
-                            }));
-                            setLiveLayers((prev) => {
-                              const next = new Set(prev);
-                              next.add(m.name);
-                              return next;
-                            });
-                          }}
-                          disabled={!activeUrl}
-                          className="px-2.5 py-1.5 rounded-[8px] bg-accent text-white text-[11px] disabled:opacity-40"
-                        >
-                          {isLive ? "✓ Live · selected card" : "Use selected card"}
-                        </button>
-                        <button
-                          onClick={() => {
-                            setValues((prev) => ({ ...prev, [m.name]: "" }));
-                            setLiveLayers((prev) => {
-                              const next = new Set(prev);
-                              next.delete(m.name);
-                              return next;
-                            });
-                          }}
-                          className="px-2.5 py-1.5 rounded-[8px] bg-bg-elev-2 border border-border text-[11px]"
-                        >
-                          Clear
-                        </button>
-                      </div>
+
+                      {/* Card picker — one mini-thumb per available card */}
+                      {cards.length > 0 ? (
+                        <div className="flex items-center gap-1.5 flex-wrap mt-2">
+                          {cards.map((c) => (
+                            <button
+                              key={c.id}
+                              onClick={() => {
+                                setValues((prev) => ({ ...prev, [m.name]: c.url }));
+                                setLayerCard((prev) => ({
+                                  ...prev,
+                                  [m.name]: c.id,
+                                }));
+                              }}
+                              title={c.label}
+                              className={`w-14 h-14 rounded-[8px] overflow-hidden border-2 transition ${
+                                assignedCardId === c.id
+                                  ? "border-accent"
+                                  : "border-border hover:border-border-strong"
+                              }`}
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={c.url}
+                                alt={c.label}
+                                className="w-full h-full object-cover"
+                                style={
+                                  c.transparent
+                                    ? {
+                                        backgroundImage:
+                                          "linear-gradient(45deg, rgba(255,255,255,0.06) 25%, transparent 25%), linear-gradient(-45deg, rgba(255,255,255,0.06) 25%, transparent 25%)",
+                                        backgroundSize: "10px 10px",
+                                        backgroundColor: "#1a1a1d",
+                                      }
+                                    : undefined
+                                }
+                              />
+                            </button>
+                          ))}
+                          <button
+                            onClick={() => {
+                              setValues((prev) => ({ ...prev, [m.name]: "" }));
+                              setLayerCard((prev) => {
+                                const n = { ...prev };
+                                delete n[m.name];
+                                return n;
+                              });
+                            }}
+                            className="px-2 py-1 rounded-[6px] bg-bg-elev-2 border border-border text-[10px]"
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      ) : null}
+
                       <input
                         type="url"
                         value={currentVal}
@@ -845,10 +885,11 @@ export function ThumbnailStudio({
                             ...prev,
                             [m.name]: e.target.value,
                           }));
-                          setLiveLayers((prev) => {
-                            const next = new Set(prev);
-                            next.delete(m.name);
-                            return next;
+                          // Manual URL detaches from any assigned card
+                          setLayerCard((prev) => {
+                            const n = { ...prev };
+                            delete n[m.name];
+                            return n;
                           });
                         }}
                         placeholder="…or paste an image URL"
@@ -900,14 +941,42 @@ export function ThumbnailStudio({
             alt="Final thumbnail"
             className="rounded-[8px] border border-border max-w-full"
           />
+
+          {/* Per-layer adjust buttons */}
+          {Object.keys(layerCard).length > 0 ? (
+            <div className="mt-3">
+              <div className="text-[11px] text-text-muted mb-2">
+                Adjust an image inside the template:
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                {Object.entries(layerCard).map(([layerName, cardId]) => {
+                  const card = cards.find((c) => c.id === cardId);
+                  if (!card) return null;
+                  return (
+                    <button
+                      key={layerName}
+                      onClick={() => {
+                        setAdjustLayer(layerName);
+                        setCropOpen(true);
+                      }}
+                      disabled={busy}
+                      className="px-3 py-2 rounded-[10px] bg-bg-elev-3 border border-border text-[12px] disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={card.url}
+                        alt=""
+                        className="w-6 h-6 rounded object-cover"
+                      />
+                      🔍 Adjust {card.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
           <div className="mt-3 flex items-center gap-2 flex-wrap">
-            <button
-              onClick={() => setCropOpen(true)}
-              disabled={busy || !activeCard}
-              className="px-3 py-2 rounded-[10px] bg-bg-elev-3 border border-border text-[12px] disabled:opacity-50"
-            >
-              {stage === "re-cropping" ? "Re-cropping…" : "🔍 Adjust person"}
-            </button>
             <button
               onClick={enhanceFinal}
               disabled={busy}
@@ -916,15 +985,17 @@ export function ThumbnailStudio({
               {stage === "enhancing-final" ? "Enhancing…" : "✨ Enhance (HD + bright)"}
             </button>
             <button
-              onClick={saveToYouTube}
-              disabled={busy}
+              onClick={async () => {
+                await saveToYouTube();
+              }}
+              disabled={busy || savedAt !== null}
               className="px-3 py-2 rounded-[10px] bg-accent text-white text-[12px] disabled:opacity-50"
             >
-              💾 Save to YouTube
+              {savedAt ? "✓ Saved" : "💾 Save"}
             </button>
             <button
-              onClick={() => {
-                void saveToYouTube();
+              onClick={async () => {
+                await saveToYouTube();
                 reset();
               }}
               disabled={busy}
@@ -932,24 +1003,42 @@ export function ThumbnailStudio({
             >
               💾 + Make another
             </button>
+            <button
+              onClick={() => {
+                setResult(null);
+                setSavedAt(null);
+              }}
+              className="px-3 py-2 rounded-[10px] bg-bg-elev-2 border border-border text-[12px]"
+            >
+              Close
+            </button>
           </div>
           {savedAt ? (
-            <p className="text-[11px] text-success mt-2">
-              ✓ Saved as the file&apos;s cover · YouTube modal will pre-select it.
+            <p className="text-[12px] text-success mt-2">
+              ✓ Saved as the file&apos;s cover. Open the YouTube tab on this
+              file — the thumbnail will be pre-selected.
             </p>
-          ) : (
-            <p className="text-[11px] text-text-muted mt-2">
-              Saved next to the source. Click <b>Save to YouTube</b> to also
-              promote it as the canonical <code>.cover.jpg</code>.
-            </p>
-          )}
+          ) : null}
         </div>
       ) : null}
 
       <CropZoom
         open={cropOpen}
-        imageUrl={activeCard?.url ?? ""}
-        onCancel={() => setCropOpen(false)}
+        imageUrl={
+          adjustLayer
+            ? cards.find((c) => c.id === layerCard[adjustLayer])?.url ?? ""
+            : activeCard?.url ?? ""
+        }
+        contextImageUrl={result?.url}
+        contextLabel={
+          adjustLayer
+            ? cards.find((c) => c.id === layerCard[adjustLayer])?.label
+            : activeCard?.label
+        }
+        onCancel={() => {
+          setCropOpen(false);
+          setAdjustLayer(null);
+        }}
         onApply={applyAdjust}
       />
     </div>

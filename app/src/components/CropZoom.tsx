@@ -10,11 +10,23 @@ interface Props {
   open: boolean;
   imageUrl: string;
   aspect?: number; // width/height, default 16/9
+  // Optional: rendered template thumbnail to show beside the crop so the
+  // user can see how this image sits inside the final composition.
+  contextImageUrl?: string;
+  contextLabel?: string;
   onCancel: () => void;
   onApply: (payload: { base64: string; mime: string }) => void;
 }
 
-export function CropZoom({ open, imageUrl, aspect = 16 / 9, onCancel, onApply }: Props) {
+export function CropZoom({
+  open,
+  imageUrl,
+  aspect = 16 / 9,
+  contextImageUrl,
+  contextLabel,
+  onCancel,
+  onApply,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const [scale, setScale] = useState(1);
@@ -135,28 +147,66 @@ export function CropZoom({ open, imageUrl, aspect = 16 / 9, onCancel, onApply }:
       onClick={onCancel}
     >
       <div
-        className="bg-bg-elev border border-border rounded-[16px] w-full max-w-3xl p-5"
+        className="bg-bg-elev border border-border rounded-[16px] w-full max-w-4xl p-5"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-[16px] font-semibold mb-2">Adjust crop</h3>
+        <h3 className="text-[16px] font-semibold mb-2">
+          Adjust {contextLabel ? <span className="text-text-muted">· {contextLabel}</span> : null}
+        </h3>
         <p className="text-[12px] text-text-muted mb-3">
           Drag to pan, slider to zoom. Output is locked at {W}×{H}.
         </p>
-        <canvas
-          ref={canvasRef}
-          onMouseDown={startDrag}
-          onMouseMove={moveDrag}
-          onMouseUp={endDrag}
-          onMouseLeave={endDrag}
-          className="w-full rounded-[10px] border border-border cursor-grab active:cursor-grabbing"
-          style={{
-            backgroundImage:
-              "linear-gradient(45deg, rgba(255,255,255,0.06) 25%, transparent 25%), linear-gradient(-45deg, rgba(255,255,255,0.06) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.06) 75%), linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.06) 75%)",
-            backgroundSize: "20px 20px",
-            backgroundPosition: "0 0, 0 10px, 10px -10px, -10px 0",
-            backgroundColor: "#0a0a0b",
-          }}
-        />
+        {contextImageUrl ? (
+          <div className="mb-3 grid grid-cols-2 gap-3">
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-text-dim mb-1">
+                Current thumbnail
+              </div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={contextImageUrl}
+                alt="Current thumbnail"
+                className="rounded-[8px] border border-border w-full"
+              />
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-text-dim mb-1">
+                New crop (for {contextLabel ?? "this layer"})
+              </div>
+              <canvas
+                ref={canvasRef}
+                onMouseDown={startDrag}
+                onMouseMove={moveDrag}
+                onMouseUp={endDrag}
+                onMouseLeave={endDrag}
+                className="w-full rounded-[8px] border border-border cursor-grab active:cursor-grabbing"
+                style={{
+                  backgroundImage:
+                    "linear-gradient(45deg, rgba(255,255,255,0.06) 25%, transparent 25%), linear-gradient(-45deg, rgba(255,255,255,0.06) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.06) 75%), linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.06) 75%)",
+                  backgroundSize: "20px 20px",
+                  backgroundPosition: "0 0, 0 10px, 10px -10px, -10px 0",
+                  backgroundColor: "#0a0a0b",
+                }}
+              />
+            </div>
+          </div>
+        ) : (
+          <canvas
+            ref={canvasRef}
+            onMouseDown={startDrag}
+            onMouseMove={moveDrag}
+            onMouseUp={endDrag}
+            onMouseLeave={endDrag}
+            className="w-full rounded-[10px] border border-border cursor-grab active:cursor-grabbing"
+            style={{
+              backgroundImage:
+                "linear-gradient(45deg, rgba(255,255,255,0.06) 25%, transparent 25%), linear-gradient(-45deg, rgba(255,255,255,0.06) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.06) 75%), linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.06) 75%)",
+              backgroundSize: "20px 20px",
+              backgroundPosition: "0 0, 0 10px, 10px -10px, -10px 0",
+              backgroundColor: "#0a0a0b",
+            }}
+          />
+        )}
         <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
           <label className="text-[11px] text-text-muted">
             Zoom
