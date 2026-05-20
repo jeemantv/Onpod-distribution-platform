@@ -1,4 +1,4 @@
-export type Role = "client" | "admin";
+export type Role = "client" | "editor" | "admin";
 export type Plan = "starter" | "pro" | "authority" | "unlimited";
 export type StudioLocation = "ottawa" | "montreal" | "brossard" | "laval";
 export type ProjectStatus =

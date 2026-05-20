@@ -8,6 +8,7 @@ import {
   hasTranscript,
 } from "@/lib/transcript-store";
 import { getSession } from "@/lib/session";
+import { canAccessKey } from "@/lib/access";
 
 // Status derives purely from B2 state:
 //   ai.json present                → ready
@@ -27,8 +28,7 @@ export async function GET(
   } catch {
     return NextResponse.json({ error: "invalid_file_id" }, { status: 400 });
   }
-  const [ownerId] = key.split("/", 1);
-  if (user.role !== "admin" && ownerId !== user.id) {
+  if (!canAccessKey(user, key)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 

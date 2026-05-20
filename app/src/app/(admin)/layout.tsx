@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { TopNav } from "@/components/TopNav";
-import { requireAdmin } from "@/lib/session";
+import { requireEditorOrAdmin } from "@/lib/session";
 
 const NAV = [
+  { href: "/admin/studios", label: "Studios" },
   { href: "/admin/clients", label: "Clients" },
+  { href: "/admin/team", label: "Team" },
   { href: "/admin/projects", label: "All projects" },
   { href: "/admin/revenue", label: "Revenue" },
   { href: "/admin/settings", label: "Settings" },
@@ -14,7 +16,7 @@ export default function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const user = requireAdmin();
+  const user = requireEditorOrAdmin();
   return (
     <>
       <TopNav user={user} />

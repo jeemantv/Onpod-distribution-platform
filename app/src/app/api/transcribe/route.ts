@@ -7,6 +7,7 @@ import {
   setJobMarker,
 } from "@/lib/transcript-store";
 import { getSession } from "@/lib/session";
+import { canAccessKey } from "@/lib/access";
 
 // Spec §6.3 — kick off async Deepgram transcription with callback URL.
 // Deepgram POSTs results to /api/transcribe/webhook when done; that handler
@@ -31,8 +32,7 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "invalid_file_id" }, { status: 400 });
   }
-  const [ownerId] = key.split("/", 1);
-  if (user.role !== "admin" && ownerId !== user.id) {
+  if (!canAccessKey(user, key)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 

@@ -4,6 +4,7 @@ import {
   UploadPartCommand,
   CompleteMultipartUploadCommand,
   AbortMultipartUploadCommand,
+  CopyObjectCommand,
   GetObjectCommand,
   ListObjectsV2Command,
   HeadObjectCommand,
@@ -148,6 +149,63 @@ export async function listFiles(prefix: string): Promise<
 
 export async function deleteFile(key: string): Promise<void> {
   await b2.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+}
+
+/**
+ * List "folders" (CommonPrefixes) directly under a prefix. Use Delimiter='/'
+ * to get just the immediate children. Returned strings are the full prefix
+ * paths including the trailing slash.
+ */
+export async function listFolders(prefix: string): Promise<string[]> {
+  const out: string[] = [];
+  let continuationToken: string | undefined;
+  do {
+    const res = await b2.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: prefix,
+        Delimiter: "/",
+        ContinuationToken: continuationToken,
+      }),
+    );
+    for (const p of res.CommonPrefixes ?? []) {
+      if (p.Prefix) out.push(p.Prefix);
+    }
+    continuationToken = res.IsTruncated ? res.NextContinuationToken : undefined;
+  } while (continuationToken);
+  return out;
+}
+
+export async function copyFile(fromKey: string, toKey: string): Promise<void> {
+  await b2.send(
+    new CopyObjectCommand({
+      Bucket: bucket,
+      CopySource: `/${bucket}/${encodeURIComponent(fromKey).replace(/%2F/g, "/")}`,
+      Key: toKey,
+    }),
+  );
+}
+
+export async function moveFile(fromKey: string, toKey: string): Promise<void> {
+  await copyFile(fromKey, toKey);
+  await deleteFile(fromKey);
+}
+
+export async function movePrefix(fromPrefix: string, toPrefix: string): Promise<number> {
+  const items = await listFiles(fromPrefix);
+  for (const item of items) {
+    const suffix = item.key.slice(fromPrefix.length);
+    await moveFile(item.key, `${toPrefix}${suffix}`);
+  }
+  return items.length;
+}
+
+export async function deletePrefix(prefix: string): Promise<number> {
+  const items = await listFiles(prefix);
+  for (const item of items) {
+    await deleteFile(item.key);
+  }
+  return items.length;
 }
 
 export function encodeFileId(key: string): string {

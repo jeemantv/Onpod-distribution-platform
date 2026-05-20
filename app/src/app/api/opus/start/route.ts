@@ -3,6 +3,7 @@ import { decodeFileId, publicUrl } from "@/lib/b2";
 import { createClipProject } from "@/lib/opusclip";
 import { recordJob } from "@/lib/opus-job-store";
 import { getSession } from "@/lib/session";
+import { canAccessKey } from "@/lib/access";
 
 interface RequestBody {
   fileId: string;
@@ -31,10 +32,10 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "invalid_file_id" }, { status: 400 });
   }
-  const [ownerId, projectId] = key.split("/");
-  if (user.role !== "admin" && ownerId !== user.id) {
+  if (!canAccessKey(user, key)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
+  const [, projectId] = key.split("/");
 
   const sourceUrl = publicUrl(key);
   const origin = new URL(req.url).origin;
