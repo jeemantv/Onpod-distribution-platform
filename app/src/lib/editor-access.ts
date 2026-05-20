@@ -14,10 +14,18 @@ export interface EditorScope {
 export async function loadEditorScope(user: User): Promise<EditorScope> {
   if (user.role === "admin") return { studios: null, excludedClientEmails: new Set() };
   const stored = await getUserByEmail(user.email);
-  const assigned = stored?.assignedStudios;
-  const excluded = stored?.excludedClientEmails ?? [];
+  // Demo editors live in mock-data.ts, not the B2 store. Treat them as
+  // assigned to ALL studios by default so the demo flow works without
+  // a manual assignment step. Real editors go through the admin UI.
+  if (!stored) {
+    return {
+      studios: [...STUDIO_SLUGS],
+      excludedClientEmails: new Set(),
+    };
+  }
+  const assigned = stored.assignedStudios;
+  const excluded = stored.excludedClientEmails ?? [];
   if (!assigned || assigned.length === 0) {
-    // No assignment configured — editor sees nothing until admin assigns
     return { studios: [], excludedClientEmails: new Set(excluded.map((e) => e.toLowerCase())) };
   }
   if (assigned.includes("all")) {

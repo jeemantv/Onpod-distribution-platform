@@ -12,7 +12,11 @@ import { requireSession } from "@/lib/session";
 import { canAccessKey } from "@/lib/access";
 import { emptyRevisions, getRevisions, saveRevisions } from "@/lib/revisions-store";
 import { sendEmail } from "@/lib/email";
-import { getUserByEmail as getStoredUserByEmail } from "@/lib/auth-store";
+import {
+  getUserByEmail as getStoredUserByEmail,
+  listAllUsers as listStoredUsers,
+} from "@/lib/auth-store";
+import { mockUsers } from "@/lib/mock-data";
 import { parseKey } from "@/lib/studio";
 
 export const maxDuration = 30;
@@ -72,7 +76,11 @@ export async function POST(
   file.reviewSentAt = Date.now();
   await saveRevisions(key, file);
 
-  // Resolve recipient
+  // Resolve recipient — checked in order:
+  //   1. revisions file-level assignment
+  //   2. client-level (user.assignedEditorEmail)
+  //   3. STUDIO_REVIEWS_EMAIL env (catch-all inbox)
+  //   4. fallback: first editor account on the system (mock OR B2)
   let recipient = file.assignedEditorEmail;
   if (!recipient) {
     const stored = await getStoredUserByEmail(user.email);
@@ -80,6 +88,14 @@ export async function POST(
     if (fromStored) recipient = fromStored;
   }
   if (!recipient) recipient = process.env.STUDIO_REVIEWS_EMAIL ?? undefined;
+  if (!recipient) {
+    const realEditor = (await listStoredUsers()).find((u) => u.role === "editor");
+    if (realEditor) recipient = realEditor.email;
+  }
+  if (!recipient) {
+    const mockEditor = mockUsers.find((u) => u.role === "editor");
+    if (mockEditor) recipient = mockEditor.email;
+  }
 
   const clientName = `${user.firstName} ${user.lastName}`.trim() || user.email;
   const filename = key.split("/").slice(-1)[0] ?? "video";
