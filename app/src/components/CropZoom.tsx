@@ -1,17 +1,21 @@
 "use client";
 
-// Modal for adjusting a frame before it goes into a Bannerbear template.
-// User pans + zooms a source image inside a 1280x720 canvas; clicking
-// "Use this crop" hands back a base64 JPEG of the visible area.
+// Zoom + position adjustment for a single image. Output is the visible
+// area at 1280×720 (matches typical Bannerbear image layers).
+//
+// Controls:
+//   - Drag the canvas to pan
+//   - Wheel or slider to zoom
+//   - "Fit" sizes the image to cover the canvas with the original center
+//   - Transparency is preserved if the source is a PNG; JPEG inputs
+//     produce JPEG output. No mode toggle to confuse the user.
 
 import { useEffect, useRef, useState } from "react";
 
 interface Props {
   open: boolean;
   imageUrl: string;
-  aspect?: number; // width/height, default 16/9
-  // Optional: rendered template thumbnail to show beside the crop so the
-  // user can see how this image sits inside the final composition.
+  aspect?: number;
   contextImageUrl?: string;
   contextLabel?: string;
   onCancel: () => void;
@@ -31,60 +35,69 @@ export function CropZoom({
   const imgRef = useRef<HTMLImageElement | null>(null);
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [bg, setBg] = useState<string>("transparent");
-  const [keepTransparency, setKeepTransparency] = useState(true);
   const [loaded, setLoaded] = useState(false);
-  const dragRef = useRef<{ dragging: boolean; startX: number; startY: number; baseX: number; baseY: number }>({
-    dragging: false,
-    startX: 0,
-    startY: 0,
-    baseX: 0,
-    baseY: 0,
-  });
+  const [isPngSource, setIsPngSource] = useState(false);
+  const dragRef = useRef<{
+    dragging: boolean;
+    startX: number;
+    startY: number;
+    baseX: number;
+    baseY: number;
+  }>({ dragging: false, startX: 0, startY: 0, baseX: 0, baseY: 0 });
 
   const W = 1280;
   const H = Math.round(W / aspect);
 
-  // Load image once per URL
+  // Compute the "fit-cover" scale for the loaded image
+  function fitCoverScale(img: HTMLImageElement): number {
+    const sx = W / img.width;
+    const sy = H / img.height;
+    return Math.max(sx, sy);
+  }
+
+  function applyFit() {
+    const img = imgRef.current;
+    if (!img) return;
+    setScale(fitCoverScale(img));
+    setPan({ x: 0, y: 0 });
+  }
+
+  // Load image once per URL — and reset zoom + pan to "fit cover" so the
+  // user's starting point is the same shot they were just looking at.
   useEffect(() => {
     if (!open || !imageUrl) return;
+    setLoaded(false);
+    setIsPngSource(
+      imageUrl.includes(".png") || imageUrl.includes("image/png"),
+    );
     const img = new Image();
     img.crossOrigin = "anonymous";
-    img.onload = () => {
-      imgRef.current = img;
-      // Initial scale: cover the canvas
-      const sx = W / img.width;
-      const sy = H / img.height;
-      const init = Math.max(sx, sy);
-      setScale(init);
+    function done(loaded: HTMLImageElement) {
+      imgRef.current = loaded;
+      setScale(fitCoverScale(loaded));
       setPan({ x: 0, y: 0 });
       setLoaded(true);
-    };
+    }
+    img.onload = () => done(img);
     img.onerror = () => {
-      // Fallback: try fetch+blob to bypass CORS-cache issues
       fetch(imageUrl, { cache: "reload" })
         .then((r) => r.blob())
         .then((b) => {
           const url = URL.createObjectURL(b);
-          const img2 = new Image();
-          img2.onload = () => {
-            imgRef.current = img2;
-            const sx = W / img2.width;
-            const sy = H / img2.height;
-            setScale(Math.max(sx, sy));
-            setPan({ x: 0, y: 0 });
-            setLoaded(true);
+          const im2 = new Image();
+          im2.onload = () => {
+            done(im2);
             URL.revokeObjectURL(url);
           };
-          img2.src = url;
+          im2.src = url;
         })
         .catch(() => setLoaded(false));
     };
     img.src = imageUrl;
-    setLoaded(false);
-  }, [imageUrl, open, W, H]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [imageUrl, open]);
 
-  // Re-draw on any change
+  // Re-draw on any state change
   useEffect(() => {
     const canvas = canvasRef.current;
     const img = imgRef.current;
@@ -94,16 +107,12 @@ export function CropZoom({
     canvas.width = W;
     canvas.height = H;
     ctx.clearRect(0, 0, W, H);
-    if (!keepTransparency || bg !== "transparent") {
-      ctx.fillStyle = bg === "transparent" ? "#0a0a0b" : bg;
-      ctx.fillRect(0, 0, W, H);
-    }
     const drawW = img.width * scale;
     const drawH = img.height * scale;
     const cx = W / 2 + pan.x - drawW / 2;
     const cy = H / 2 + pan.y - drawH / 2;
     ctx.drawImage(img, cx, cy, drawW, drawH);
-  }, [scale, pan, bg, loaded, W, H, keepTransparency]);
+  }, [scale, pan, loaded, W, H]);
 
   function startDrag(e: React.MouseEvent) {
     dragRef.current = {
@@ -118,19 +127,27 @@ export function CropZoom({
     if (!dragRef.current.dragging) return;
     const dx = e.clientX - dragRef.current.startX;
     const dy = e.clientY - dragRef.current.startY;
-    // Scale mouse delta to canvas pixels (the canvas is rendered at half size in CSS)
     const rect = canvasRef.current?.getBoundingClientRect();
     const ratio = rect ? W / rect.width : 1;
-    setPan({ x: dragRef.current.baseX + dx * ratio, y: dragRef.current.baseY + dy * ratio });
+    setPan({
+      x: dragRef.current.baseX + dx * ratio,
+      y: dragRef.current.baseY + dy * ratio,
+    });
   }
   function endDrag() {
     dragRef.current.dragging = false;
   }
 
+  function onWheel(e: React.WheelEvent) {
+    e.preventDefault();
+    const delta = -e.deltaY * 0.001;
+    setScale((prev) => Math.max(0.1, Math.min(6, prev + prev * delta)));
+  }
+
   function apply() {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const mime = keepTransparency ? "image/png" : "image/jpeg";
+    const mime = isPngSource ? "image/png" : "image/jpeg";
     const data =
       mime === "image/png"
         ? canvas.toDataURL("image/png")
@@ -151,11 +168,12 @@ export function CropZoom({
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-[16px] font-semibold mb-2">
-          Adjust {contextLabel ? <span className="text-text-muted">· {contextLabel}</span> : null}
+          Adjust {contextLabel ? <span className="text-text-muted font-normal">· {contextLabel}</span> : null}
         </h3>
         <p className="text-[12px] text-text-muted mb-3">
-          Drag to pan, slider to zoom. Output is locked at {W}×{H}.
+          Drag to move · scroll or use the slider to zoom · Fit to recenter.
         </p>
+
         {contextImageUrl ? (
           <div className="mb-3 grid grid-cols-2 gap-3">
             <div>
@@ -165,13 +183,13 @@ export function CropZoom({
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={contextImageUrl}
-                alt="Current thumbnail"
+                alt=""
                 className="rounded-[8px] border border-border w-full"
               />
             </div>
             <div>
               <div className="text-[10px] uppercase tracking-wider text-text-dim mb-1">
-                New crop (for {contextLabel ?? "this layer"})
+                {contextLabel ? `New crop for ${contextLabel}` : "New crop"}
               </div>
               <canvas
                 ref={canvasRef}
@@ -179,6 +197,7 @@ export function CropZoom({
                 onMouseMove={moveDrag}
                 onMouseUp={endDrag}
                 onMouseLeave={endDrag}
+                onWheel={onWheel}
                 className="w-full rounded-[8px] border border-border cursor-grab active:cursor-grabbing"
                 style={{
                   backgroundImage:
@@ -197,6 +216,7 @@ export function CropZoom({
             onMouseMove={moveDrag}
             onMouseUp={endDrag}
             onMouseLeave={endDrag}
+            onWheel={onWheel}
             className="w-full rounded-[10px] border border-border cursor-grab active:cursor-grabbing"
             style={{
               backgroundImage:
@@ -207,8 +227,9 @@ export function CropZoom({
             }}
           />
         )}
-        <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
-          <label className="text-[11px] text-text-muted">
+
+        <div className="mt-3 flex items-center gap-3 flex-wrap">
+          <label className="text-[11px] text-text-muted flex-1 min-w-[200px]">
             Zoom
             <input
               type="range"
@@ -220,40 +241,14 @@ export function CropZoom({
               className="w-full"
             />
           </label>
-          <label className="text-[11px] text-text-muted flex flex-col gap-2">
-            <span className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={keepTransparency}
-                onChange={(e) => setKeepTransparency(e.target.checked)}
-              />
-              Keep transparent (PNG)
-            </span>
-            {!keepTransparency ? (
-              <input
-                type="color"
-                value={bg === "transparent" ? "#0a0a0b" : bg}
-                onChange={(e) => setBg(e.target.value)}
-                className="h-9 w-20 bg-bg-elev-2 border border-border rounded-[8px]"
-              />
-            ) : null}
-          </label>
-          <div className="flex items-end gap-2">
-            <button
-              onClick={() => {
-                const img = imgRef.current;
-                if (!img) return;
-                const sx = W / img.width;
-                const sy = H / img.height;
-                setScale(Math.max(sx, sy));
-                setPan({ x: 0, y: 0 });
-              }}
-              className="px-3 py-2 rounded-[8px] bg-bg-elev-2 border border-border text-[12px]"
-            >
-              Reset
-            </button>
-          </div>
+          <button
+            onClick={applyFit}
+            className="px-3 py-2 rounded-[8px] bg-bg-elev-2 border border-border text-[12px]"
+          >
+            Fit
+          </button>
         </div>
+
         <div className="mt-4 flex justify-end gap-2">
           <button
             onClick={onCancel}
@@ -263,9 +258,10 @@ export function CropZoom({
           </button>
           <button
             onClick={apply}
-            className="px-3 py-1.5 rounded-[8px] bg-accent text-white text-[12px]"
+            disabled={!loaded}
+            className="px-3 py-1.5 rounded-[8px] bg-accent text-white text-[12px] disabled:opacity-50"
           >
-            Use this crop
+            Apply
           </button>
         </div>
       </div>

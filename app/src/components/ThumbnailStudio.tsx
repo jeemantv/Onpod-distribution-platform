@@ -82,6 +82,10 @@ export function ThumbnailStudio({
   >("idle");
   const [error, setError] = useState<string | null>(null);
   const uploadRef = useRef<HTMLInputElement | null>(null);
+  // When enabled, "Pick from podcast" removes the background on each
+  // detected person. Turn off when the template already has its own
+  // backdrop and you want the original frame intact.
+  const [autoRemoveBg, setAutoRemoveBg] = useState(true);
 
   const [templates, setTemplates] = useState<Template[]>([]);
   const [templatesError, setTemplatesError] = useState<string | null>(null);
@@ -241,7 +245,7 @@ export function ThumbnailStudio({
         return;
       }
 
-      setStage("removing-bg");
+      setStage(autoRemoveBg ? "removing-bg" : "extracting");
       const next: PersonCard[] = [];
       for (let i = 0; i < people.length; i++) {
         const p = people[i];
@@ -260,6 +264,19 @@ export function ThumbnailStudio({
         });
         const upData = await upRes.json();
         if (!upRes.ok) continue;
+        const idStr = `p${i + 1}-${Date.now()}`;
+
+        if (!autoRemoveBg) {
+          // Keep the original frame crop — useful when the template
+          // already has its own backdrop you want behind the person.
+          next.push({
+            id: idStr,
+            url: bust(upData.url),
+            label: p.label || `Person ${i + 1}`,
+            transparent: false,
+          });
+          continue;
+        }
 
         const rbRes = await fetch("/api/ai/remove-background", {
           method: "POST",
@@ -271,7 +288,6 @@ export function ThumbnailStudio({
           }),
         });
         const rbData = await rbRes.json();
-        const idStr = `p${i + 1}-${Date.now()}`;
         if (rbRes.ok) {
           next.push({
             id: idStr,
@@ -685,6 +701,14 @@ export function ThumbnailStudio({
           >
             {stage === "uploading" ? "Uploading…" : "⬆︎ Upload image"}
           </button>
+          <label className="flex items-center gap-2 text-[12px] text-text-muted ml-auto">
+            <input
+              type="checkbox"
+              checked={autoRemoveBg}
+              onChange={(e) => setAutoRemoveBg(e.target.checked)}
+            />
+            Remove background
+          </label>
           <input
             ref={uploadRef}
             type="file"

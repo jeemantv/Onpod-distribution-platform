@@ -1,21 +1,43 @@
+// Enhance an image for use as a thumbnail.
+//
+// Default path = Replicate Real-ESRGAN (4× upscale + face_enhance), which
+// gives the best HD + crisp + bright result for podcast portraits. This
+// is what the user actually means by "Enhance".
+//
+// Fallback = Gemini ("Nano Banana") with a creative-edit prompt — used
+// when REPLICATE_API_TOKEN is missing or upscaling fails. Gemini is
+// great at recoloring/brightening but less reliable for upscaling.
+
 import { NextResponse } from "next/server";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { b2, bucket, decodeFileId, publicUrl } from "@/lib/b2";
 import { enhanceImage, ENHANCE_PROMPT_DEFAULT } from "@/lib/gemini";
+import { upscaleImage } from "@/lib/replicate";
 import { getSession } from "@/lib/session";
 import { canAccessKey } from "@/lib/access";
 
-// Up to ~30s of model calls + retries; bump Vercel function ceiling
-// past the 10s default. Hobby caps at 60s, Pro at 300s.
 export const maxDuration = 60;
 
 interface RequestBody {
   fileId: string;
-  // Provide one of:
   imageUrl?: string;
   imageBase64?: string;
   prompt?: string;
-  label?: string; // suffix for the sidecar filename (default: "enhanced")
+  label?: string;
+  // Force a specific engine — defaults to "auto"
+  engine?: "auto" | "upscale" | "gemini";
+}
+
+async function fetchInput(imageUrl?: string, imageBase64?: string) {
+  if (imageBase64) {
+    return { base64: imageBase64, mime: "image/jpeg" };
+  }
+  if (!imageUrl) throw new Error("no source");
+  const r = await fetch(imageUrl);
+  if (!r.ok) throw new Error(`source fetch ${r.status}`);
+  const mime = r.headers.get("content-type") ?? "image/jpeg";
+  const buf = Buffer.from(await r.arrayBuffer());
+  return { base64: buf.toString("base64"), mime };
 }
 
 export async function POST(req: Request) {
@@ -37,30 +59,64 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  // Get the source bytes
-  let inputBase64: string;
-  let inputMime = "image/jpeg";
-  try {
-    if (body.imageBase64) {
-      inputBase64 = body.imageBase64;
-    } else {
-      const r = await fetch(body.imageUrl!);
-      if (!r.ok) throw new Error(`source fetch ${r.status}`);
-      inputMime = r.headers.get("content-type") ?? "image/jpeg";
-      const buf = Buffer.from(await r.arrayBuffer());
-      inputBase64 = buf.toString("base64");
+  const hasReplicate = !!process.env.REPLICATE_API_TOKEN;
+  const engine = body.engine ?? "auto";
+
+  // Pick the path
+  const tryUpscaleFirst = engine === "upscale" || (engine === "auto" && hasReplicate);
+  const errors: string[] = [];
+
+  // ---------- Real-ESRGAN path ----------
+  if (tryUpscaleFirst) {
+    try {
+      // Replicate needs a public URL; if we got base64, we'd need to
+      // upload it first. For simplicity, only run upscale when we have
+      // a URL (which is what ThumbnailStudio always passes).
+      if (body.imageUrl) {
+        const result = await upscaleImage({
+          imageUrl: body.imageUrl,
+          scale: 4,
+          faceEnhance: true,
+        });
+        const ext = result.mime.includes("png") ? "png" : "jpg";
+        const label = (body.label ?? "enhanced").replace(/[^\w-]/g, "");
+        const outKey = `${key}.${label}.${ext}`;
+        await b2.send(
+          new PutObjectCommand({
+            Bucket: bucket,
+            Key: outKey,
+            Body: result.buf,
+            ContentType: result.mime,
+            CacheControl: "public, max-age=3600",
+          }),
+        );
+        return NextResponse.json({
+          url: publicUrl(outKey),
+          key: outKey,
+          engine: "real-esrgan",
+          mimeType: result.mime,
+        });
+      } else {
+        errors.push("upscale: no public URL (got base64 only)");
+      }
+    } catch (err) {
+      errors.push(`upscale: ${(err as Error).message}`);
     }
-  } catch (err) {
-    return NextResponse.json(
-      { error: "source_fetch", message: (err as Error).message },
-      { status: 502 },
-    );
+    if (engine === "upscale") {
+      return NextResponse.json(
+        { error: "upscale_failed", message: errors.join(" · ") },
+        { status: 500 },
+      );
+    }
+    // engine === "auto" → fall through to Gemini
   }
 
+  // ---------- Gemini path ----------
   try {
+    const { base64, mime } = await fetchInput(body.imageUrl, body.imageBase64);
     const enhanced = await enhanceImage(
-      inputBase64,
-      inputMime,
+      base64,
+      mime,
       body.prompt ?? ENHANCE_PROMPT_DEFAULT,
     );
     const ext = enhanced.mimeType.includes("png") ? "png" : "jpg";
@@ -78,11 +134,17 @@ export async function POST(req: Request) {
     return NextResponse.json({
       url: publicUrl(outKey),
       key: outKey,
+      engine: "gemini",
       mimeType: enhanced.mimeType,
+      ...(errors.length ? { upscaleErrors: errors } : {}),
     });
   } catch (err) {
     return NextResponse.json(
-      { error: "gemini_error", message: (err as Error).message },
+      {
+        error: "enhance_error",
+        message: (err as Error).message,
+        ...(errors.length ? { upscaleErrors: errors } : {}),
+      },
       { status: 500 },
     );
   }
