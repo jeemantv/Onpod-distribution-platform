@@ -321,6 +321,31 @@ function AssignmentModal({
     setExcluded((prev) => (prev.includes(e) ? prev.filter((x) => x !== e) : [...prev, e]));
   }
 
+  async function assignAllClients() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/admin/editors/${user.id}/assign-all-clients`,
+        { method: "POST" },
+      );
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : {};
+      if (!res.ok) {
+        setError(data.message || `Failed (${res.status})`);
+        setBusy(false);
+        return;
+      }
+      alert(
+        `${data.count ?? 0} client(s) now route their review requests to ${data.email ?? user.email}.`,
+      );
+      setBusy(false);
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+    }
+  }
+
   async function save() {
     setBusy(true);
     setError(null);
@@ -334,7 +359,8 @@ function AssignmentModal({
           excludedClientEmails: excluded,
         }),
       });
-      const data = await res.json();
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : {};
       if (!res.ok) {
         setError(data.message || `Failed (${res.status})`);
         setBusy(false);
@@ -390,6 +416,24 @@ function AssignmentModal({
               ))}
             </div>
           ) : null}
+        </div>
+
+        <div className="mb-4 p-3 rounded-[10px] bg-bg-elev-2 border border-border">
+          <div className="text-[11px] uppercase tracking-wider text-text-dim mb-2">
+            Route review requests
+          </div>
+          <p className="text-[12px] text-text-muted mb-2">
+            Sets every client&apos;s assigned editor to {user.email}. Any
+            existing per-client assignments are overwritten. Use this when
+            you want one editor to handle every review request.
+          </p>
+          <button
+            onClick={assignAllClients}
+            disabled={busy}
+            className="px-3 py-1.5 rounded-[8px] bg-bg-elev-3 border border-border text-[12px] disabled:opacity-50"
+          >
+            {busy ? "Working…" : "Assign to all clients"}
+          </button>
         </div>
 
         <div className="mb-3">

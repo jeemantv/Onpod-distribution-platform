@@ -12,11 +12,15 @@ export async function POST(
   { params }: { params: { id: string } },
 ) {
   requireAdmin();
-  const body = (await req.json()) as {
+  let body: {
     assignedStudios?: string[];
     excludedClientEmails?: string[];
   };
-  // Validate studios
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+  }
   if (body.assignedStudios !== undefined) {
     const valid = body.assignedStudios.every(
       (s) => s === "all" || (STUDIO_SLUGS as readonly string[]).includes(s),
@@ -25,6 +29,13 @@ export async function POST(
       return NextResponse.json({ error: "invalid_studio" }, { status: 400 });
     }
   }
-  await updateEditorAssignment(params.id, body);
-  return NextResponse.json({ ok: true });
+  try {
+    await updateEditorAssignment(params.id, body);
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    return NextResponse.json(
+      { error: "assignment_failed", message: (err as Error).message },
+      { status: 500 },
+    );
+  }
 }

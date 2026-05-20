@@ -2,6 +2,7 @@
 
 import bcrypt from "bcryptjs";
 import { readState, writeState } from "./state-store";
+import { mockUsers } from "./mock-data";
 
 export type StoredRole = "admin" | "editor" | "client";
 
@@ -63,6 +64,36 @@ export async function getUserById(id: string): Promise<StoredUser | null> {
   return users.find((u) => u.id === id) ?? null;
 }
 
+/**
+ * Promote a mock-data user into the B2 store if they aren't there yet.
+ * Used by mutation endpoints (role/assignment changes) so admin actions
+ * on demo accounts persist instead of erroring with "user not found".
+ * The promoted user gets a random password — they can reset via
+ * "Forgot password" if they need to actually sign in.
+ */
+async function ensureFromMock(id: string): Promise<StoredUser | null> {
+  const mock = mockUsers.find((u) => u.id === id);
+  if (!mock) return null;
+  const users = await readUsers();
+  const existing = users.find((u) => u.id === id || u.email.toLowerCase() === mock.email.toLowerCase());
+  if (existing) return existing;
+  const random = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+  const seeded: StoredUser = {
+    id: mock.id,
+    email: mock.email.toLowerCase(),
+    passwordHash: await bcrypt.hash(random, SALT_ROUNDS),
+    role: mock.role as StoredRole,
+    firstName: mock.firstName,
+    lastName: mock.lastName,
+    avatar: mock.avatar,
+    avatarColor: mock.avatarColor,
+    createdAt: mock.createdAt,
+  };
+  users.push(seeded);
+  await writeUsers(users);
+  return seeded;
+}
+
 interface CreateUserInput {
   email: string;
   password: string;
@@ -111,6 +142,7 @@ export async function updateUserRole(
   userId: string,
   role: StoredRole,
 ): Promise<void> {
+  await ensureFromMock(userId);
   const users = await readUsers();
   const i = users.findIndex((u) => u.id === userId);
   if (i < 0) throw new Error("user not found");
@@ -122,6 +154,7 @@ export async function updateUserAssignedEditor(
   userId: string,
   assignedEditorEmail: string | null,
 ): Promise<void> {
+  await ensureFromMock(userId);
   const users = await readUsers();
   const i = users.findIndex((u) => u.id === userId);
   if (i < 0) throw new Error("user not found");
@@ -136,6 +169,7 @@ export async function updateEditorAssignment(
     excludedClientEmails?: string[];
   },
 ): Promise<void> {
+  await ensureFromMock(userId);
   const users = await readUsers();
   const i = users.findIndex((u) => u.id === userId);
   if (i < 0) throw new Error("user not found");
@@ -150,6 +184,33 @@ export async function updateEditorAssignment(
       : undefined;
   }
   await writeUsers(users);
+}
+
+/**
+ * Set every client's assignedEditorEmail to the given email. Mock clients
+ * get promoted into the B2 store along the way. Returns the count of
+ * clients updated.
+ */
+export async function assignEditorToAllClients(
+  editorEmail: string,
+): Promise<number> {
+  const lowered = editorEmail.toLowerCase();
+  // Promote every mock client first so the assignment persists.
+  for (const m of mockUsers) {
+    if (m.role === "client") {
+      await ensureFromMock(m.id);
+    }
+  }
+  const users = await readUsers();
+  let count = 0;
+  for (const u of users) {
+    if (u.role === "client") {
+      u.assignedEditorEmail = lowered;
+      count++;
+    }
+  }
+  await writeUsers(users);
+  return count;
 }
 
 export async function verifyPassword(
