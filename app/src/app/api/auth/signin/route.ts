@@ -3,6 +3,9 @@ import { getUserByEmail, verifyPassword } from "@/lib/auth-store";
 import { setSession, signInDemo } from "@/lib/session";
 import { mockUsers } from "@/lib/mock-data";
 
+// Demo accounts (mockUsers) always accept the literal "demo" password.
+// Used both as the seed when promoting a mock user into B2 and as a
+// fallback when a stored B2 user has a stale hash.
 const DEMO_PASSWORD = "demo";
 
 export async function POST(req: Request) {
@@ -20,7 +23,17 @@ export async function POST(req: Request) {
     if (!password) {
       return NextResponse.json({ error: "missing_password" }, { status: 400 });
     }
-    const ok = await verifyPassword(password, real.passwordHash);
+    let ok = await verifyPassword(password, real.passwordHash);
+    // Belt + suspenders: if the email is also a mock demo account,
+    // accept the literal "demo" password as a safety net. Useful when
+    // a mock user was promoted into B2 with a stale/random hash before
+    // we fixed the seeding code.
+    if (!ok && password === DEMO_PASSWORD) {
+      const isDemo = mockUsers.some(
+        (u) => u.email.toLowerCase() === real.email.toLowerCase(),
+      );
+      if (isDemo) ok = true;
+    }
     if (!ok) {
       return NextResponse.json({ error: "invalid_credentials" }, { status: 401 });
     }

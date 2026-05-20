@@ -71,17 +71,21 @@ export async function getUserById(id: string): Promise<StoredUser | null> {
  * The promoted user gets a random password — they can reset via
  * "Forgot password" if they need to actually sign in.
  */
+// Demo accounts log in with the literal password "demo" (see signin
+// route). When we promote a mock user into the B2 store we use the
+// same demo hash so the documented sign-in still works.
+const DEMO_PASSWORD = "demo";
+
 async function ensureFromMock(id: string): Promise<StoredUser | null> {
   const mock = mockUsers.find((u) => u.id === id);
   if (!mock) return null;
   const users = await readUsers();
   const existing = users.find((u) => u.id === id || u.email.toLowerCase() === mock.email.toLowerCase());
   if (existing) return existing;
-  const random = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
   const seeded: StoredUser = {
     id: mock.id,
     email: mock.email.toLowerCase(),
-    passwordHash: await bcrypt.hash(random, SALT_ROUNDS),
+    passwordHash: await bcrypt.hash(DEMO_PASSWORD, SALT_ROUNDS),
     role: mock.role as StoredRole,
     firstName: mock.firstName,
     lastName: mock.lastName,
