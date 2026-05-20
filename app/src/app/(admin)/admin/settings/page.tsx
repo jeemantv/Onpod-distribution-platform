@@ -1,3 +1,5 @@
+import { PLAN_LIMITS, type Plan } from "@/lib/types";
+
 const INTEGRATIONS = [
   { key: "DEEPGRAM_API_KEY", label: "Deepgram (transcription)" },
   { key: "ANTHROPIC_API_KEY", label: "Anthropic Claude (AI content)" },
@@ -7,6 +9,18 @@ const INTEGRATIONS = [
   { key: "STRIPE_WEBHOOK_SECRET", label: "Stripe webhook signature" },
   { key: "RESEND_API_KEY", label: "Resend (email)" },
   { key: "B2_KEY_ID", label: "Backblaze B2 (storage)" },
+  { key: "BANNERBEAR_API_KEY", label: "Bannerbear (thumbnails)" },
+  { key: "REMOVE_BG_API_KEY", label: "remove.bg (background cutout)" },
+  { key: "GEMINI_API_KEY", label: "Gemini (image enhancement)" },
+];
+
+const PRICING_PLANS: Plan[] = [
+  "onpod_studio",
+  "direct_base",
+  "direct_double",
+  "ext_studio_base",
+  "ext_studio_double",
+  "unlimited",
 ];
 
 export default function AdminSettingsPage() {
@@ -14,7 +28,7 @@ export default function AdminSettingsPage() {
     <>
       <h1 className="display text-[36px] mb-2">Platform settings</h1>
       <p className="text-text-muted text-[13px] mb-8">
-        Integration health and plan pricing. (Mocked — no live key checks in this scaffold.)
+        Integration health and plan pricing.
       </p>
 
       <section className="mb-8 p-6 rounded-[16px] bg-bg-elev border border-border">
@@ -50,20 +64,36 @@ export default function AdminSettingsPage() {
           <thead>
             <tr className="text-text-muted text-[11px] uppercase tracking-wider border-b border-border">
               <th className="text-left p-3 font-medium">Plan</th>
-              <th className="text-left p-3 font-medium">Price (CAD/mo)</th>
-              <th className="text-left p-3 font-medium">Podcasts</th>
+              <th className="text-left p-3 font-medium">Price (USD/mo)</th>
+              <th className="text-left p-3 font-medium">Episodes</th>
+              <th className="text-left p-3 font-medium">Reels</th>
+              <th className="text-left p-3 font-medium">Thumbnails</th>
               <th className="text-left p-3 font-medium">Articles</th>
-              <th className="text-left p-3 font-medium">Clips</th>
-              <th className="text-left p-3 font-medium">Cover arts</th>
             </tr>
           </thead>
           <tbody>
-            <tr className="border-b border-border"><td className="p-3">Starter</td><td className="p-3">$299</td><td className="p-3">2</td><td className="p-3">10</td><td className="p-3">6</td><td className="p-3">2</td></tr>
-            <tr className="border-b border-border"><td className="p-3">Pro</td><td className="p-3">$699</td><td className="p-3">4</td><td className="p-3">30</td><td className="p-3">20</td><td className="p-3">8</td></tr>
-            <tr><td className="p-3">Authority</td><td className="p-3">$1,499</td><td className="p-3">8</td><td className="p-3">∞</td><td className="p-3">∞</td><td className="p-3">∞</td></tr>
+            {PRICING_PLANS.map((p) => {
+              const plan = PLAN_LIMITS[p];
+              return (
+                <tr key={p} className="border-b border-border last:border-0">
+                  <td className="p-3">{plan.label}</td>
+                  <td className="p-3 text-text-muted">
+                    {plan.priceUsd === 0 ? "free" : `$${plan.priceUsd}`}
+                  </td>
+                  <td className="p-3">{cap(plan.episodes)}</td>
+                  <td className="p-3">{cap(plan.reels)}</td>
+                  <td className="p-3">{cap(plan.thumbnails)}</td>
+                  <td className="p-3">{cap(plan.articles)}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </section>
     </>
   );
+}
+
+function cap(n: number): string {
+  return isFinite(n) ? String(n) : "∞";
 }

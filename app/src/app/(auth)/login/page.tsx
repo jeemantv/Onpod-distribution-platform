@@ -107,9 +107,9 @@ export default function LoginPage() {
           <div className="mt-6 pt-6 border-t border-border text-[12px] text-text-muted">
             <p className="mb-2 font-medium text-text">Demo accounts (password: <code className="text-accent-2">demo</code>):</p>
             <ul className="space-y-1">
-              <li><code className="text-accent-2">admin@onpod.io</code> — studio admin</li>
-              <li><code className="text-accent-2">marc@example.com</code> — Pro plan client</li>
-              <li><code className="text-accent-2">sofia@example.com</code> — Starter plan client</li>
+              <li><code className="text-accent-2">admin@onpod.io</code> — admin (full access, can delete)</li>
+              <li><code className="text-accent-2">editor@onpod.io</code> — video editor (same view as admin, no delete)</li>
+              <li><code className="text-accent-2">client@onpod.io</code> — client (sees own sessions only)</li>
             </ul>
           </div>
         </div>

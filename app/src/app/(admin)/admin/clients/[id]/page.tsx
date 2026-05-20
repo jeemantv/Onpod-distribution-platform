@@ -48,11 +48,11 @@ export default function AdminClientDetailPage({
           <div>
             <label className="block text-[12px] text-text-muted mb-2">Plan</label>
             <select defaultValue={client.plan} className="w-full px-4 py-2.5 bg-bg-elev-2 border border-border rounded-[10px] text-[13px]">
-              <option value="onpod_studio">OnPod Studio — free (bundled)</option>
-              <option value="direct_base">Direct — $39 / mo</option>
-              <option value="direct_double">Direct 2× — $89 / mo</option>
-              <option value="ext_studio_base">External studio — $89 / mo</option>
-              <option value="ext_studio_double">External studio 2× — $120 / mo</option>
+              <option value="onpod_studio">OnPod Studio (free bundle)</option>
+              <option value="direct_base">OnPod Studio direct — $39 / mo</option>
+              <option value="direct_double">OnPod Studio direct ×2 — $89 / mo</option>
+              <option value="ext_studio_base">External clients — $89 / mo</option>
+              <option value="ext_studio_double">External clients ×2 — $120 / mo</option>
               <option value="unlimited">Unlimited (admin)</option>
             </select>
           </div>

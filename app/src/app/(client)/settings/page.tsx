@@ -74,28 +74,34 @@ export default function SettingsPage() {
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <PlanCard
-              title="Direct"
+              title="OnPod Studio (free bundle)"
+              price="Free"
+              bundle="6 · 60 · 10"
+              note="Bundled with your OnPod studio package"
+            />
+            <PlanCard
+              title="OnPod Studio direct"
               price="$39 / mo"
               bundle="6 · 60 · 10"
-              note="Episodes · reels · thumbnails per month"
+              note="OnPod clients, not on a studio plan"
             />
             <PlanCard
-              title="Direct 2×"
+              title="OnPod Studio direct ×2"
               price="$89 / mo"
               bundle="12 · 120 · 20"
-              note="For higher-volume creators"
+              note="Higher-volume OnPod direct creators"
             />
             <PlanCard
-              title="External studio"
+              title="External clients"
               price="$89 / mo"
               bundle="6 · 60 · 10"
-              note="For clients of partner studios"
+              note="Clients of partner / external studios"
             />
             <PlanCard
-              title="External studio 2×"
+              title="External clients ×2"
               price="$120 / mo"
               bundle="12 · 120 · 20"
-              note="2× bundle for partner-studio clients"
+              note="2× bundle for external-studio clients"
             />
           </div>
         </Card>

@@ -160,7 +160,7 @@ export const PLAN_LIMITS: Record<Plan, PlanLimit> = {
     billed: "free",
   },
   direct_base: {
-    label: "Direct",
+    label: "OnPod Studio direct",
     tier: "base",
     source: "direct",
     ...BASE,
@@ -172,7 +172,7 @@ export const PLAN_LIMITS: Record<Plan, PlanLimit> = {
     billed: "client",
   },
   direct_double: {
-    label: "Direct 2×",
+    label: "OnPod Studio direct ×2",
     tier: "double",
     source: "direct",
     ...DOUBLE,
@@ -184,7 +184,7 @@ export const PLAN_LIMITS: Record<Plan, PlanLimit> = {
     billed: "client",
   },
   ext_studio_base: {
-    label: "External studio",
+    label: "External clients",
     tier: "base",
     source: "external",
     ...BASE,
@@ -196,7 +196,7 @@ export const PLAN_LIMITS: Record<Plan, PlanLimit> = {
     billed: "client",
   },
   ext_studio_double: {
-    label: "External studio 2×",
+    label: "External clients ×2",
     tier: "double",
     source: "external",
     ...DOUBLE,
