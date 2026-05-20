@@ -18,49 +18,69 @@ async function runPrediction(
   version: string,
   input: Record<string, unknown>,
 ): Promise<RunOutput> {
-  const create = await fetch(`${BASE}/predictions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiToken}`,
-      "Content-Type": "application/json",
-      Prefer: "wait=55", // server-side wait up to 55s, then we poll
-    },
-    body: JSON.stringify({ version, input }),
-  });
-  if (!create.ok) {
-    throw new Error(`Replicate ${create.status}: ${(await create.text()).slice(0, 300)}`);
-  }
-  let pred = (await create.json()) as {
-    id: string;
-    status: string;
-    output?: string | string[] | null;
-    error?: string;
-    urls?: { get?: string };
-  };
+  // Replicate's create endpoint can flake on cold starts. Try up to 3
+  // times before giving up — each attempt starts a fresh prediction
+  // and gets its own server-side wait window.
+  const MAX_ATTEMPTS = 3;
+  let lastErr: Error | null = null;
 
-  // The Prefer:wait header often returns the final result already.
-  for (let i = 0; i < 25 && pred.status !== "succeeded" && pred.status !== "failed"; i++) {
-    if (!pred.urls?.get) break;
-    await new Promise((r) => setTimeout(r, 1500));
-    const poll = await fetch(pred.urls.get, {
-      headers: { Authorization: `Bearer ${apiToken}` },
-      cache: "no-store",
-    });
-    if (!poll.ok) break;
-    pred = (await poll.json()) as typeof pred;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const create = await fetch(`${BASE}/predictions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiToken}`,
+          "Content-Type": "application/json",
+          Prefer: "wait=55",
+        },
+        body: JSON.stringify({ version, input }),
+      });
+      if (!create.ok) {
+        throw new Error(
+          `Replicate create ${create.status}: ${(await create.text()).slice(0, 300)}`,
+        );
+      }
+      let pred = (await create.json()) as {
+        id: string;
+        status: string;
+        output?: string | string[] | null;
+        error?: string;
+        urls?: { get?: string };
+      };
+
+      // Poll until terminal.
+      for (let i = 0; i < 30 && pred.status !== "succeeded" && pred.status !== "failed"; i++) {
+        if (!pred.urls?.get) break;
+        await new Promise((r) => setTimeout(r, 1500));
+        const poll = await fetch(pred.urls.get, {
+          headers: { Authorization: `Bearer ${apiToken}` },
+          cache: "no-store",
+        });
+        if (!poll.ok) break;
+        pred = (await poll.json()) as typeof pred;
+      }
+      if (pred.status === "failed") {
+        throw new Error(`Replicate prediction failed: ${pred.error ?? "no error"}`);
+      }
+      if (pred.status !== "succeeded") {
+        throw new Error(`Replicate still ${pred.status} after polling`);
+      }
+      const out = pred.output;
+      const url = Array.isArray(out) ? out[0] : out;
+      if (!url || typeof url !== "string") {
+        throw new Error("Replicate returned no image URL");
+      }
+      return { imageUrl: url };
+    } catch (err) {
+      lastErr = err as Error;
+      if (attempt < MAX_ATTEMPTS) {
+        // Linear backoff: 1s, 2s
+        await new Promise((r) => setTimeout(r, attempt * 1000));
+        continue;
+      }
+    }
   }
-  if (pred.status === "failed") {
-    throw new Error(`Replicate failed: ${pred.error ?? "no error"}`);
-  }
-  if (pred.status !== "succeeded") {
-    throw new Error(`Replicate still ${pred.status} after polling`);
-  }
-  const out = pred.output;
-  const url = Array.isArray(out) ? out[0] : out;
-  if (!url || typeof url !== "string") {
-    throw new Error("Replicate returned no image URL");
-  }
-  return { imageUrl: url };
+  throw lastErr ?? new Error("Replicate failed");
 }
 
 export interface UpscaleResult {

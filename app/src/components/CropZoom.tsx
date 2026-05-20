@@ -132,22 +132,9 @@ export function CropZoom({
     const cx = W / 2 + pan.x - drawW / 2;
     const cy = H / 2 + pan.y - drawH / 2;
     ctx.drawImage(img, cx, cy, drawW, drawH);
-
-    // Rule-of-thirds grid
-    ctx.save();
-    ctx.strokeStyle = "rgba(255,255,255,0.18)";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    for (let i = 1; i < 3; i++) {
-      const x = (W * i) / 3;
-      const y = (H * i) / 3;
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, H);
-      ctx.moveTo(0, y);
-      ctx.lineTo(W, y);
-    }
-    ctx.stroke();
-    ctx.restore();
+    // NOTE: rule-of-thirds guides are drawn via CSS overlay (below the
+    // canvas in the JSX), NOT on the canvas itself, so they never make
+    // it into the toDataURL() export.
   }, [scale, pan, loaded, W, H]);
 
   function startDrag(e: React.MouseEvent) {
@@ -192,6 +179,22 @@ export function CropZoom({
     onApply({ base64: b64, mime });
   }
 
+  // Pure-CSS rule-of-thirds overlay. Sits ABOVE the canvas in the DOM
+  // (pointer-events: none so it doesn't steal drag), and is NEVER drawn
+  // into the canvas pixel buffer — so it can't end up in toDataURL().
+  function RuleOfThirdsOverlay() {
+    return (
+      <div className="pointer-events-none absolute inset-0">
+        {/* vertical 1/3 */}
+        <div className="absolute top-0 bottom-0 w-px bg-white/20" style={{ left: "33.333%" }} />
+        <div className="absolute top-0 bottom-0 w-px bg-white/20" style={{ left: "66.666%" }} />
+        {/* horizontal 1/3 */}
+        <div className="absolute left-0 right-0 h-px bg-white/20" style={{ top: "33.333%" }} />
+        <div className="absolute left-0 right-0 h-px bg-white/20" style={{ top: "66.666%" }} />
+      </div>
+    );
+  }
+
   if (!open) return null;
 
   return (
@@ -227,41 +230,47 @@ export function CropZoom({
               <div className="text-[10px] uppercase tracking-wider text-text-dim mb-1">
                 {contextLabel ? `New crop for ${contextLabel}` : "New crop"}
               </div>
-              <canvas
-                ref={canvasRef}
-                onMouseDown={startDrag}
-                onMouseMove={moveDrag}
-                onMouseUp={endDrag}
-                onMouseLeave={endDrag}
-                onWheel={onWheel}
-                className="w-full rounded-[8px] border border-border cursor-grab active:cursor-grabbing"
-                style={{
-                  backgroundImage:
-                    "linear-gradient(45deg, rgba(255,255,255,0.06) 25%, transparent 25%), linear-gradient(-45deg, rgba(255,255,255,0.06) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.06) 75%), linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.06) 75%)",
-                  backgroundSize: "20px 20px",
-                  backgroundPosition: "0 0, 0 10px, 10px -10px, -10px 0",
-                  backgroundColor: "#0a0a0b",
-                }}
-              />
+              <div className="relative">
+                <canvas
+                  ref={canvasRef}
+                  onMouseDown={startDrag}
+                  onMouseMove={moveDrag}
+                  onMouseUp={endDrag}
+                  onMouseLeave={endDrag}
+                  onWheel={onWheel}
+                  className="w-full rounded-[8px] border border-border cursor-grab active:cursor-grabbing block"
+                  style={{
+                    backgroundImage:
+                      "linear-gradient(45deg, rgba(255,255,255,0.06) 25%, transparent 25%), linear-gradient(-45deg, rgba(255,255,255,0.06) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.06) 75%), linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.06) 75%)",
+                    backgroundSize: "20px 20px",
+                    backgroundPosition: "0 0, 0 10px, 10px -10px, -10px 0",
+                    backgroundColor: "#0a0a0b",
+                  }}
+                />
+                <RuleOfThirdsOverlay />
+              </div>
             </div>
           </div>
         ) : (
-          <canvas
-            ref={canvasRef}
-            onMouseDown={startDrag}
-            onMouseMove={moveDrag}
-            onMouseUp={endDrag}
-            onMouseLeave={endDrag}
-            onWheel={onWheel}
-            className="w-full rounded-[10px] border border-border cursor-grab active:cursor-grabbing"
-            style={{
-              backgroundImage:
-                "linear-gradient(45deg, rgba(255,255,255,0.06) 25%, transparent 25%), linear-gradient(-45deg, rgba(255,255,255,0.06) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.06) 75%), linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.06) 75%)",
-              backgroundSize: "20px 20px",
-              backgroundPosition: "0 0, 0 10px, 10px -10px, -10px 0",
-              backgroundColor: "#0a0a0b",
-            }}
-          />
+          <div className="relative">
+            <canvas
+              ref={canvasRef}
+              onMouseDown={startDrag}
+              onMouseMove={moveDrag}
+              onMouseUp={endDrag}
+              onMouseLeave={endDrag}
+              onWheel={onWheel}
+              className="w-full rounded-[10px] border border-border cursor-grab active:cursor-grabbing block"
+              style={{
+                backgroundImage:
+                  "linear-gradient(45deg, rgba(255,255,255,0.06) 25%, transparent 25%), linear-gradient(-45deg, rgba(255,255,255,0.06) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.06) 75%), linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.06) 75%)",
+                backgroundSize: "20px 20px",
+                backgroundPosition: "0 0, 0 10px, 10px -10px, -10px 0",
+                backgroundColor: "#0a0a0b",
+              }}
+            />
+            <RuleOfThirdsOverlay />
+          </div>
         )}
 
         <div className="mt-3 flex items-center gap-3 flex-wrap">
