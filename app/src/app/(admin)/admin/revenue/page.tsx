@@ -62,7 +62,7 @@ export default function AdminRevenuePage() {
                   {d.price === 0 ? "free" : `$${d.price}/mo`}
                 </td>
                 <td className="p-3">{d.count}</td>
-                <td className="p-3">${d.revenue.toLocaleString()} USD</td>
+                <td className="p-3">${d.revenue.toLocaleString()} CAD</td>
                 <td className="p-3 text-text-muted">
                   {mrr === 0 ? "—" : `${Math.round((d.revenue / mrr) * 100)}%`}
                 </td>
