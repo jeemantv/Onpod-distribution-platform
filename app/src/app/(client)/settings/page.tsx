@@ -54,11 +54,11 @@ export default function SettingsPage() {
               <div>
                 <div className="text-[14px]">{limits.label}</div>
                 <div className="text-[12px] text-text-muted mt-1">
-                  {limits.priceUsd === 0
+                  {limits.priceCad === 0
                     ? limits.source === "onpod"
                       ? "Bundled with your OnPod studio package — no charge."
                       : "Admin-granted plan."
-                    : `$${limits.priceUsd} USD / month · renews automatically`}
+                    : `$${limits.priceCad} CAD / month · renews automatically`}
                 </div>
               </div>
               <button className="px-4 py-2 rounded-[8px] bg-bg-elev-3 border border-border-strong text-[13px]">

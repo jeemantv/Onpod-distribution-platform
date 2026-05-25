@@ -12,7 +12,7 @@ const PAID_PLANS: Plan[] = [
 export default function AdminRevenuePage() {
   const clients = mockUsers.filter((u) => u.role === "client");
   const mrr = clients.reduce(
-    (sum, u) => sum + PLAN_LIMITS[u.plan].priceUsd,
+    (sum, u) => sum + PLAN_LIMITS[u.plan].priceCad,
     0,
   );
   const arr = mrr * 12;
@@ -23,9 +23,9 @@ export default function AdminRevenuePage() {
     return {
       plan: p,
       label: PLAN_LIMITS[p].label,
-      price: PLAN_LIMITS[p].priceUsd,
+      price: PLAN_LIMITS[p].priceCad,
       count: c.length,
-      revenue: c.reduce((s, u) => s + PLAN_LIMITS[u.plan].priceUsd, 0),
+      revenue: c.reduce((s, u) => s + PLAN_LIMITS[u.plan].priceCad, 0),
     };
   });
 
@@ -37,9 +37,9 @@ export default function AdminRevenuePage() {
       </p>
 
       <div className="grid grid-cols-3 gap-4 mb-8">
-        <Stat label="MRR" value={`$${mrr.toLocaleString()} USD`} />
-        <Stat label="ARR" value={`$${arr.toLocaleString()} USD`} />
-        <Stat label="Avg revenue / client" value={`$${avg.toLocaleString()} USD`} />
+        <Stat label="MRR" value={`$${mrr.toLocaleString()} CAD`} />
+        <Stat label="ARR" value={`$${arr.toLocaleString()} CAD`} />
+        <Stat label="Avg revenue / client" value={`$${avg.toLocaleString()} CAD`} />
       </div>
 
       <div className="bg-bg-elev border border-border rounded-[16px] p-6">

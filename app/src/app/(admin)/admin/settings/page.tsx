@@ -64,7 +64,7 @@ export default function AdminSettingsPage() {
           <thead>
             <tr className="text-text-muted text-[11px] uppercase tracking-wider border-b border-border">
               <th className="text-left p-3 font-medium">Plan</th>
-              <th className="text-left p-3 font-medium">Price (USD/mo)</th>
+              <th className="text-left p-3 font-medium">Price (CAD/mo)</th>
               <th className="text-left p-3 font-medium">Episodes</th>
               <th className="text-left p-3 font-medium">Reels</th>
               <th className="text-left p-3 font-medium">Thumbnails</th>
@@ -78,7 +78,7 @@ export default function AdminSettingsPage() {
                 <tr key={p} className="border-b border-border last:border-0">
                   <td className="p-3">{plan.label}</td>
                   <td className="p-3 text-text-muted">
-                    {plan.priceUsd === 0 ? "free" : `$${plan.priceUsd}`}
+                    {plan.priceCad === 0 ? "free" : `$${plan.priceCad}`}
                   </td>
                   <td className="p-3">{cap(plan.episodes)}</td>
                   <td className="p-3">{cap(plan.reels)}</td>
