@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Logo } from "./Logo";
 import { UserMenu } from "./UserMenu";
+import { FeedbackButton } from "./FeedbackButton";
 import type { User } from "@/lib/types";
 
 export function TopNav({
@@ -29,6 +30,7 @@ export function TopNav({
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        <FeedbackButton />
         <button
           aria-label="Notifications"
           className="w-9 h-9 rounded-full bg-bg-elev border border-border hover:border-border-strong flex items-center justify-center text-text-muted hover:text-text"

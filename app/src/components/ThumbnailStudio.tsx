@@ -11,7 +11,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { extractFrames } from "@/lib/frame-extract";
 import { CropZoom } from "./CropZoom";
-import { fileToBase64, flipImageHorizontal, cropBase64Region } from "@/lib/image-ops";
+import {
+  fileToBase64,
+  flipImageHorizontal,
+  cropBase64Region,
+  shrinkImageForUpload,
+} from "@/lib/image-ops";
+
+// res.json() throws when the server returns plain text (e.g. Vercel's
+// "Request Entity Too Large" gate before the route runs). Decode safely
+// and surface the readable body when JSON parsing fails.
+async function readJsonOrText(res: Response): Promise<{ json: Record<string, unknown> | null; text: string }> {
+  const text = await res.text();
+  try {
+    return { json: text ? JSON.parse(text) : null, text };
+  } catch {
+    return { json: null, text };
+  }
+}
 
 interface FileRow {
   key: string;
@@ -91,7 +108,10 @@ export function ThumbnailStudio({
   // When enabled, "Pick from podcast" removes the background on each
   // detected person. Turn off when the template already has its own
   // backdrop and you want the original frame intact.
-  const [autoRemoveBg, setAutoRemoveBg] = useState(true);
+  // BG removal is now an explicit per-card action ("Remove BG" button)
+  // instead of a global checkbox. Initial extraction always keeps the
+  // raw frame so users can decide per face.
+  const autoRemoveBg = false;
 
   const [templates, setTemplates] = useState<Template[]>([]);
   const [templatesError, setTemplatesError] = useState<string | null>(null);
@@ -106,6 +126,8 @@ export function ThumbnailStudio({
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [cropOpen, setCropOpen] = useState(false);
   const [adjustLayer, setAdjustLayer] = useState<string | null>(null);
+  const [slotAspect, setSlotAspect] = useState<number | undefined>(undefined);
+  const slotDimsCache = useRef<Map<string, number>>(new Map());
 
   const activeCard = cards.find((c) => c.id === activeCardId);
   const activeUrl = activeCard?.url ?? "";
@@ -231,9 +253,20 @@ export function ThumbnailStudio({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fileId: sourceFileId, framesBase64: raw }),
       });
-      const visionData = await visionRes.json();
+      const { json: visionData, text: visionText } = await readJsonOrText(visionRes);
       if (!visionRes.ok) {
-        setError(visionData.message || `Find people failed (${visionRes.status})`);
+        const msg =
+          (visionData && (visionData.message as string | undefined)) ||
+          (visionRes.status === 413
+            ? "Frames are too large for upload. The video resolution is too high — try a shorter clip."
+            : `Find people failed (${visionRes.status})`) ||
+          visionText.slice(0, 200);
+        setError(msg);
+        setStage("idle");
+        return;
+      }
+      if (!visionData) {
+        setError("Unexpected response from find-people");
         setStage("idle");
         return;
       }
@@ -331,20 +364,36 @@ export function ThumbnailStudio({
     setStage("flipping");
     setError(null);
     try {
-      const b64 = await flipImageHorizontal(activeCard.url);
+      // Keep alpha only if the source already had it (PNG with bg removed).
+      // Otherwise output JPEG so the flipped payload stays well under
+      // Vercel's 4.5 MB body limit.
+      const hasAlpha = activeCard.transparent || activeCard.url.includes(".png");
+      const { base64, mime } = await flipImageHorizontal(activeCard.url, {
+        keepAlpha: hasAlpha,
+      });
       const res = await fetch("/api/ai/upload-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           fileId: sourceFileId,
-          imageBase64: b64,
+          imageBase64: base64,
           label: `flipped-${activeCard.id}-${Date.now()}`,
-          mimeType: "image/png",
+          mimeType: mime,
         }),
       });
-      const data = await res.json();
+      const { json: data, text } = await readJsonOrText(res);
       if (!res.ok) {
-        setError(data.message || "Flip failed");
+        const msg =
+          (data && (data.message as string | undefined)) ||
+          (res.status === 413 ? "Flipped image too large; try a smaller source." : `Flip failed (${res.status})`) ||
+          text.slice(0, 200);
+        setError(msg);
+        setStage("idle");
+        return;
+      }
+      const url = data?.url as string | undefined;
+      if (!url) {
+        setError("Flip upload returned no URL.");
         setStage("idle");
         return;
       }
@@ -354,8 +403,9 @@ export function ThumbnailStudio({
           c.id === activeCard.id
             ? {
                 ...c,
-                url: bust(data.url),
-                transparent: c.transparent || activeCard.url.endsWith(".png"),
+                url: bust(url),
+                originalUrl: bust(url),
+                transparent: hasAlpha,
               }
             : c,
         ),
@@ -412,7 +462,10 @@ export function ThumbnailStudio({
     try {
       const next: PersonCard[] = [];
       for (const f of Array.from(fileList)) {
-        const { base64, mime } = await fileToBase64(f);
+        // Shrink before upload — large camera shots routinely exceed
+        // Vercel's serverless body limit and were failing with a plain
+        // text "Request Entity Too Large" the client couldn't parse.
+        const { base64, mime } = await shrinkImageForUpload(f);
         const res = await fetch("/api/ai/upload-image", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -423,12 +476,20 @@ export function ThumbnailStudio({
             mimeType: mime,
           }),
         });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message || `Upload failed (${res.status})`);
+        const { json: data, text } = await readJsonOrText(res);
+        if (!res.ok) {
+          const msg =
+            (data && (data.message as string | undefined)) ||
+            (res.status === 413 ? "Image is still too large after compression. Try a smaller file." : `Upload failed (${res.status})`) ||
+            text.slice(0, 200);
+          throw new Error(msg);
+        }
+        const url = data?.url as string | undefined;
+        if (!url) throw new Error("Upload succeeded but no URL was returned.");
         next.push({
           id: `up-${Date.now()}-${f.name.slice(0, 6)}`,
-          url: bust(data.url),
-          originalUrl: bust(data.url),
+          url: bust(url),
+          originalUrl: bust(url),
           label: f.name.slice(0, 24),
           transparent: mime.includes("png"),
         });
@@ -504,37 +565,72 @@ export function ThumbnailStudio({
           mimeType: payload.mime,
         }),
       });
-      const upData = await upRes.json();
+      const { json: upData, text: upText } = await readJsonOrText(upRes);
       if (!upRes.ok) {
-        setError(upData.message || "Save crop failed");
+        const msg =
+          (upData && (upData.message as string | undefined)) ||
+          (upRes.status === 413 ? "Adjusted image too large; zoom out or pick a smaller source." : `Save crop failed (${upRes.status})`) ||
+          upText.slice(0, 200);
+        setError(msg);
         setStage("idle");
         return;
       }
-      const newUrl = bust(upData.url);
-      // Update the card; this triggers the per-layer-card useEffect to
-      // refresh ONLY the layers assigned to this card.
-      setCards((prev) =>
-        prev.map((c) =>
-          c.id === targetCard.id
-            ? { ...c, url: newUrl, transparent: payload.mime.includes("png") }
-            : c,
-        ),
-      );
-
-      // Build the next values manually since state update is async
-      const nextValues: Record<string, string> = { ...values };
-      for (const [ln, cid] of Object.entries(layerCard)) {
-        if (cid === targetCard.id) nextValues[ln] = newUrl;
+      const adjustedUrl = upData?.url as string | undefined;
+      if (!adjustedUrl) {
+        setError("Crop upload returned no URL.");
+        setStage("idle");
+        return;
       }
-      // If this card wasn't assigned to any layer yet, drop it into the
-      // first image layer of the template.
-      if (!Object.values(layerCard).includes(targetCard.id)) {
-        const firstImg = tmpl.available_modifications?.find((m) =>
-          isImageField(m.name),
+      const newUrl = bust(adjustedUrl);
+      const isTransparent = payload.mime.includes("png");
+
+      // If the same source card is assigned to multiple layers (e.g.
+      // host + guest both using the same uploaded face), adjusting one
+      // should NOT move the other. Split the card so the adjusted slot
+      // gets its own independent crop, leaving the other slots on the
+      // original card.
+      const layersUsingCard = Object.entries(layerCard).filter(
+        ([, cid]) => cid === targetCard.id,
+      );
+      const isShared = layersUsingCard.length > 1 && adjustLayer !== null;
+
+      const nextValues: Record<string, string> = { ...values };
+
+      if (isShared) {
+        // Clone targetCard into a new variant. Original card keeps its
+        // url; new card holds the freshly-adjusted crop.
+        const variant: PersonCard = {
+          ...targetCard,
+          id: `${targetCard.id}-v${Date.now()}`,
+          label: `${targetCard.label} (slot)`,
+          url: newUrl,
+          transparent: isTransparent,
+        };
+        setCards((prev) => [...prev, variant]);
+        setLayerCard((prev) => ({ ...prev, [adjustLayer!]: variant.id }));
+        nextValues[adjustLayer!] = newUrl;
+      } else {
+        // Single-slot or unassigned card → mutate the card itself.
+        setCards((prev) =>
+          prev.map((c) =>
+            c.id === targetCard.id
+              ? { ...c, url: newUrl, transparent: isTransparent }
+              : c,
+          ),
         );
-        if (firstImg) {
-          nextValues[firstImg.name] = newUrl;
-          setLayerCard((prev) => ({ ...prev, [firstImg.name]: targetCard.id }));
+        for (const [ln, cid] of Object.entries(layerCard)) {
+          if (cid === targetCard.id) nextValues[ln] = newUrl;
+        }
+        // If this card wasn't assigned to any layer yet, drop it into
+        // the first image layer of the template.
+        if (!Object.values(layerCard).includes(targetCard.id)) {
+          const firstImg = tmpl.available_modifications?.find((m) =>
+            isImageField(m.name),
+          );
+          if (firstImg) {
+            nextValues[firstImg.name] = newUrl;
+            setLayerCard((prev) => ({ ...prev, [firstImg.name]: targetCard.id }));
+          }
         }
       }
       setValues(nextValues);
@@ -601,36 +697,34 @@ export function ThumbnailStudio({
     }
   }
 
-  async function saveToYouTube() {
-    if (!result || !sourceFileId) return;
-    // Push the current result over the canonical .cover.jpg key so the
-    // YouTube modal picks it up on its next open.
+  async function saveToYouTube(): Promise<boolean> {
+    if (!result || !sourceFileId) return false;
+    // Server-side save — the route fetches the rendered image from
+    // Bannerbear (no CORS issues from the browser) and stores it under
+    // the file's canonical .cover.jpg key so the YouTube modal picks it
+    // up next time it opens. Returns the success/failure boolean so the
+    // caller can choose whether to clear the preview only on success.
     try {
-      // Mirror via /api/ai/upload-image with label "cover" — the route
-      // saves arbitrary base64, but we only have a URL. Use a tiny
-      // server-side endpoint pattern: fetch + upload-image.
-      const r = await fetch(result.url);
-      const buf = new Uint8Array(await r.arrayBuffer());
-      const b64 = bufferToBase64(buf);
-      const up = await fetch("/api/ai/upload-image", {
+      const up = await fetch("/api/ai/save-cover", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           fileId: sourceFileId,
-          imageBase64: b64,
+          sourceUrl: result.url,
           label: "cover",
-          mimeType: "image/jpeg",
         }),
       });
       if (!up.ok) {
-        const d = await up.json().catch(() => ({}));
-        setError(d.message || "Save failed");
-        return;
+        const d = (await up.json().catch(() => ({}))) as { message?: string };
+        setError(d.message || `Save failed (${up.status})`);
+        return false;
       }
       setSavedAt(Date.now());
       window.dispatchEvent(new CustomEvent("onpod:thumbnail-saved"));
+      return true;
     } catch (err) {
       setError((err as Error).message);
+      return false;
     }
   }
 
@@ -654,34 +748,12 @@ export function ThumbnailStudio({
 
   return (
     <div className="bg-bg-elev border border-border rounded-[16px] p-4 mb-4">
-      <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
-        <div>
-          <h2 className="text-[14px] font-semibold">Thumbnail studio</h2>
-          <p className="text-[12px] text-text-muted">
-            Pick people from the podcast, drop them into a template, then
-            adjust + enhance on the final image.
-          </p>
-        </div>
-        <select
-          value={sourceFileId}
-          onChange={(e) => {
-            const fid = e.target.value;
-            const row = videoFiles.find((v) => v.fileId === fid);
-            setSourceFileId(fid);
-            setSourceUrl(row?.url ?? "");
-            setCards([]);
-            setActiveCardId("");
-            setAiSuggested(false);
-            setResult(null);
-          }}
-          className="px-3 py-1.5 bg-bg-elev-2 border border-border rounded-[8px] text-[12px]"
-        >
-          {videoFiles.map((f) => (
-            <option key={f.fileId} value={f.fileId}>
-              {f.filename}
-            </option>
-          ))}
-        </select>
+      <div className="mb-3">
+        <h2 className="text-[14px] font-semibold">Thumbnail studio</h2>
+        <p className="text-[12px] text-text-muted">
+          Pick people from the podcast, drop them into a template, then
+          adjust + enhance on the final image.
+        </p>
       </div>
 
       {/* Step 1 — pick people */}
@@ -710,14 +782,6 @@ export function ThumbnailStudio({
           >
             {stage === "uploading" ? "Uploading…" : "⬆︎ Upload image"}
           </button>
-          <label className="flex items-center gap-2 text-[12px] text-text-muted ml-auto">
-            <input
-              type="checkbox"
-              checked={autoRemoveBg}
-              onChange={(e) => setAutoRemoveBg(e.target.checked)}
-            />
-            Remove background
-          </label>
           <input
             ref={uploadRef}
             type="file"
@@ -727,6 +791,10 @@ export function ThumbnailStudio({
             onChange={(e) => void uploadFiles(e.target.files)}
           />
         </div>
+        <p className="text-[11px] text-text-dim mt-2">
+          After picking or uploading, use the &quot;Remove BG&quot; button on
+          the selected person to cut out the background.
+        </p>
 
         {cards.length > 0 ? (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
@@ -792,8 +860,16 @@ export function ThumbnailStudio({
 
       {/* Step 2 — template + layers */}
       <div>
-        <div className="text-[11px] uppercase tracking-wider text-text-dim mb-2">
-          2 · Drop into template
+        <div className="flex items-baseline justify-between gap-3 mb-2 flex-wrap">
+          <div className="text-[11px] uppercase tracking-wider text-text-dim">
+            2 · Drop into template
+          </div>
+          <a
+            href="mailto:jeremy@onpod.io?subject=Custom thumbnail template request"
+            className="text-[11px] text-text-muted hover:text-text underline"
+          >
+            Email jeremy@onpod.io for custom templates
+          </a>
         </div>
 
         {templatesError ? (
@@ -802,19 +878,40 @@ export function ThumbnailStudio({
           </div>
         ) : null}
 
-        <select
-          value={selectedTemplate}
-          onChange={(e) => setSelectedTemplate(e.target.value)}
-          className="w-full px-3 py-2 bg-bg-elev-2 border border-border rounded-[8px] text-[13px] mb-3"
-          disabled={templates.length === 0}
-        >
-          <option value="">— Choose a template —</option>
-          {templates.map((t) => (
-            <option key={t.uid} value={t.uid}>
-              {t.name}
-            </option>
-          ))}
-        </select>
+        {templates.length === 0 ? (
+          <div className="text-[12px] text-text-muted mb-3">Loading templates…</div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 mb-4">
+            {templates.map((t) => (
+              <button
+                key={t.uid}
+                type="button"
+                onClick={() => setSelectedTemplate(t.uid)}
+                title={t.name}
+                className={`group rounded-[10px] overflow-hidden border-2 transition text-left ${
+                  selectedTemplate === t.uid
+                    ? "border-accent"
+                    : "border-border hover:border-border-strong"
+                }`}
+              >
+                {t.preview_url ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img
+                    src={t.preview_url}
+                    alt={t.name}
+                    className="block w-full aspect-video object-cover bg-bg-elev-3"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="w-full aspect-video bg-bg-elev-3 flex items-center justify-center text-text-dim text-[11px]">
+                    No preview
+                  </div>
+                )}
+                <div className="px-2 py-1.5 text-[11px] truncate">{t.name}</div>
+              </button>
+            ))}
+          </div>
+        )}
 
         {tmpl ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -988,7 +1085,41 @@ export function ThumbnailStudio({
                   return (
                     <button
                       key={layerName}
-                      onClick={() => {
+                      onClick={async () => {
+                        // Look up the slot's aspect ratio (cached) so the
+                        // crop canvas matches the host's actual rectangle
+                        // in the template — the right pane and the left
+                        // pane finally render at the same shape.
+                        if (tmpl) {
+                          const cacheKey = `${tmpl.uid}:${layerName}`;
+                          const cached = slotDimsCache.current.get(cacheKey);
+                          if (cached) {
+                            setSlotAspect(cached);
+                          } else {
+                            setSlotAspect(undefined);
+                            void fetch("/api/ai/bannerbear/slot-dims", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                templateId: tmpl.uid,
+                                slotName: layerName,
+                              }),
+                            })
+                              .then(async (res) => {
+                                if (!res.ok) return;
+                                const data = (await res.json()) as {
+                                  width?: number;
+                                  height?: number;
+                                };
+                                if (data.width && data.height) {
+                                  const a = data.width / data.height;
+                                  slotDimsCache.current.set(cacheKey, a);
+                                  setSlotAspect(a);
+                                }
+                              })
+                              .catch(() => {});
+                          }
+                        }
                         setAdjustLayer(layerName);
                         setCropOpen(true);
                       }}
@@ -1019,22 +1150,17 @@ export function ThumbnailStudio({
             </button>
             <button
               onClick={async () => {
-                await saveToYouTube();
-              }}
-              disabled={busy || savedAt !== null}
-              className="px-3 py-2 rounded-[10px] bg-accent text-white text-[12px] disabled:opacity-50"
-            >
-              {savedAt ? "✓ Saved" : "💾 Save"}
-            </button>
-            <button
-              onClick={async () => {
-                await saveToYouTube();
-                reset();
+                // Only clear the preview AFTER a confirmed save —
+                // otherwise a failed save left the user looking at an
+                // empty panel with an error tooltip, which felt broken.
+                const ok = await saveToYouTube();
+                if (ok) reset();
               }}
               disabled={busy}
-              className="px-3 py-2 rounded-[10px] bg-bg-elev-2 border border-border text-[12px] disabled:opacity-50"
+              className="px-3 py-2 rounded-[10px] bg-accent text-white text-[12px] font-medium disabled:opacity-50"
+              title="Save as the file's cover and clear this preview"
             >
-              💾 + Make another
+              💾 Save thumbnail
             </button>
             <button
               onClick={() => {
@@ -1057,14 +1183,17 @@ export function ThumbnailStudio({
 
       <CropZoom
         open={cropOpen}
-        // Always crop against the originalUrl so re-opening Adjust gives
-        // the user the full image to work with — they can zoom OUT to
-        // recover anything a prior aggressive zoom cut off.
+        // Crop against the CURRENT card url (carries flip / bg-removal).
         imageUrl={
           adjustLayer
-            ? cards.find((c) => c.id === layerCard[adjustLayer])?.originalUrl ?? ""
-            : activeCard?.originalUrl ?? ""
+            ? cards.find((c) => c.id === layerCard[adjustLayer])?.url ?? ""
+            : activeCard?.url ?? ""
         }
+        // When we know the host slot's aspect (from Bannerbear marker
+        // detection), force the crop canvas to that exact shape so the
+        // right pane matches the rectangle the host will actually land
+        // in. Otherwise fall back to source-image aspect.
+        aspect={adjustLayer ? slotAspect : undefined}
         contextImageUrl={result?.url}
         contextLabel={
           adjustLayer
@@ -1074,6 +1203,7 @@ export function ThumbnailStudio({
         onCancel={() => {
           setCropOpen(false);
           setAdjustLayer(null);
+          setSlotAspect(undefined);
         }}
         onApply={applyAdjust}
       />

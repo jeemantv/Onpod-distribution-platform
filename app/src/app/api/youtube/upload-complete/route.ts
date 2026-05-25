@@ -86,13 +86,20 @@ export async function POST(req: Request) {
       console.error("[yt upload-complete] thumbnail set failed", err);
     }
 
-    // Add to playlist
+    // Add to playlist — log the YouTube response so we can see scope/quota
+    // failures in Vercel logs even though we don't fail the whole publish.
     if (body.playlistId) {
       try {
         await addToPlaylist(accessToken, body.videoId, body.playlistId);
         result.playlistAdded = body.playlistId;
       } catch (err) {
-        result.playlistError = (err as Error).message;
+        const msg = (err as Error).message;
+        result.playlistError = msg;
+        console.error("[yt upload-complete] playlist add failed", {
+          videoId: body.videoId,
+          playlistId: body.playlistId,
+          message: msg,
+        });
       }
     }
   }

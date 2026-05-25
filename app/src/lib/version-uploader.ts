@@ -69,6 +69,9 @@ export async function uploadNewVersion(args: {
       parts: completed,
       versionNumber: init.versionNumber,
       note,
+      // Preserve the editor's original filename so the row title in the
+      // file list matches what they actually uploaded.
+      displayFilename: file.name,
     }),
   });
   if (!completeRes.ok) {

@@ -41,23 +41,44 @@ export async function uploadFileToStudio(args: {
   const init = (await initRes.json()) as InitResponse;
 
   const completedParts: { partNumber: number; etag: string }[] = [];
-  let bytesUploaded = 0;
+  // Total bytes finished from *prior* parts. `inFlight` is what the
+  // currently-uploading part has streamed so far. Sum is the real number.
+  let priorBytes = 0;
 
   for (const part of init.parts) {
     const start = (part.partNumber - 1) * init.partSizeBytes;
     const end = Math.min(file.size, start + init.partSizeBytes);
     const slice = file.slice(start, end);
-    const res = await fetch(part.signedUrl, {
-      method: "PUT",
-      body: slice,
+
+    // XHR so we can hook upload.onprogress — fetch() exposes no event
+    // for upload bytes, so the original implementation jumped from 0%
+    // straight to 100% for single-part uploads.
+    const etag = await new Promise<string>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("PUT", part.signedUrl);
+      xhr.upload.onprogress = (ev) => {
+        if (!ev.lengthComputable) return;
+        onProgress?.({
+          filename: file.name,
+          done: priorBytes + ev.loaded,
+          total: file.size,
+        });
+      };
+      xhr.onload = () => {
+        if (xhr.status < 200 || xhr.status >= 300) {
+          reject(new Error(`part ${part.partNumber} failed: ${xhr.status}`));
+          return;
+        }
+        resolve(xhr.getResponseHeader("etag") ?? "");
+      };
+      xhr.onerror = () => reject(new Error(`part ${part.partNumber} network error`));
+      xhr.onabort = () => reject(new Error(`part ${part.partNumber} aborted`));
+      xhr.send(slice);
     });
-    if (!res.ok) {
-      throw new Error(`part ${part.partNumber} failed: ${res.status}`);
-    }
-    const etag = res.headers.get("etag") ?? "";
+
     completedParts.push({ partNumber: part.partNumber, etag });
-    bytesUploaded += slice.size;
-    onProgress?.({ filename: file.name, done: bytesUploaded, total: file.size });
+    priorBytes += slice.size;
+    onProgress?.({ filename: file.name, done: priorBytes, total: file.size });
   }
 
   const completeRes = await fetch("/api/admin/upload-complete", {

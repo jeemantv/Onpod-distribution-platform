@@ -177,7 +177,14 @@ export function AIStudioModal({
         </div>
       ) : null}
       <div className="flex items-center gap-1 mb-6 bg-bg-elev-2 border border-border rounded-[12px] p-1 w-fit">
-        {TABS.map((t) => (
+        {TABS
+          // Clips don't need long-form Articles or Thumbnails tabs —
+          // they're already short-form vertical content with their own
+          // cover frame.
+          .filter((t) =>
+            file.type === "clip" ? t !== "articles" && t !== "thumbnails" : true,
+          )
+          .map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -349,11 +356,6 @@ export function AIStudioModal({
           {articleError ? (
             <div className="mt-3 p-3 rounded-[10px] bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.3)] text-[12px] text-[#f87171]">
               {articleError}
-            </div>
-          ) : null}
-          {!data.transcript ? (
-            <div className="mt-3 p-3 rounded-[10px] bg-[rgba(245,158,11,0.08)] border border-[rgba(245,158,11,0.25)] text-[12px] text-[#fbbf24]">
-              Run AI transcription on this file first (purple brain button on the file row).
             </div>
           ) : null}
         </div>

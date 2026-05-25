@@ -102,9 +102,16 @@ export function PreviewModal({
       ? `${file.name} · v${versions.active}${versions.count > 1 ? ` of ${versions.count}` : ""}`
       : file.name;
 
+  // Vizard auto-generated clips don't get a revision flow — they're
+  // machine output. Detect via the canonical webhook filename OR via
+  // file.type === "clip" (catches user-relabelled clips + the rare case
+  // where the filename prefix doesn't match).
+  const isAutoClip =
+    /^clip_vizard_/i.test(file.name) || file.type === "clip";
+
   return (
     <Modal
-      title={isVideo ? "Review & request revisions" : "Preview"}
+      title={isVideo && !isAutoClip ? "Review & request revisions" : "Preview"}
       subtitle={subtitle}
       onClose={onClose}
       size="xl"
@@ -136,6 +143,10 @@ export function PreviewModal({
           currentEmail={currentEmail}
           hideHeader
           compact
+          // Clips don't get a revision flow — they're machine output OR
+          // already-bite-sized. Note input and send-revision button both
+          // disappear inside VideoReviewer.
+          hideRevisions={isAutoClip}
         />
       ) : isAudio ? (
         <audio src={url} controls autoPlay className="w-full" />

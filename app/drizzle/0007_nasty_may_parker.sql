@@ -1,0 +1,1 @@
+ALTER TABLE "file_versions" ADD COLUMN "display_filename" text;

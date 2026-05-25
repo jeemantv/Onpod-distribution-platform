@@ -16,7 +16,10 @@ import { OpusClipModal } from "./OpusClipModal";
 import { RequestApprovalModal } from "./RequestApprovalModal";
 import { UploadButton } from "./UploadButton";
 import { PreviewModal } from "./PreviewModal";
+import { FilePreview } from "./FilePreview";
 import { FileContextMenu } from "./FileContextMenu";
+import { SessionUploader } from "@/components/SessionUploader";
+import type { Bucket, StudioSlug } from "@/lib/studio";
 
 const TABS: { key: FileType; label: string }[] = [
   { key: "raw", label: "Raw Files" },
@@ -33,6 +36,9 @@ export function FilePortal({
   studioContext,
   currentUserEmail = "",
   canMarkDone = false,
+  userPlan = "free",
+  userRole = "client",
+  canUpload = false,
 }: {
   projectId: string;
   files: FileItem[];
@@ -47,6 +53,15 @@ export function FilePortal({
   // who's logged in and whether they can mark notes done.
   currentUserEmail?: string;
   canMarkDone?: boolean;
+  // Used by FileActionButtons to grey out AI/YouTube/Spotify/Clips
+  // buttons when the viewer's plan doesn't include those features.
+  // Admin + editor bypass at the click handler.
+  userPlan?: string;
+  userRole?: string;
+  // When true, renders an inline SessionUploader. The file gets stamped
+  // with the currently-active tab's type so uploads land where the user
+  // is looking (Raw / Edited / Clips / Assets).
+  canUpload?: boolean;
 }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<FileType>("edited");
@@ -57,35 +72,77 @@ export function FilePortal({
   // Per-file flag: true when there's at least one open revision note.
   // Hydrated lazily on mount; null until first check, then boolean.
   const [revisionByFile, setRevisionByFile] = useState<Record<string, boolean>>({});
+  // Tracks whether the client has formally "Sent revision request" on a
+  // file (revisions.reviewSentAt is set AND the most recent note is
+  // older than that send). Used to surface a "Revision requested" badge
+  // on the file row so both editor and client see the loop state.
+  const [revisionSentByFile, setRevisionSentByFile] = useState<Record<string, boolean>>({});
+  // True for any file that has ≥1 note in its revisions sidecar (open or
+  // done). Used to mark a re-uploaded version as "Revised" instead of
+  // "New" so the client knows their feedback was addressed.
+  const [hasRevisionHistory, setHasRevisionHistory] = useState<Record<string, boolean>>({});
 
+  // Sync the local files state when the server pushes fresh props
+  // (after router.refresh() following a version upload, approval flip,
+  // etc.). Without this, stale approvalStatus / version data persists
+  // and badges look wrong.
+  useEffect(() => {
+    setFiles(initialFiles);
+  }, [initialFiles]);
+
+  // Reload revision metadata whenever the file list changes — so a
+  // newly-uploaded v2/v3 clears the "In revision" / "Revision requested"
+  // flags from the editor's view.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const next: Record<string, boolean> = {};
+      const open: Record<string, boolean> = {};
+      const sent: Record<string, boolean> = {};
+      const history: Record<string, boolean> = {};
       for (const f of files) {
         if (!/\.(mp4|mov|webm)$/i.test(f.name)) continue;
         try {
           const r = await fetch(`/api/revisions/${f.id}`, { cache: "no-store" });
           if (!r.ok) continue;
           const data = await r.json();
-          const open = (data.revisions?.notes ?? []).filter(
-            (n: { status: string }) => n.status === "open",
-          ).length;
-          if (open > 0) next[f.id] = true;
+          const notes = (data.revisions?.notes ?? []) as { status: string; createdAt: number }[];
+          const reviewSentAt = (data.revisions?.reviewSentAt ?? 0) as number;
+          const openCount = notes.filter((n) => n.status === "open").length;
+          if (openCount > 0) open[f.id] = true;
+          if (notes.length > 0) history[f.id] = true;
+          const newest = notes.reduce((acc, n) => Math.max(acc, n.createdAt), 0);
+          if (reviewSentAt > 0 && newest <= reviewSentAt) sent[f.id] = true;
         } catch {
           /* ignore */
         }
         if (cancelled) return;
       }
-      if (!cancelled) setRevisionByFile(next);
+      if (!cancelled) {
+        setRevisionByFile(open);
+        setRevisionSentByFile(sent);
+        setHasRevisionHistory(history);
+      }
     })();
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [files]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Tracks the last file the user (de)selected so shift-click can fill in
+  // the range between it and the next click.
+  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  // View mode persists per browser so the user's choice survives reloads.
+  const [view, setView] = useState<"list" | "preview" | "gallery">(() => {
+    if (typeof window === "undefined") return "list";
+    const saved = window.localStorage.getItem("onpod:file-view");
+    return saved === "preview" || saved === "gallery" ? saved : "list";
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("onpod:file-view", view);
+    }
+  }, [view]);
   const [toast, setToast] = useState<{
     kind: "success" | "error" | "progress";
     title: string;
@@ -243,20 +300,96 @@ export function FilePortal({
     }).catch(() => {});
   };
 
-  const toggleSelect = (fileId: string, checked: boolean) => {
+  const toggleSelect = (
+    fileId: string,
+    checked: boolean,
+    event?: { shiftKey?: boolean },
+  ) => {
+    // Shift-click: pick everything between the last (de)selected file
+    // and this one in the current filtered order. The "checked" arg
+    // wins for the whole range — selects if true, clears if false.
+    if (event?.shiftKey && lastSelectedId && lastSelectedId !== fileId) {
+      const ids = filtered.map((f) => f.id);
+      const a = ids.indexOf(lastSelectedId);
+      const b = ids.indexOf(fileId);
+      if (a !== -1 && b !== -1) {
+        const [lo, hi] = a < b ? [a, b] : [b, a];
+        const range = ids.slice(lo, hi + 1);
+        setSelected((prev) => {
+          const next = new Set(prev);
+          for (const id of range) {
+            if (checked) next.add(id);
+            else next.delete(id);
+          }
+          return next;
+        });
+        setLastSelectedId(fileId);
+        return;
+      }
+    }
     setSelected((prev) => {
       const next = new Set(prev);
       if (checked) next.add(fileId);
       else next.delete(fileId);
       return next;
     });
+    setLastSelectedId(fileId);
   };
 
-  const selectAllInTab = () => {
-    setSelected(new Set(filtered.map((f) => f.id)));
+  // Toggle: click once selects all visible in tab; click again clears.
+  const toggleSelectAllInTab = () => {
+    const ids = filtered.map((f) => f.id);
+    const allSelected = ids.length > 0 && ids.every((id) => selected.has(id));
+    setSelected(allSelected ? new Set() : new Set(ids));
+    setLastSelectedId(null);
   };
 
-  const clearSelection = () => setSelected(new Set());
+  const clearSelection = () => {
+    setSelected(new Set());
+    setLastSelectedId(null);
+  };
+
+  // For a single file we use the inline download (memory-cheap). For
+  // multiple files we bundle into a .zip server-side — browsers block
+  // rapid programmatic multi-downloads, and zip gives the client one
+  // clean archive.
+  const downloadSelected = async () => {
+    const ids = Array.from(selected);
+    const targets = filtered.filter((f) => ids.includes(f.id));
+    if (targets.length === 0) return;
+    if (targets.length === 1) {
+      await downloadFile(targets[0].id, targets[0].name);
+      return;
+    }
+    try {
+      const res = await fetch("/api/files/zip", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileIds: targets.map((t) => t.id),
+          name: `onpod-${targets.length}-files`,
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Zip failed (${res.status}) ${text.slice(0, 200)}`);
+      }
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = `onpod-${targets.length}-files.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch (err) {
+      alert(
+        "Bulk download failed: " +
+          (err instanceof Error ? err.message : String(err)),
+      );
+    }
+  };
 
   const moveSelectedTo = async (target: FileType) => {
     const ids = Array.from(selected);
@@ -455,6 +588,17 @@ export function FilePortal({
 
   return (
     <>
+      {canUpload && studioContext ? (
+        <div className="mb-5">
+          <SessionUploader
+            studio={studioContext.studio as StudioSlug}
+            bucket={studioContext.bucket as Bucket}
+            folder={studioContext.folder}
+            defaultType={activeTab}
+          />
+        </div>
+      ) : null}
+
       <div className="-mx-4 sm:mx-0 mb-5 overflow-x-auto">
         <div className="flex items-center gap-2 bg-bg-elev border border-border rounded-[12px] p-1 w-fit min-w-min px-4 sm:px-1 sm:mx-0">
           {TABS.map((t) => (
@@ -492,13 +636,43 @@ export function FilePortal({
           />
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={selectAllInTab}
-            title="⌘A"
-            className="px-3 py-2 rounded-[8px] bg-bg-elev border border-border hover:border-border-strong text-[12px] sm:text-[13px]"
-          >
-            Select all
-          </button>
+          <div className="inline-flex border border-border rounded-[8px] overflow-hidden text-[12px] sm:text-[13px]">
+            {(["list", "preview", "gallery"] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => setView(m)}
+                title={
+                  m === "list"
+                    ? "Compact rows"
+                    : m === "preview"
+                      ? "Rows with thumbnail"
+                      : "Grid with large previews"
+                }
+                className={
+                  view === m
+                    ? "px-3 py-2 bg-bg-elev-3 text-text"
+                    : "px-3 py-2 bg-bg-elev text-text-muted hover:text-text hover:bg-bg-elev-2"
+                }
+              >
+                {m === "list" ? "List" : m === "preview" ? "Preview" : "Gallery"}
+              </button>
+            ))}
+          </div>
+          {/* Toggles: clicking again clears (replaces the old "Clear"
+              button that lived in the bottom bar). */}
+          {(() => {
+            const ids = filtered.map((f) => f.id);
+            const allSelected = ids.length > 0 && ids.every((id) => selected.has(id));
+            return (
+              <button
+                onClick={toggleSelectAllInTab}
+                title="⌘A"
+                className="px-3 py-2 rounded-[8px] bg-bg-elev border border-border hover:border-border-strong text-[12px] sm:text-[13px]"
+              >
+                {allSelected ? "Deselect all" : "Select all"}
+              </button>
+            );
+          })()}
           {canMarkDone ? (
             <button
               onClick={() => setModal({ kind: "request-approval" })}
@@ -507,8 +681,12 @@ export function FilePortal({
               Request approval
             </button>
           ) : null}
-          <button className="px-3 py-2 rounded-[8px] bg-bg-elev border border-border hover:border-border-strong text-[12px] sm:text-[13px]">
-            Download all
+          <button
+            onClick={downloadSelected}
+            disabled={selected.size === 0}
+            className="px-3 py-2 rounded-[8px] bg-bg-elev border border-border hover:border-border-strong text-[12px] sm:text-[13px] disabled:opacity-50"
+          >
+            Download{selected.size > 0 ? ` (${selected.size})` : ""}
           </button>
           {canMarkDone && !studioContext ? (
             <UploadButton projectId={projectId} />
@@ -516,13 +694,101 @@ export function FilePortal({
         </div>
       </div>
 
-      <ul className="flex flex-col gap-2">
-        {filtered.length === 0 ? (
-          <li className="bg-bg-elev border border-border rounded-lg px-5 py-10 text-center text-text-muted text-[13px]">
-            No files in this folder yet.
-          </li>
-        ) : (
-          filtered.map((f) => (
+      {filtered.length === 0 ? (
+        <div className="bg-bg-elev border border-border rounded-lg px-5 py-10 text-center text-text-muted text-[13px]">
+          No files in this folder yet.
+        </div>
+      ) : view === "gallery" ? (
+        <ul className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {filtered.map((f) => (
+            <li
+              key={f.id}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                if (!selected.has(f.id)) setSelected(new Set([f.id]));
+                setContextMenu({ x: e.clientX, y: e.clientY });
+              }}
+              className={`flex flex-col border rounded-lg overflow-hidden transition ${rowStyle(f, selected.has(f.id))}`}
+            >
+              <button
+                onClick={() => setModal({ kind: "preview", fileId: f.id })}
+                title="Open preview"
+                className="block w-full"
+              >
+                <FilePreview file={f} size="lg" />
+              </button>
+              <div className="p-3 flex flex-col gap-2">
+                <div className="flex items-start gap-2 min-w-0">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(f.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) =>
+                      toggleSelect(f.id, e.target.checked, {
+                        shiftKey: (e.nativeEvent as MouseEvent).shiftKey,
+                      })
+                    }
+                    className="accent-accent w-4 h-4 shrink-0 mt-0.5"
+                    aria-label={`Select ${f.name}`}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-[12px] truncate">{f.name}</div>
+                    <div className="text-[11px] text-text-muted mt-0.5 flex items-center gap-1.5 flex-wrap">
+                      <span>{formatBytes(f.sizeBytes)}</span>
+                      {/(\.(mp4|mov|webm))$/i.test(f.name) ? (
+                        <VersionMenu
+                          fileId={f.id}
+                          canManage={canMarkDone}
+                          showNewBadge={
+                            !canMarkDone &&
+                            f.approvalStatus === "pending" &&
+                            !hasRevisionHistory[f.id]
+                          }
+                          showRevisedBadge={
+                            !canMarkDone &&
+                            f.approvalStatus === "pending" &&
+                            !!hasRevisionHistory[f.id]
+                          }
+                        />
+                      ) : null}
+                    </div>
+                    <div className="mt-1 flex items-center gap-1 flex-wrap">
+                      <FileStatusBadges file={f} />
+                    </div>
+                  </div>
+                </div>
+                {needsApproval(f) ? (
+                  <ApprovalToggle
+                    value={f.approvalStatus}
+                    onChange={(next) => updateApproval(f.id, next)}
+                    inRevision={!!revisionByFile[f.id]}
+                  />
+                ) : null}
+                {/* Action buttons sit on their own row in gallery so they
+                    don't overflow the narrow card width — overflow-x-auto
+                    keeps them reachable even on small viewports. */}
+                <div className="-mx-1 overflow-x-auto px-1">
+                  <FileActionButtons
+                    file={f}
+                    aiReady={!!aiReady[f.id]}
+                    aiProgress={aiProgress[f.id]}
+                    plan={userPlan}
+                    role={userRole}
+                    onAI={() => startAI(f.id)}
+                    onYouTube={() => setModal({ kind: "youtube", fileId: f.id })}
+                    onSpotify={() => setModal({ kind: "spotify", fileId: f.id })}
+                    onOpus={() => setModal({ kind: "opus", fileId: f.id })}
+                    onPreview={() => setModal({ kind: "preview", fileId: f.id })}
+                    onDownload={() => downloadFile(f.id, f.name)}
+                  />
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {filtered.map((f) => (
             <li
               key={f.id}
               onContextMenu={(e) => {
@@ -540,7 +806,17 @@ export function FilePortal({
                   className="accent-accent w-4 h-4 shrink-0"
                   aria-label={`Select ${f.name}`}
                 />
-                <FileIcon mime={f.mimeType} />
+                {view === "preview" ? (
+                  <button
+                    onClick={() => setModal({ kind: "preview", fileId: f.id })}
+                    className="shrink-0"
+                    title="Open preview"
+                  >
+                    <FilePreview file={f} size="sm" />
+                  </button>
+                ) : (
+                  <FileIcon mime={f.mimeType} />
+                )}
                 <div className="flex-1 min-w-0">
                   <div className="font-medium text-[13px] sm:text-[14px] truncate">{f.name}</div>
                   <div className="text-[11px] sm:text-[12px] text-text-muted mt-1 flex items-center gap-2 flex-wrap">
@@ -548,7 +824,7 @@ export function FilePortal({
                     <span>·</span>
                     <span>{new Date(f.uploadedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
                     {/(\.(mp4|mov|webm))$/i.test(f.name) ? (
-                      <VersionMenu fileId={f.id} canManage={canMarkDone} />
+                      <VersionMenu fileId={f.id} canManage={canMarkDone} showNewBadge={!canMarkDone && f.approvalStatus === "pending"} />
                     ) : null}
                     <FileStatusBadges file={f} />
                   </div>
@@ -570,6 +846,8 @@ export function FilePortal({
                   file={f}
                   aiReady={!!aiReady[f.id]}
                   aiProgress={aiProgress[f.id]}
+                  plan={userPlan}
+                  role={userRole}
                   onAI={() => startAI(f.id)}
                   onYouTube={() => setModal({ kind: "youtube", fileId: f.id })}
                   onSpotify={() => setModal({ kind: "spotify", fileId: f.id })}
@@ -579,9 +857,9 @@ export function FilePortal({
                 />
               </div>
             </li>
-          ))
-        )}
-      </ul>
+          ))}
+        </ul>
+      )}
 
       {toast ? (
         <div
@@ -636,7 +914,9 @@ export function FilePortal({
           selectedCount={selected.size}
           onMove={moveSelectedTo}
           onDelete={deleteSelected}
-          onSelectAll={selectAllInTab}
+          onSelectAll={() =>
+            setSelected(new Set(filtered.map((f) => f.id)))
+          }
           onClose={() => setContextMenu(null)}
         />
       ) : null}
@@ -647,13 +927,6 @@ export function FilePortal({
           <span className="text-[11px] text-text-muted hidden md:inline">
             right-click for actions · ⌘A all · ⌫ delete · esc clear
           </span>
-          <div className="w-px h-5 bg-border mx-2" />
-          <button
-            onClick={clearSelection}
-            className="px-3 py-1.5 rounded-[8px] text-[12px] text-text-muted hover:text-text"
-          >
-            Clear
-          </button>
         </div>
       ) : null}
 
@@ -687,6 +960,7 @@ export function FilePortal({
         <OpusClipModal
           fileId={modal.fileId}
           file={files.find((f) => f.id === modal.fileId)!}
+          canManage={canMarkDone}
           onClose={() => setModal(null)}
         />
       ) : null}
@@ -698,26 +972,38 @@ export function FilePortal({
           onClose={() => setModal(null)}
         />
       ) : null}
-      {modal?.kind === "request-approval" ? (
-        <RequestApprovalModal
-          projectId={projectId}
-          shareToken={shareToken}
-          unapprovedFiles={files.filter(
-            (f) => needsApproval(f) && f.approvalStatus === "none",
-          )}
-          onClose={() => setModal(null)}
-          onSent={() => {
-            setFiles((fs) =>
-              fs.map((f) =>
-                needsApproval(f) && f.approvalStatus === "none"
-                  ? { ...f, approvalStatus: "pending" }
-                  : f,
-              ),
+      {modal?.kind === "request-approval"
+        ? (() => {
+            // When the editor has checked specific files, only those are
+            // sent for approval. With nothing selected, fall back to
+            // every unapproved file in the session (the original
+            // bulk-flow).
+            const selectedApprovable = files.filter(
+              (f) => selected.has(f.id) && needsApproval(f) && f.approvalStatus === "none",
             );
-            setModal(null);
-          }}
-        />
-      ) : null}
+            const targets =
+              selectedApprovable.length > 0
+                ? selectedApprovable
+                : files.filter((f) => needsApproval(f) && f.approvalStatus === "none");
+            const targetIds = new Set(targets.map((t) => t.id));
+            return (
+              <RequestApprovalModal
+                projectId={projectId}
+                shareToken={shareToken}
+                unapprovedFiles={targets}
+                onClose={() => setModal(null)}
+                onSent={() => {
+                  setFiles((fs) =>
+                    fs.map((f) =>
+                      targetIds.has(f.id) ? { ...f, approvalStatus: "pending" } : f,
+                    ),
+                  );
+                  setModal(null);
+                }}
+              />
+            );
+          })()
+        : null}
     </>
   );
 }

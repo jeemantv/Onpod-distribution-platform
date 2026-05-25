@@ -1,7 +1,8 @@
 import { requireEditorOrAdmin } from "@/lib/session";
 import { listAllUsers } from "@/lib/auth-store";
-import { mockUsers } from "@/lib/mock-data";
 import { TeamTable } from "@/components/TeamTable";
+import { loadEditorScope } from "@/lib/editor-access";
+import { listStudios } from "@/lib/studio-registry";
 
 export const dynamic = "force-dynamic";
 
@@ -21,45 +22,38 @@ interface Row {
 
 export default async function TeamPage() {
   const user = requireEditorOrAdmin();
+  const scope = await loadEditorScope(user);
   const stored = await listAllUsers();
-  // Merge B2-backed users with demo mock users so admins can see the
-  // whole team in one place. Demo users get a flag so the UI can warn
-  // that role/assignment changes won't persist (the mutation endpoints
-  // only write to the B2 store).
-  const seen = new Set(stored.map((u) => u.email.toLowerCase()));
-  const merged: Row[] = [
-    ...stored.map((u) => ({
+  // Scoped admin (assignedStudios set) only sees teammates whose
+  // assignedStudios overlap with theirs. Super-admin and editors see all.
+  const filterByScope = (u: { role: string; assignedStudios?: string[] }) => {
+    if (scope.studios === null) return true;
+    // Other super-admins (no assignedStudios) are out of scope.
+    if (!u.assignedStudios || u.assignedStudios.length === 0) {
+      return u.role === "editor" ? false : false;
+    }
+    return u.assignedStudios.some((s) => scope.studios!.includes(s));
+  };
+  // Only admins and editors appear in the Team tab. Clients live under
+  // /admin/clients; the `allClients` prop below still lists them so
+  // per-editor "excluded clients" dropdowns continue to work.
+  const teamRows: Row[] = stored
+    .filter((u) => u.role === "admin" || u.role === "editor")
+    .filter(filterByScope)
+    .map((u) => ({
       id: u.id,
       email: u.email,
       firstName: u.firstName,
       lastName: u.lastName,
-      role: u.role as string,
+      role: u.role,
       avatar: u.avatar,
       avatarColor: u.avatarColor,
       createdAt: u.createdAt,
       assignedStudios: u.assignedStudios,
       excludedClientEmails: u.excludedClientEmails,
-    })),
-    ...mockUsers
-      .filter((u) => !seen.has(u.email.toLowerCase()))
-      .map((u) => ({
-        id: u.id,
-        email: u.email,
-        firstName: u.firstName,
-        lastName: u.lastName,
-        role: u.role as string,
-        avatar: u.avatar,
-        avatarColor: u.avatarColor,
-        createdAt: u.createdAt,
-        // Demo editors implicitly have all studios via editor-access
-        assignedStudios:
-          u.role === "editor" ? ["all"] : undefined,
-        excludedClientEmails: undefined,
-        isDemo: true,
-      })),
-  ];
+    }));
 
-  const clients = merged
+  const allClients = stored
     .filter((u) => u.role === "client")
     .map((u) => ({
       email: u.email,
@@ -72,15 +66,19 @@ export default async function TeamPage() {
         <h1 className="display text-[36px]">Team</h1>
         <p className="text-text-muted text-[13px] mt-1">
           {user.role === "admin"
-            ? "Add team members, assign editors to studios, and exclude specific clients."
-            : "Editors see the team list. Only admins can change roles."}
+            ? "Admins and editors only. Manage clients under the Clients tab."
+            : "Admins and editors only. Clients live under the Clients tab."}
         </p>
       </div>
       <TeamTable
         currentUserId={user.id}
         canChangeRoles={user.role === "admin"}
-        allClients={clients}
-        users={merged}
+        allClients={allClients}
+        users={teamRows}
+        availableStudios={(await listStudios()).map((s) => ({
+          slug: s.slug,
+          displayName: s.displayName,
+        }))}
       />
     </>
   );

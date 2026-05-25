@@ -1,15 +1,18 @@
-// Switch the active version pointer.
+// Switch the active version pointer. Open to any signed-in viewer of
+// the file — `canAccessKey` enforces ownership; we used to gate this to
+// editor/admin which blocked clients from flipping back to v1 for
+// comparison after the editor uploaded a v2.
 
 import { NextResponse } from "next/server";
 import { decodeFileId } from "@/lib/b2";
-import { requireEditorOrAdmin } from "@/lib/session";
+import { requireSession } from "@/lib/session";
 import { canAccessKey } from "@/lib/access";
 import { canonicalKey, setActive } from "@/lib/versions-store";
 
 export const maxDuration = 30;
 
 export async function POST(req: Request) {
-  const user = requireEditorOrAdmin();
+  const user = requireSession();
   const { sourceFileId, n } = (await req.json()) as {
     sourceFileId?: string;
     n?: number;

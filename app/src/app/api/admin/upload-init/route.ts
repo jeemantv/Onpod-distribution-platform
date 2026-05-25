@@ -2,14 +2,17 @@
 // into studios/{studio}/{bucket}/{folder?}/{filename}.
 import { NextResponse } from "next/server";
 import { guessMimeType, startMultipartUpload } from "@/lib/b2";
-import { requireEditorOrAdmin } from "@/lib/session";
+import { getSession } from "@/lib/session";
+import { getUserByEmail } from "@/lib/auth-store";
 import {
   BUCKETS,
-  STUDIO_SLUGS,
   bucketPrefix,
+  sessionBelongsToEmail,
   type Bucket,
   type StudioSlug,
 } from "@/lib/studio";
+import { isKnownStudio } from "@/lib/studio-registry";
+import { assertStudioAccess } from "@/lib/editor-access";
 
 export const maxDuration = 30;
 
@@ -27,11 +30,41 @@ function sanitize(name: string): string {
 }
 
 export async function POST(req: Request) {
-  requireEditorOrAdmin();
+  // Auth: admin/editor unconditionally; clients only if self-upload is
+  // enabled AND they're uploading to a folder that belongs to them.
+  const user = getSession();
+  if (!user) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
   const body = (await req.json()) as InitBody;
 
-  if (!STUDIO_SLUGS.includes(body.studio) || !BUCKETS.includes(body.bucket)) {
+  if (!BUCKETS.includes(body.bucket)) {
     return NextResponse.json({ error: "invalid_location" }, { status: 400 });
+  }
+
+  if (user.role === "admin" || (user.role as string) === "editor") {
+    // Admin/editor path: studio must exist + actor must have scope for it.
+    const blocked = await assertStudioAccess(body.studio);
+    if (blocked) return blocked;
+  } else {
+    // Client path: studio must exist (registry check), self-upload
+    // enabled, folder must belong to them.
+    if (!(await isKnownStudio(body.studio))) {
+      return NextResponse.json({ error: "invalid_studio" }, { status: 400 });
+    }
+    const stored = await getUserByEmail(user.email).catch(() => null);
+    if (!stored?.selfUploadEnabled) {
+      return NextResponse.json(
+        { error: "forbidden", message: "Self-upload isn't enabled for your account." },
+        { status: 403 },
+      );
+    }
+    if (!body.folder || !sessionBelongsToEmail(body.folder, user.email)) {
+      return NextResponse.json(
+        { error: "forbidden", message: "You can only upload to your own session folder." },
+        { status: 403 },
+      );
+    }
   }
   if (!body.filename || typeof body.sizeBytes !== "number" || body.sizeBytes <= 0) {
     return NextResponse.json({ error: "invalid_request" }, { status: 400 });

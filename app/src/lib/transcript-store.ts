@@ -1,16 +1,11 @@
-// Stores transcript + AI content as sidecar JSON files next to the video in B2.
+// Postgres-backed transcript + AI content storage.
 //
-//   {videoKey}.transcript.json  — Deepgram result
-//   {videoKey}.ai.json          — Claude AI package
-//   {videoKey}.job.json         — active job marker (deleted on completion)
+// The suffix exports are retained because some admin UI code still derives
+// B2 lookup paths from them — even though storage has moved to PG.
 
-import {
-  DeleteObjectCommand,
-  GetObjectCommand,
-  HeadObjectCommand,
-  PutObjectCommand,
-} from "@aws-sdk/client-s3";
-import { b2, bucket } from "./b2";
+import { eq } from "drizzle-orm";
+import { db } from "./db";
+import { aiContent, transcriptJobs, transcripts } from "./db/schema";
 import type { DeepgramResult } from "./deepgram";
 import type { AIPackage } from "./claude";
 
@@ -36,79 +31,149 @@ export function jobKey(videoKey: string): string {
   return videoKey + JOB_SUFFIX;
 }
 
-async function exists(key: string): Promise<boolean> {
-  try {
-    await b2.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function readJson<T>(key: string): Promise<T | null> {
-  try {
-    const res = await b2.send(
-      new GetObjectCommand({ Bucket: bucket, Key: key }),
-    );
-    const text = await res.Body?.transformToString();
-    if (!text) return null;
-    return JSON.parse(text) as T;
-  } catch {
-    return null;
-  }
-}
-
-async function writeJson(key: string, value: unknown): Promise<void> {
-  await b2.send(
-    new PutObjectCommand({
-      Bucket: bucket,
-      Key: key,
-      Body: JSON.stringify(value),
-      ContentType: "application/json",
-      CacheControl: "no-cache, no-store, must-revalidate",
-    }),
-  );
-}
-
-async function remove(key: string): Promise<void> {
-  await b2
-    .send(new DeleteObjectCommand({ Bucket: bucket, Key: key }))
-    .catch(() => {});
-}
+// ---------- Existence checks ----------
 
 export async function hasTranscript(videoKey: string): Promise<boolean> {
-  return exists(transcriptKey(videoKey));
-}
-export async function hasAI(videoKey: string): Promise<boolean> {
-  return exists(aiKey(videoKey));
-}
-export async function getTranscript(
-  videoKey: string,
-): Promise<DeepgramResult | null> {
-  return readJson<DeepgramResult>(transcriptKey(videoKey));
-}
-export async function getAI(videoKey: string): Promise<AIPackage | null> {
-  return readJson<AIPackage>(aiKey(videoKey));
-}
-export async function saveTranscript(
-  videoKey: string,
-  result: DeepgramResult,
-): Promise<void> {
-  await writeJson(transcriptKey(videoKey), result);
-}
-export async function saveAI(
-  videoKey: string,
-  ai: AIPackage,
-): Promise<void> {
-  await writeJson(aiKey(videoKey), ai);
+  const [r] = await db
+    .select({ id: transcripts.id })
+    .from(transcripts)
+    .where(eq(transcripts.videoKey, videoKey))
+    .limit(1);
+  return !!r;
 }
 
+export async function hasAI(videoKey: string): Promise<boolean> {
+  const [r] = await db
+    .select({ id: aiContent.id })
+    .from(aiContent)
+    .where(eq(aiContent.videoKey, videoKey))
+    .limit(1);
+  return !!r;
+}
+
+// ---------- Transcript ----------
+
+export async function getTranscript(videoKey: string): Promise<DeepgramResult | null> {
+  const [r] = await db.select().from(transcripts).where(eq(transcripts.videoKey, videoKey)).limit(1);
+  if (!r) return null;
+  // Reconstruct the original Deepgram payload from the persisted columns.
+  return {
+    transcript: r.text,
+    language: r.language ?? "en",
+    paragraphs: (r.paragraphsJson ?? []) as DeepgramResult["paragraphs"],
+    requestId: r.deepgramRequestId ?? undefined,
+  } as DeepgramResult;
+}
+
+export async function saveTranscript(videoKey: string, result: DeepgramResult): Promise<void> {
+  await db
+    .insert(transcripts)
+    .values({
+      videoKey,
+      text: result.transcript,
+      source: "deepgram",
+      deepgramRequestId: result.requestId ?? null,
+      language: result.language ?? null,
+      paragraphsJson: result.paragraphs ?? null,
+    })
+    .onConflictDoUpdate({
+      target: transcripts.videoKey,
+      set: {
+        text: result.transcript,
+        deepgramRequestId: result.requestId ?? null,
+        language: result.language ?? null,
+        paragraphsJson: result.paragraphs ?? null,
+      },
+    });
+}
+
+// ---------- AI content ----------
+
+export async function getAI(videoKey: string): Promise<AIPackage | null> {
+  const [r] = await db.select().from(aiContent).where(eq(aiContent.videoKey, videoKey)).limit(1);
+  if (!r) return null;
+  return {
+    title: r.title ?? "",
+    description: r.description ?? "",
+    chapters: r.chapters ?? "",
+    tags: r.tags ?? [],
+    hashtags: r.hashtags ?? [],
+    language: r.language ?? "",
+    summary: r.summary ?? "",
+  };
+}
+
+export async function saveAI(videoKey: string, ai: AIPackage): Promise<void> {
+  // `articlesJson` is reserved for per-format articles (§6.6); current
+  // AIPackage doesn't carry them yet so we leave the column untouched on
+  // updates and default to {} on insert.
+  await db
+    .insert(aiContent)
+    .values({
+      videoKey,
+      title: ai.title,
+      description: ai.description,
+      chapters: ai.chapters,
+      tags: ai.tags,
+      hashtags: ai.hashtags,
+      language: ai.language,
+      summary: ai.summary,
+      articlesJson: {},
+    })
+    .onConflictDoUpdate({
+      target: aiContent.videoKey,
+      set: {
+        title: ai.title,
+        description: ai.description,
+        chapters: ai.chapters,
+        tags: ai.tags,
+        hashtags: ai.hashtags,
+        language: ai.language,
+        summary: ai.summary,
+        updatedAt: new Date(),
+      },
+    });
+}
+
+// ---------- Job markers ----------
+
 export async function getJobMarker(videoKey: string): Promise<JobMarker | null> {
-  return readJson<JobMarker>(jobKey(videoKey));
+  const [r] = await db
+    .select()
+    .from(transcriptJobs)
+    .where(eq(transcriptJobs.videoKey, videoKey))
+    .limit(1);
+  if (!r) return null;
+  return {
+    videoKey: r.videoKey,
+    startedAt: r.startedAt.getTime(),
+    stage: r.stage,
+    requestId: r.requestId ?? undefined,
+    error: r.error ?? undefined,
+  };
 }
+
 export async function setJobMarker(marker: JobMarker): Promise<void> {
-  await writeJson(jobKey(marker.videoKey), marker);
+  await db
+    .insert(transcriptJobs)
+    .values({
+      videoKey: marker.videoKey,
+      stage: marker.stage,
+      requestId: marker.requestId ?? null,
+      error: marker.error ?? null,
+      startedAt: new Date(marker.startedAt),
+    })
+    .onConflictDoUpdate({
+      target: transcriptJobs.videoKey,
+      set: {
+        stage: marker.stage,
+        requestId: marker.requestId ?? null,
+        error: marker.error ?? null,
+        updatedAt: new Date(),
+      },
+    });
 }
+
 export async function clearJobMarker(videoKey: string): Promise<void> {
-  await remove(jobKey(videoKey));
+  await db.delete(transcriptJobs).where(eq(transcriptJobs.videoKey, videoKey));
 }

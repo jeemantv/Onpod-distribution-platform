@@ -1,6 +1,8 @@
-// OpusClip job tracking, backed by B2 (serverless-safe).
+// Postgres-backed OpusClip job tracking.
 
-import { readState, writeState } from "./state-store";
+import { eq } from "drizzle-orm";
+import { db } from "./db";
+import { opusJobs } from "./db/schema";
 
 export interface OpusJobRecord {
   jobId: string;
@@ -15,39 +17,60 @@ export interface OpusJobRecord {
   error?: string;
 }
 
-const KEY = "opus-jobs.json";
+type DbRow = typeof opusJobs.$inferSelect;
 
-async function readAll(): Promise<OpusJobRecord[]> {
-  return readState<OpusJobRecord[]>(KEY, []);
-}
-
-async function writeAll(rows: OpusJobRecord[]): Promise<void> {
-  await writeState(KEY, rows);
+function toRecord(r: DbRow): OpusJobRecord {
+  return {
+    jobId: r.jobId,
+    userId: r.userId,
+    videoKey: r.videoKey,
+    projectId: r.projectId ?? "",
+    stylePreset: r.stylePreset,
+    startedAt: r.startedAt.getTime(),
+    finishedAt: r.finishedAt ? r.finishedAt.getTime() : undefined,
+    status: r.status,
+    clipsDelivered: r.clipsDelivered,
+    error: r.error ?? undefined,
+  };
 }
 
 export async function recordJob(job: OpusJobRecord): Promise<void> {
-  const rows = await readAll();
-  rows.unshift(job);
-  await writeAll(rows);
+  await db
+    .insert(opusJobs)
+    .values({
+      jobId: job.jobId,
+      userId: job.userId,
+      videoKey: job.videoKey,
+      projectId: job.projectId || null,
+      stylePreset: job.stylePreset,
+      status: job.status,
+      clipsDelivered: job.clipsDelivered,
+      error: job.error ?? null,
+      startedAt: new Date(job.startedAt),
+      finishedAt: job.finishedAt ? new Date(job.finishedAt) : null,
+    })
+    .onConflictDoNothing({ target: opusJobs.jobId });
 }
 
 export async function updateJob(
   jobId: string,
   patch: Partial<OpusJobRecord>,
 ): Promise<void> {
-  const rows = await readAll();
-  const i = rows.findIndex((r) => r.jobId === jobId);
-  if (i < 0) return;
-  rows[i] = { ...rows[i], ...patch };
-  await writeAll(rows);
+  const dbPatch: Partial<typeof opusJobs.$inferInsert> = {};
+  if (patch.status !== undefined) dbPatch.status = patch.status;
+  if (patch.clipsDelivered !== undefined) dbPatch.clipsDelivered = patch.clipsDelivered;
+  if (patch.error !== undefined) dbPatch.error = patch.error;
+  if (patch.finishedAt !== undefined) dbPatch.finishedAt = new Date(patch.finishedAt);
+  if (Object.keys(dbPatch).length === 0) return;
+  await db.update(opusJobs).set(dbPatch).where(eq(opusJobs.jobId, jobId));
 }
 
 export async function getJob(jobId: string): Promise<OpusJobRecord | null> {
-  const rows = await readAll();
-  return rows.find((r) => r.jobId === jobId) ?? null;
+  const [r] = await db.select().from(opusJobs).where(eq(opusJobs.jobId, jobId)).limit(1);
+  return r ? toRecord(r) : null;
 }
 
 export async function jobsForFile(videoKey: string): Promise<OpusJobRecord[]> {
-  const rows = await readAll();
-  return rows.filter((r) => r.videoKey === videoKey);
+  const rows = await db.select().from(opusJobs).where(eq(opusJobs.videoKey, videoKey));
+  return rows.map(toRecord);
 }

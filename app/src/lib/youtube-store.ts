@@ -1,7 +1,8 @@
-// YouTube OAuth token store, backed by B2 (serverless-safe).
-// One JSON file keyed by userId; one connection per user.
+// Postgres-backed YouTube OAuth token store.
 
-import { readState, writeState } from "./state-store";
+import { eq } from "drizzle-orm";
+import { db } from "./db";
+import { youtubeCredentials } from "./db/schema";
 import { refreshTokens, type OAuthTokens, type YouTubeChannelInfo } from "./youtube";
 
 export interface StoredConnection {
@@ -12,33 +13,63 @@ export interface StoredConnection {
   connectedAt: number;
 }
 
-const KEY = "youtube-tokens.json";
+type DbRow = typeof youtubeCredentials.$inferSelect;
 
-async function readAll(): Promise<Record<string, StoredConnection>> {
-  return readState<Record<string, StoredConnection>>(KEY, {});
+function toConnection(r: DbRow): StoredConnection {
+  return {
+    userId: r.userId,
+    channels: r.channels,
+    activeChannelId: r.activeChannelId,
+    tokens: {
+      accessToken: r.accessToken,
+      refreshToken: r.refreshToken,
+      expiresAt: r.expiresAt.getTime(),
+      scope: r.scope,
+      tokenType: r.tokenType,
+    },
+    connectedAt: r.connectedAt.getTime(),
+  };
 }
 
-async function writeAll(all: Record<string, StoredConnection>): Promise<void> {
-  await writeState(KEY, all);
-}
-
-export async function getConnection(
-  userId: string,
-): Promise<StoredConnection | null> {
-  const all = await readAll();
-  return all[userId] ?? null;
+export async function getConnection(userId: string): Promise<StoredConnection | null> {
+  const [r] = await db
+    .select()
+    .from(youtubeCredentials)
+    .where(eq(youtubeCredentials.userId, userId))
+    .limit(1);
+  return r ? toConnection(r) : null;
 }
 
 export async function saveConnection(conn: StoredConnection): Promise<void> {
-  const all = await readAll();
-  all[conn.userId] = conn;
-  await writeAll(all);
+  await db
+    .insert(youtubeCredentials)
+    .values({
+      userId: conn.userId,
+      channels: conn.channels,
+      activeChannelId: conn.activeChannelId,
+      accessToken: conn.tokens.accessToken,
+      refreshToken: conn.tokens.refreshToken,
+      expiresAt: new Date(conn.tokens.expiresAt),
+      scope: conn.tokens.scope,
+      tokenType: conn.tokens.tokenType,
+      connectedAt: new Date(conn.connectedAt),
+    })
+    .onConflictDoUpdate({
+      target: youtubeCredentials.userId,
+      set: {
+        channels: conn.channels,
+        activeChannelId: conn.activeChannelId,
+        accessToken: conn.tokens.accessToken,
+        refreshToken: conn.tokens.refreshToken,
+        expiresAt: new Date(conn.tokens.expiresAt),
+        scope: conn.tokens.scope,
+        tokenType: conn.tokens.tokenType,
+      },
+    });
 }
 
 export async function clearConnection(userId: string): Promise<void> {
-  const all = await readAll();
-  delete all[userId];
-  await writeAll(all);
+  await db.delete(youtubeCredentials).where(eq(youtubeCredentials.userId, userId));
 }
 
 export async function getFreshAccessToken(userId: string): Promise<string | null> {

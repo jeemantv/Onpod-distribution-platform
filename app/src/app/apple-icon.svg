@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" width="180" height="180">
+  <!-- iOS rounds the icon corners; we render against a dark backdrop
+       so the magenta ring pops on the home screen. -->
+  <rect x="0" y="0" width="180" height="180" rx="40" fill="#0a0a0b" />
+  <circle
+    cx="90"
+    cy="90"
+    r="60"
+    fill="none"
+    stroke="#d946ef"
+    stroke-width="38"
+  />
+</svg>

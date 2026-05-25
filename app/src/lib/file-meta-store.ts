@@ -1,16 +1,11 @@
-// Per-file metadata overrides — folder type, approval status — when we don't
-// want to rename the file in B2 but still need to override classifyByFilename.
-// Stored per-project in B2 as {userId}/{projectId}/.file-meta.json.
+// Postgres-backed per-file overrides (folder type, approval status) when
+// the filename alone can't carry the truth. Composite key on
+// (user_id, project_id, file_key).
 
-import {
-  DeleteObjectCommand,
-  GetObjectCommand,
-  PutObjectCommand,
-} from "@aws-sdk/client-s3";
-import { b2, bucket } from "./b2";
+import { and, eq } from "drizzle-orm";
+import { db } from "./db";
+import { fileMeta } from "./db/schema";
 import type { ApprovalStatus, FileType } from "./types";
-
-const META_FILE = ".file-meta.json";
 
 export interface FileMetaEntry {
   type?: FileType;
@@ -20,24 +15,20 @@ export interface FileMetaEntry {
 
 export type FileMeta = Record<string, FileMetaEntry>;
 
-function metaKey(userId: string, projectId: string): string {
-  return `${userId}/${projectId}/${META_FILE}`;
-}
-
-export async function getFileMeta(
-  userId: string,
-  projectId: string,
-): Promise<FileMeta> {
-  try {
-    const res = await b2.send(
-      new GetObjectCommand({ Bucket: bucket, Key: metaKey(userId, projectId) }),
-    );
-    const text = await res.Body?.transformToString();
-    if (!text) return {};
-    return JSON.parse(text) as FileMeta;
-  } catch {
-    return {};
+export async function getFileMeta(userId: string, projectId: string): Promise<FileMeta> {
+  const rows = await db
+    .select()
+    .from(fileMeta)
+    .where(and(eq(fileMeta.ownerId, userId), eq(fileMeta.projectId, projectId)));
+  const out: FileMeta = {};
+  for (const r of rows) {
+    out[r.fileKey] = {
+      type: r.type ?? undefined,
+      approvalStatus: r.approvalStatus ?? undefined,
+      updatedAt: r.updatedAt.toISOString(),
+    };
   }
+  return out;
 }
 
 export async function setFileMetaEntry(
@@ -46,21 +37,26 @@ export async function setFileMetaEntry(
   fileKey: string,
   entry: FileMetaEntry,
 ): Promise<FileMeta> {
-  const meta = await getFileMeta(userId, projectId);
-  meta[fileKey] = {
-    ...(meta[fileKey] ?? {}),
-    ...entry,
-    updatedAt: new Date().toISOString(),
-  };
-  await b2.send(
-    new PutObjectCommand({
-      Bucket: bucket,
-      Key: metaKey(userId, projectId),
-      Body: JSON.stringify(meta, null, 2),
-      ContentType: "application/json",
-    }),
-  );
-  return meta;
+  await db
+    .insert(fileMeta)
+    .values({
+      ownerId: userId,
+      projectId,
+      fileKey,
+      type: entry.type ?? null,
+      // ApprovalStatus has a "none" sentinel that means "no decision yet" —
+      // store that as SQL NULL so the column only holds spec values.
+      approvalStatus: entry.approvalStatus && entry.approvalStatus !== "none" ? entry.approvalStatus : null,
+    })
+    .onConflictDoUpdate({
+      target: [fileMeta.ownerId, fileMeta.projectId, fileMeta.fileKey],
+      set: {
+        type: entry.type ?? null,
+        approvalStatus: entry.approvalStatus && entry.approvalStatus !== "none" ? entry.approvalStatus : null,
+        updatedAt: new Date(),
+      },
+    });
+  return getFileMeta(userId, projectId);
 }
 
 export async function deleteFileMetaEntry(
@@ -68,22 +64,15 @@ export async function deleteFileMetaEntry(
   projectId: string,
   fileKey: string,
 ): Promise<void> {
-  const meta = await getFileMeta(userId, projectId);
-  delete meta[fileKey];
-  if (Object.keys(meta).length === 0) {
-    await b2.send(
-      new DeleteObjectCommand({ Bucket: bucket, Key: metaKey(userId, projectId) }),
+  await db
+    .delete(fileMeta)
+    .where(
+      and(
+        eq(fileMeta.ownerId, userId),
+        eq(fileMeta.projectId, projectId),
+        eq(fileMeta.fileKey, fileKey),
+      ),
     );
-    return;
-  }
-  await b2.send(
-    new PutObjectCommand({
-      Bucket: bucket,
-      Key: metaKey(userId, projectId),
-      Body: JSON.stringify(meta, null, 2),
-      ContentType: "application/json",
-    }),
-  );
 }
 
-export const FILE_META_SUFFIX = META_FILE;
+export const FILE_META_SUFFIX = ".file-meta.json";

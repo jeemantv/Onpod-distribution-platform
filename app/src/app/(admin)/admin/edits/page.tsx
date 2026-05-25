@@ -1,25 +1,53 @@
-import Link from "next/link";
 import { requireEditorOrAdmin } from "@/lib/session";
 import { loadEditorScope, sessionVisibleToEditor } from "@/lib/editor-access";
 import { listSessionsInBucket } from "@/lib/studio-store";
-import {
-  STUDIO_LABEL,
-  STUDIO_SLUGS,
-  parseSessionFolder,
-} from "@/lib/studio";
+import { STUDIO_LABEL, STUDIO_SLUGS, parseSessionFolder } from "@/lib/studio";
+import { listAllUsers } from "@/lib/auth-store";
+import { listReviewsForStudios } from "@/lib/reviews-index";
+import { EditsList } from "./_components/EditsList";
 
 export const dynamic = "force-dynamic";
-
-function fmtBytes(n: number): string {
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
 
 export default async function EditsPage() {
   const user = requireEditorOrAdmin();
   const scope = await loadEditorScope(user);
   const studios = scope.studios ?? [...STUDIO_SLUGS];
+
+  const [users, reviews] = await Promise.all([
+    listAllUsers(),
+    listReviewsForStudios(studios),
+  ]);
+
+  // Client email → assigned editor email (clients carry the field; we look
+  // up by the email parsed out of the session folder name).
+  const editorByClient = new Map<string, { editorEmail: string; editorName: string }>();
+  const editorNameByEmail = new Map<string, string>();
+  for (const u of users) {
+    if (u.role === "editor" || u.role === "admin") {
+      editorNameByEmail.set(
+        u.email.toLowerCase(),
+        `${u.firstName} ${u.lastName}`.trim() || u.email,
+      );
+    }
+  }
+  for (const u of users) {
+    if (u.role !== "client" || !u.assignedEditorEmail) continue;
+    const eEmail = u.assignedEditorEmail.toLowerCase();
+    editorByClient.set(u.email.toLowerCase(), {
+      editorEmail: eEmail,
+      editorName: editorNameByEmail.get(eEmail) ?? eEmail,
+    });
+  }
+
+  // Session key → aggregate review counts.
+  const reviewBySession = new Map<string, { open: number; total: number }>();
+  for (const r of reviews) {
+    const key = `${r.studio}/${r.sessionFolder}`;
+    const cur = reviewBySession.get(key) ?? { open: 0, total: 0 };
+    cur.open += r.openCount;
+    cur.total += r.totalCount;
+    reviewBySession.set(key, cur);
+  }
 
   const allSessions: Array<{
     studio: (typeof STUDIO_SLUGS)[number];
@@ -41,7 +69,6 @@ export default async function EditsPage() {
       });
     }
   }
-  // Newest first
   allSessions.sort((a, b) =>
     (b.lastModified ?? "").localeCompare(a.lastModified ?? ""),
   );
@@ -55,55 +82,30 @@ export default async function EditsPage() {
         </p>
       </div>
 
-      {allSessions.length === 0 ? (
-        <div className="bg-bg-elev border border-border rounded-lg p-12 text-center">
-          <p className="text-text-muted text-[13px]">
-            Nothing in your queue yet. Ask an admin to assign you a studio.
-          </p>
-        </div>
-      ) : (
-        <ul className="space-y-2">
-          {allSessions.map((s) => {
-            const parsed = parseSessionFolder(s.folder);
-            return (
-              <li key={`${s.studio}/${s.folder}`}>
-                <Link
-                  href={`/admin/studios/${s.studio}/clients/${encodeURIComponent(s.folder)}`}
-                  className="block px-4 py-3 bg-bg-elev border border-border rounded-lg hover:border-border-strong hover:bg-bg-elev-2 transition"
-                >
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <div className="w-10 h-10 rounded-md bg-bg-elev-3 flex items-center justify-center text-text-muted shrink-0">
-                      <svg
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                      >
-                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                      </svg>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-[13px]">
-                        {parsed ? `${parsed.date} ${parsed.time}` : s.folder}{" "}
-                        — {STUDIO_LABEL[s.studio]}
-                      </div>
-                      <p className="text-[11px] text-text-muted mt-0.5">
-                        {parsed?.email ?? "—"} · {s.fileCount} files ·{" "}
-                        {fmtBytes(s.sizeBytes)}
-                        {s.lastModified ? (
-                          <> · {new Date(s.lastModified).toLocaleDateString()}</>
-                        ) : null}
-                      </p>
-                    </div>
-                  </div>
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      <EditsList
+        rows={allSessions.map((s) => {
+          const parsed = parseSessionFolder(s.folder);
+          const editor = parsed?.email
+            ? editorByClient.get(parsed.email.toLowerCase())
+            : undefined;
+          const review = reviewBySession.get(`${s.studio}/${s.folder}`);
+          return {
+            studio: s.studio,
+            studioLabel: STUDIO_LABEL[s.studio] ?? s.studio,
+            folder: s.folder,
+            parsedDate: parsed?.date,
+            parsedTime: parsed?.time,
+            parsedEmail: parsed?.email,
+            fileCount: s.fileCount,
+            sizeBytes: s.sizeBytes,
+            lastModified: s.lastModified,
+            editorName: editor?.editorName,
+            editorEmail: editor?.editorEmail,
+            reviewOpen: review?.open ?? 0,
+            reviewTotal: review?.total ?? 0,
+          };
+        })}
+      />
     </>
   );
 }

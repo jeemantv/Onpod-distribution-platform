@@ -74,8 +74,15 @@ export function YouTubeModal({
   const [aiLoaded, setAiLoaded] = useState(false);
 
   const [publishMode, setPublishMode] = useState<"now" | "schedule">("now");
-  const [vidType, setVidType] = useState<VidType>("long");
-  const [vidTypeAuto, setVidTypeAuto] = useState(true);
+  // Clips (Vizard or otherwise) auto-publish as YouTube Shorts. We
+  // detect via file.type === "clip" so admin doesn't have to remember
+  // to flip the toggle.
+  const isClip = file.type === "clip";
+  const [vidType, setVidType] = useState<VidType>(isClip ? "short" : "long");
+  // Auto-detect from duration only when the file isn't already known to
+  // be a clip — otherwise we'd override the short default once the
+  // duration heuristic runs.
+  const [vidTypeAuto, setVidTypeAuto] = useState(!isClip);
   const [visibility, setVisibility] = useState<"public" | "unlisted" | "private">("public");
   const [scheduledDate, setScheduledDate] = useState<string | null>(null); // YYYY-MM-DD
   const [scheduledTime, setScheduledTime] = useState<string>("09:00"); // HH:MM

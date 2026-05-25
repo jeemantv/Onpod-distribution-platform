@@ -7,6 +7,7 @@ import {
   setJobMarker,
 } from "@/lib/transcript-store";
 import { getSession } from "@/lib/session";
+import { gate } from "@/lib/plan-gate-route";
 import { canAccessKey } from "@/lib/access";
 
 // Spec §6.3 — kick off async Deepgram transcription with callback URL.
@@ -21,20 +22,24 @@ import { canAccessKey } from "@/lib/access";
 export async function POST(req: Request) {
   const user = getSession();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const gated = await gate(user, "ai");
+  if (gated) return gated;
 
   const { fileId } = (await req.json()) as { fileId: string };
   if (!fileId)
     return NextResponse.json({ error: "missing fileId" }, { status: 400 });
 
-  let key: string;
+  let canonical: string;
   try {
-    key = decodeFileId(fileId);
+    canonical = decodeFileId(fileId);
   } catch {
     return NextResponse.json({ error: "invalid_file_id" }, { status: 400 });
   }
-  if (!canAccessKey(user, key)) {
+  if (!canAccessKey(user, canonical)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
+  const { activeVideoKey } = await import("@/lib/versions-store");
+  const key = await activeVideoKey(canonical);
 
   if (await hasAI(key)) {
     return NextResponse.json({ status: "ready", cached: true });

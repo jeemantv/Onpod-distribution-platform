@@ -40,7 +40,12 @@ export function Modal({
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex sm:items-center sm:justify-center sm:p-6 overflow-y-auto"
+      // items-start (not items-center) so a tall modal pinned to the top
+      // of the viewport stays reachable. No overflow-y-auto on the
+      // wrapper — the modal's own body has its own scroll, and outer
+      // overflow makes autoFocused inputs scroll the wrapper up and
+      // hide the modal header off-screen.
+      className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex sm:items-start sm:justify-center sm:p-6 sm:pt-12"
     >
       <div
         onClick={(e) => e.stopPropagation()}

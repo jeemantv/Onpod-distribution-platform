@@ -2,12 +2,15 @@ import { NextResponse } from "next/server";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { b2, bucket, decodeFileId, publicUrl } from "@/lib/b2";
 import { getSession } from "@/lib/session";
+import { gate } from "@/lib/plan-gate-route";
 
 const COVER_SUFFIX = ".cover.jpg";
 
 export async function POST(req: Request) {
   const user = getSession();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const gated = await gate(user, "thumbnails");
+  if (gated) return gated;
 
   const { fileId, imageBase64 } = (await req.json()) as {
     fileId: string;

@@ -3,6 +3,7 @@ import { decodeFileId } from "@/lib/b2";
 import { generateArticle, type ArticleFormat } from "@/lib/claude";
 import { getAI, getTranscript, saveAI } from "@/lib/transcript-store";
 import { getSession } from "@/lib/session";
+import { gate } from "@/lib/plan-gate-route";
 
 const VALID: ReadonlyArray<ArticleFormat> = [
   "linkedin",
@@ -15,6 +16,8 @@ const VALID: ReadonlyArray<ArticleFormat> = [
 export async function POST(req: Request) {
   const user = getSession();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const gated = await gate(user, "articles");
+  if (gated) return gated;
 
   const { fileId, format } = (await req.json()) as {
     fileId: string;

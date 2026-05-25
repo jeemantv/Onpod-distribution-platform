@@ -139,7 +139,7 @@ export function setSession(user: SignInUserShape): void {
     avatar: user.avatar,
     avatarColor: user.avatarColor,
     role: user.role,
-    plan: user.plan ?? "direct_base",
+    plan: user.plan ?? "free",
     exp: Math.floor(Date.now() / 1000) + MAX_AGE_SECONDS,
   };
   cookies().set(COOKIE_NAME, sign(payload), {

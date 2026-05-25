@@ -51,13 +51,15 @@ export function UserMenu({ user }: { user: User }) {
               {user.role}
             </div>
           </div>
-          <Link
-            href={isStaff ? "/admin/studios" : "/account"}
-            className="block px-3 py-2 hover:bg-bg-elev-2"
-            onClick={() => setOpen(false)}
-          >
-            {isStaff ? "Admin" : "Your sessions"}
-          </Link>
+          {!isStaff ? (
+            <Link
+              href="/account"
+              className="block px-3 py-2 hover:bg-bg-elev-2"
+              onClick={() => setOpen(false)}
+            >
+              Your sessions
+            </Link>
+          ) : null}
           <Link
             href="/settings"
             className="block px-3 py-2 hover:bg-bg-elev-2"

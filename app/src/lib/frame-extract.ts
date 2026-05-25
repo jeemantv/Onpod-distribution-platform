@@ -3,8 +3,12 @@
 //
 // Sampling avoids the first/last 5% to skip intros/outros.
 
-const FRAME_WIDTH = 1280;
-const JPEG_QUALITY = 0.85;
+// 6 frames × ~1280×720 JPEGs at q=0.85 used to land ~4-5 MB of JSON which
+// is right at Vercel's serverless body limit. Cap at 960 wide / q=0.75 so
+// vertical videos (where height is the long side) still fit comfortably.
+const FRAME_WIDTH = 960;
+const JPEG_QUALITY = 0.75;
+const FRAME_MAX_DIM = 1280;
 
 function seekTo(video: HTMLVideoElement, t: number): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -47,8 +51,17 @@ export async function extractFrames(
 
   const canvas = document.createElement("canvas");
   const aspect = video.videoHeight / Math.max(1, video.videoWidth);
-  canvas.width = FRAME_WIDTH;
-  canvas.height = Math.round(FRAME_WIDTH * aspect);
+  // Constrain BOTH dimensions — for vertical 9:16 videos the long axis
+  // would otherwise blow up to 2280px and push the JSON payload past
+  // Vercel's body limit even after JPEG compression.
+  let cw = FRAME_WIDTH;
+  let ch = Math.round(cw * aspect);
+  if (ch > FRAME_MAX_DIM) {
+    ch = FRAME_MAX_DIM;
+    cw = Math.round(ch / aspect);
+  }
+  canvas.width = cw;
+  canvas.height = ch;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("no 2d context");
 

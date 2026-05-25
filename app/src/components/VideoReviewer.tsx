@@ -46,6 +46,10 @@ type Props = {
   hideHeader?: boolean;
   // Compact mode renders a smaller video — fits a modal nicely.
   compact?: boolean;
+  // Vizard auto-generated clips don't need the revision flow — they're
+  // machine output. When true, hides the notes list + "Send revision
+  // request" button. Player + AI tools still work.
+  hideRevisions?: boolean;
 };
 
 function fmtTime(seconds: number): string {
@@ -73,6 +77,7 @@ export function VideoReviewer({
   currentEmail,
   hideHeader,
   compact,
+  hideRevisions,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -380,10 +385,22 @@ export function VideoReviewer({
           crossOrigin="anonymous"
           className={`w-full rounded-[10px] bg-black ${compact ? "max-h-[50vh] object-contain" : ""}`}
         />
-        {/* Timeline markers — bubbles below the video where each note lives */}
-        {duration > 0 && notes.length > 0 ? (
-          <div className="relative h-6 mt-1">
-            <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[2px] bg-border" />
+        {/* Timeline markers — sit on a thicker rail right under the video.
+            Live playhead pip shows where currentTime is so the relationship
+            between dots and the scrubber above is unambiguous. */}
+        {duration > 0 ? (
+          <div className="relative h-8 mt-2 mx-1">
+            <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[3px] rounded-full bg-bg-elev-3" />
+            {/* Played-region fill */}
+            <div
+              className="absolute top-1/2 -translate-y-1/2 h-[3px] rounded-full bg-text-dim/40"
+              style={{ left: 0, width: `${Math.min(100, (currentTime / duration) * 100)}%` }}
+            />
+            {/* Playhead pip */}
+            <div
+              className="absolute top-1/2 -translate-y-1/2 w-[2px] h-4 bg-text"
+              style={{ left: `calc(${Math.min(100, (currentTime / duration) * 100)}% - 1px)` }}
+            />
             {notes.map((n) => {
               if (n.timeSeconds < 0) return null;
               const pct = Math.min(100, Math.max(0, (n.timeSeconds / duration) * 100));
@@ -392,13 +409,17 @@ export function VideoReviewer({
                   key={n.id}
                   onClick={() => seekTo(n.timeSeconds)}
                   title={`${fmtTime(n.timeSeconds)} — ${n.text}`}
-                  className={`absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border-2 transition hover:scale-125 ${
+                  className={`group absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 transition hover:scale-125 z-10 ${
                     n.status === "done"
                       ? "bg-bg-elev-3 border-text-dim"
                       : "bg-accent border-bg shadow"
                   }`}
-                  style={{ left: `calc(${pct}% - 6px)` }}
-                />
+                  style={{ left: `calc(${pct}% - 8px)` }}
+                >
+                  <span className="sr-only">
+                    {fmtTime(n.timeSeconds)} — {n.text}
+                  </span>
+                </button>
               );
             })}
           </div>
@@ -406,6 +427,7 @@ export function VideoReviewer({
       </div>
 
       {/* Add-note row */}
+      {hideRevisions ? null : (
       <div className="mt-3 flex items-end gap-2 flex-wrap">
         <div className="flex-1 min-w-[280px]">
           <label className="text-[11px] text-text-muted">
@@ -419,9 +441,17 @@ export function VideoReviewer({
             rows={2}
             value={noteText}
             onChange={(e) => setNoteText(e.target.value)}
-            placeholder="Trim the intro · fix the lower-third typo · etc."
+            onFocus={() => {
+              // Auto-pause when the user starts typing so the captured
+              // timestamp matches the frame they're commenting on.
+              const v = videoRef.current;
+              if (v && !v.paused) v.pause();
+            }}
+            placeholder="Trim the intro · fix the lower-third typo · Enter to add, Shift+Enter for newline"
             onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              // Enter submits; Shift+Enter (or Cmd/Ctrl+Enter) inserts a
+              // newline / also submits. Most users expect Enter to send.
+              if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 void addNote();
               }
@@ -437,8 +467,10 @@ export function VideoReviewer({
           Add note
         </button>
       </div>
+      )}
 
       {/* Notes list */}
+      {hideRevisions ? null : (
       <div className="mt-4">
         {loading ? (
           <p className="text-[12px] text-text-muted">Loading…</p>
@@ -568,35 +600,79 @@ export function VideoReviewer({
           </ul>
         )}
       </div>
+      )}
 
       {error ? <p className="mt-3 text-[12px] text-danger">{error}</p> : null}
+      {hideRevisions ? null : (
+      <>
+      {/* Send-review section starts here */}
 
-      <div className="mt-4 flex items-center gap-2 flex-wrap">
-        <button
-          onClick={sendReview}
-          disabled={busy || notes.length === 0}
-          className="px-4 py-2 rounded-[10px] bg-accent text-white text-[13px] disabled:opacity-50"
-        >
-          📨 Send review request
-        </button>
-        {revisions?.reviewSentAt ? (
-          <span className="text-[11px] text-text-muted">
-            Last sent {fmtAge(revisions.reviewSentAt)}
-          </span>
-        ) : null}
-      </div>
+      {/*
+        Send review request is a client-only action: the client packages
+        their notes and emails the assigned editor. Admin/editor never
+        send reviews back to themselves — they mark notes done and upload
+        a new file version instead. `canMarkDone` is the role signal:
+        true → admin/editor; false → client.
+      */}
+      {!canMarkDone ? (
+        <>
+          <div className="mt-4 flex items-center gap-2 flex-wrap">
+            {(() => {
+              // After a successful send, switch the button into a clear
+              // "Revision requested" state. Stays green + disabled until
+              // the user adds more notes (which makes the latest notes
+              // newer than reviewSentAt) — then it flips back to "Send".
+              const sentAt = revisions?.reviewSentAt ?? 0;
+              const newestNote = notes.reduce((acc, n) => Math.max(acc, n.createdAt), 0);
+              const allSent = sentAt > 0 && newestNote <= sentAt;
+              if (allSent) {
+                return (
+                  <button
+                    disabled
+                    className="px-4 py-2 rounded-[10px] bg-[rgba(16,185,129,0.18)] border border-[rgba(16,185,129,0.45)] text-[#10b981] text-[13px] font-medium opacity-90"
+                    title={`Revision requested ${fmtAge(sentAt)}. Add a new note to send another round.`}
+                  >
+                    ✓ Revision requested · {fmtAge(sentAt)}
+                  </button>
+                );
+              }
+              return (
+                <button
+                  onClick={sendReview}
+                  disabled={busy || notes.length === 0}
+                  className="px-4 py-2 rounded-[10px] bg-accent text-white text-[13px] disabled:opacity-50"
+                >
+                  📨 Send revision request
+                </button>
+              );
+            })()}
+            {revisions?.reviewSentAt && notes.reduce((a, n) => Math.max(a, n.createdAt), 0) > revisions.reviewSentAt ? (
+              <span className="text-[11px] text-text-muted">
+                New notes since last send — click to re-send.
+              </span>
+            ) : null}
+          </div>
 
-      {sendResult ? (
-        <p
-          className={`mt-2 text-[12px] ${
-            sendResult.sent ? "text-success" : "text-text-muted"
-          }`}
-        >
-          {sendResult.sent
-            ? `✓ Sent to ${sendResult.recipient}.`
-            : sendResult.message ?? "Saved but no email sent."}
+          {sendResult ? (
+            <p
+              className={`mt-2 text-[12px] ${
+                sendResult.sent ? "text-success" : "text-text-muted"
+              }`}
+            >
+              {sendResult.sent
+                ? `✓ Sent to ${sendResult.recipient}.`
+                : sendResult.message ?? "Saved but no email sent."}
+            </p>
+          ) : null}
+        </>
+      ) : revisions?.reviewSentAt ? (
+        <p className="mt-4 text-[12px] text-text-muted">
+          Client sent this for review {fmtAge(revisions.reviewSentAt)}. Mark
+          notes done and upload a new version when you&apos;re ready.
         </p>
       ) : null}
+      </>
+      )}
     </div>
   );
 }

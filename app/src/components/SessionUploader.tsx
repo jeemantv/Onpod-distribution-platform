@@ -4,14 +4,21 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { uploadFileToStudio, type UploadProgress } from "@/lib/studio-uploader";
 import type { Bucket, StudioSlug } from "@/lib/studio";
+import type { FileType } from "@/lib/types";
+import { encodeFileId } from "@/lib/b2";
 
 type Props = {
   studio: StudioSlug;
   bucket: Bucket;
   folder: string;
+  // When set, the uploader tags each finished file with this FileType
+  // via /api/files/[fileId]/meta so it lands under the right tab in
+  // FilePortal. Caller passes the currently-active tab here so an
+  // upload while viewing "Clips" shows up under Clips, etc.
+  defaultType?: FileType;
 };
 
-export function SessionUploader({ studio, bucket, folder }: Props) {
+export function SessionUploader({ studio, bucket, folder, defaultType }: Props) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [busy, setBusy] = useState(false);
@@ -24,13 +31,27 @@ export function SessionUploader({ studio, bucket, folder }: Props) {
     setError(null);
     try {
       for (const file of Array.from(files)) {
-        await uploadFileToStudio({
+        const result = await uploadFileToStudio({
           file,
           studio,
           bucket,
           folder,
           onProgress: setProgress,
         });
+        // Stamp the file with the current tab's type so classifyByFilename's
+        // best-guess doesn't decide for us. Soft-fail — type-stamp failure
+        // shouldn't fail the whole upload.
+        if (defaultType && result.key) {
+          try {
+            await fetch(`/api/files/${encodeFileId(result.key)}/meta`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ type: defaultType }),
+            });
+          } catch (err) {
+            console.warn("[SessionUploader] type-stamp failed", (err as Error).message);
+          }
+        }
       }
       router.refresh();
     } catch (err) {
@@ -65,7 +86,9 @@ export function SessionUploader({ studio, bucket, folder }: Props) {
           ? `Uploading ${progress?.filename ?? "…"} (${progress
               ? Math.round((progress.done / progress.total) * 100)
               : 0}%)`
-          : "Drop files here, or"}
+          : defaultType
+            ? `Drop files to add to ${defaultType} tab, or`
+            : "Drop files here, or"}
       </p>
       <button
         onClick={() => inputRef.current?.click()}

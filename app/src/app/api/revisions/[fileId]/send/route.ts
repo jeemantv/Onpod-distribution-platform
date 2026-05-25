@@ -17,7 +17,18 @@ import {
   listAllUsers as listStoredUsers,
 } from "@/lib/auth-store";
 import { mockUsers } from "@/lib/mock-data";
-import { parseKey } from "@/lib/studio";
+import { parseKey, STUDIO_ROOT } from "@/lib/studio";
+import { setFileMetaEntry } from "@/lib/file-meta-store";
+
+function metaKeysFor(key: string): { ownerId: string; projectId: string } | null {
+  if (!key.startsWith(STUDIO_ROOT)) return null;
+  const parsed = parseKey(key);
+  if (!parsed.studio || !parsed.bucket || !parsed.sessionFolder) return null;
+  return {
+    ownerId: "studios",
+    projectId: `studio:${parsed.studio}:${parsed.bucket}:${parsed.sessionFolder}`,
+  };
+}
 
 export const maxDuration = 30;
 
@@ -75,6 +86,16 @@ export async function POST(
   file.status = "in_review";
   file.reviewSentAt = Date.now();
   await saveRevisions(key, file);
+
+  // Flip the file's approvalStatus to "rejected" — that's the signal the
+  // file-row badge reads to render "In revision". Editor uploading a
+  // new version flips it back to "pending" → "Ready for approval".
+  const meta = metaKeysFor(key);
+  if (meta) {
+    await setFileMetaEntry(meta.ownerId, meta.projectId, key, {
+      approvalStatus: "rejected",
+    }).catch((err) => console.warn("[revisions/send] meta flip failed", err));
+  }
 
   // Resolve recipient — checked in order:
   //   1. revisions file-level assignment

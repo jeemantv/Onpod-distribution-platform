@@ -1,102 +1,82 @@
-// Real user store backed by B2. Passwords hashed with bcrypt.
+// Postgres-backed user store. Passwords hashed with bcrypt — Auth.js
+// migration replaces this in Phase 2.
 
 import bcrypt from "bcryptjs";
-import { readState, writeState } from "./state-store";
-import { mockUsers } from "./mock-data";
+import { and, asc, eq, lt, or } from "drizzle-orm";
+import { db } from "./db";
+import { resetTokens, users, type ResetTokenRow, type User } from "./db/schema";
+import type { Plan } from "./types";
 
 export type StoredRole = "admin" | "editor" | "client";
 
+// Public shape exposed to callers. Mirrors the legacy interface (string
+// timestamps, `undefined` not `null` for optionals) so API routes and
+// admin pages don't need to change when storage flipped from B2 to PG.
 export interface StoredUser {
   id: string;
   email: string;
   passwordHash: string;
   role: StoredRole;
+  // DB column is plain text — any string is allowed at storage. We narrow
+  // to Plan here so SessionPayload + UI can lean on the union.
+  plan: Plan;
   firstName: string;
   lastName: string;
   avatar: string;
   avatarColor: string;
   createdAt: string;
-  // Optional editor that handles this client's review requests.
-  // Set on clients only; ignored otherwise.
   assignedEditorEmail?: string;
-  // Editor-scoped fields. assignedStudios=["all"] grants every studio;
-  // otherwise it's an explicit list of slugs. excludedClientEmails is a
-  // per-editor blacklist used when the studio is otherwise assigned.
   assignedStudios?: string[];
   excludedClientEmails?: string[];
+  // Client-only — undefined for admin/editor and pre-Phase-2 clients.
+  homeStudio?: string;
+  selfUploadEnabled?: boolean;
 }
 
-interface ResetToken {
-  token: string;
-  userId: string;
-  email: string;
-  expiresAt: number;
-  used: boolean;
-}
-
-const USERS_KEY = "users.json";
-const RESET_KEY = "reset-tokens.json";
 const SALT_ROUNDS = 10;
 
-async function readUsers(): Promise<StoredUser[]> {
-  return readState<StoredUser[]>(USERS_KEY, []);
+function toStored(u: User): StoredUser {
+  return {
+    id: u.id,
+    email: u.email,
+    passwordHash: u.passwordHash ?? "",
+    role: u.role,
+    plan: (u.plan ?? "free") as Plan,
+    firstName: u.firstName,
+    lastName: u.lastName,
+    avatar: u.avatar,
+    avatarColor: u.avatarColor,
+    createdAt: u.createdAt.toISOString(),
+    assignedEditorEmail: u.assignedEditorEmail ?? undefined,
+    assignedStudios: u.assignedStudios ?? undefined,
+    excludedClientEmails: u.excludedClientEmails ?? undefined,
+    homeStudio: u.homeStudio ?? undefined,
+    selfUploadEnabled: u.selfUploadEnabled,
+  };
 }
 
-async function writeUsers(list: StoredUser[]): Promise<void> {
-  await writeState(USERS_KEY, list);
-}
+// ---------- Reads ----------
 
 export async function listAllUsers(): Promise<StoredUser[]> {
-  return readUsers();
+  const rows = await db
+    .select()
+    .from(users)
+    .orderBy(asc(users.createdAt));
+  return rows.map(toStored);
 }
 
-export async function getUserByEmail(
-  email: string,
-): Promise<StoredUser | null> {
-  const users = await readUsers();
-  return (
-    users.find((u) => u.email.toLowerCase() === email.toLowerCase()) ?? null
-  );
+export async function getUserByEmail(email: string): Promise<StoredUser | null> {
+  const lowered = email.trim().toLowerCase();
+  const [row] = await db.select().from(users).where(eq(users.email, lowered)).limit(1);
+  return row ? toStored(row) : null;
 }
 
 export async function getUserById(id: string): Promise<StoredUser | null> {
-  const users = await readUsers();
-  return users.find((u) => u.id === id) ?? null;
+  const [row] = await db.select().from(users).where(eq(users.id, id)).limit(1);
+  return row ? toStored(row) : null;
 }
 
-/**
- * Promote a mock-data user into the B2 store if they aren't there yet.
- * Used by mutation endpoints (role/assignment changes) so admin actions
- * on demo accounts persist instead of erroring with "user not found".
- * The promoted user gets a random password — they can reset via
- * "Forgot password" if they need to actually sign in.
- */
-// Demo accounts log in with the literal password "demo" (see signin
-// route). When we promote a mock user into the B2 store we use the
-// same demo hash so the documented sign-in still works.
-const DEMO_PASSWORD = "demo";
-
-async function ensureFromMock(id: string): Promise<StoredUser | null> {
-  const mock = mockUsers.find((u) => u.id === id);
-  if (!mock) return null;
-  const users = await readUsers();
-  const existing = users.find((u) => u.id === id || u.email.toLowerCase() === mock.email.toLowerCase());
-  if (existing) return existing;
-  const seeded: StoredUser = {
-    id: mock.id,
-    email: mock.email.toLowerCase(),
-    passwordHash: await bcrypt.hash(DEMO_PASSWORD, SALT_ROUNDS),
-    role: mock.role as StoredRole,
-    firstName: mock.firstName,
-    lastName: mock.lastName,
-    avatar: mock.avatar,
-    avatarColor: mock.avatarColor,
-    createdAt: mock.createdAt,
-  };
-  users.push(seeded);
-  await writeUsers(users);
-  return seeded;
-}
+// ---------- Writes ----------
 
 interface CreateUserInput {
   email: string;
@@ -107,171 +87,210 @@ interface CreateUserInput {
 }
 
 export async function createUser(input: CreateUserInput): Promise<StoredUser> {
-  const existing = await getUserByEmail(input.email);
+  const email = input.email.trim().toLowerCase();
+  const existing = await getUserByEmail(email);
   if (existing) {
     throw new Error("An account with this email already exists.");
   }
   const passwordHash = await bcrypt.hash(input.password, SALT_ROUNDS);
-  const initials =
-    (input.firstName[0] ?? "?") + (input.lastName[0] ?? "?");
-  const user: StoredUser = {
-    id: `u_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
-    email: input.email.toLowerCase(),
-    passwordHash,
-    role: input.role ?? "client",
-    firstName: input.firstName,
-    lastName: input.lastName,
-    avatar: initials.toUpperCase(),
-    avatarColor: randomAvatarColor(),
-    createdAt: new Date().toISOString(),
-  };
-  const users = await readUsers();
-  users.push(user);
-  await writeUsers(users);
-  return user;
+  const initials = ((input.firstName[0] ?? "?") + (input.lastName[0] ?? "?")).toUpperCase();
+  const [row] = await db
+    .insert(users)
+    .values({
+      email,
+      passwordHash,
+      role: input.role ?? "client",
+      firstName: input.firstName,
+      lastName: input.lastName,
+      avatar: initials,
+      avatarColor: randomAvatarColor(),
+    })
+    .returning();
+  return toStored(row);
 }
 
-export async function updateUserPassword(
-  userId: string,
-  newPassword: string,
-): Promise<void> {
-  const users = await readUsers();
-  const i = users.findIndex((u) => u.id === userId);
-  if (i < 0) throw new Error("user not found");
-  users[i].passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
-  await writeUsers(users);
+export async function updateUserPassword(userId: string, newPassword: string): Promise<void> {
+  const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+  const result = await db
+    .update(users)
+    .set({ passwordHash })
+    .where(eq(users.id, userId))
+    .returning({ id: users.id });
+  if (result.length === 0) throw new Error("user not found");
 }
 
-export async function updateUserRole(
+export async function updateUserRole(userId: string, role: StoredRole): Promise<void> {
+  const result = await db
+    .update(users)
+    .set({ role })
+    .where(eq(users.id, userId))
+    .returning({ id: users.id });
+  if (result.length === 0) throw new Error("user not found");
+}
+
+// Sets the Stripe linkage columns. Called from the checkout route after
+// we create a Customer, and from the webhook after subscription events.
+export async function updateUserStripe(
   userId: string,
-  role: StoredRole,
+  patch: { stripeCustomerId?: string | null; stripeSubscriptionId?: string | null },
 ): Promise<void> {
-  await ensureFromMock(userId);
-  const users = await readUsers();
-  const i = users.findIndex((u) => u.id === userId);
-  if (i < 0) throw new Error("user not found");
-  users[i].role = role;
-  await writeUsers(users);
+  const set: { stripeCustomerId?: string | null; stripeSubscriptionId?: string | null } = {};
+  if (patch.stripeCustomerId !== undefined) set.stripeCustomerId = patch.stripeCustomerId;
+  if (patch.stripeSubscriptionId !== undefined) set.stripeSubscriptionId = patch.stripeSubscriptionId;
+  if (Object.keys(set).length === 0) return;
+  const result = await db
+    .update(users)
+    .set(set)
+    .where(eq(users.id, userId))
+    .returning({ id: users.id });
+  if (result.length === 0) throw new Error("user not found");
+}
+
+export async function getUserByStripeCustomerId(customerId: string): Promise<StoredUser | null> {
+  const [row] = await db
+    .select()
+    .from(users)
+    .where(eq(users.stripeCustomerId, customerId))
+    .limit(1);
+  return row ? toStored(row) : null;
+}
+
+export async function updateUserPlan(userId: string, plan: string): Promise<void> {
+  const result = await db
+    .update(users)
+    .set({ plan })
+    .where(eq(users.id, userId))
+    .returning({ id: users.id });
+  if (result.length === 0) throw new Error("user not found");
+}
+
+export async function updateUserHomeStudio(
+  userId: string,
+  homeStudio: string | null,
+): Promise<void> {
+  const result = await db
+    .update(users)
+    .set({ homeStudio })
+    .where(eq(users.id, userId))
+    .returning({ id: users.id });
+  if (result.length === 0) throw new Error("user not found");
+}
+
+export async function updateUserSelfUpload(
+  userId: string,
+  enabled: boolean,
+): Promise<void> {
+  const result = await db
+    .update(users)
+    .set({ selfUploadEnabled: enabled })
+    .where(eq(users.id, userId))
+    .returning({ id: users.id });
+  if (result.length === 0) throw new Error("user not found");
 }
 
 export async function deleteUser(userId: string): Promise<boolean> {
-  const users = await readUsers();
-  const before = users.length;
-  const next = users.filter((u) => u.id !== userId);
-  if (next.length === before) return false;
-  await writeUsers(next);
-  return true;
+  const result = await db.delete(users).where(eq(users.id, userId)).returning({ id: users.id });
+  return result.length > 0;
 }
 
 export async function updateUserAssignedEditor(
   userId: string,
   assignedEditorEmail: string | null,
 ): Promise<void> {
-  await ensureFromMock(userId);
-  const users = await readUsers();
-  const i = users.findIndex((u) => u.id === userId);
-  if (i < 0) throw new Error("user not found");
-  users[i].assignedEditorEmail = assignedEditorEmail || undefined;
-  await writeUsers(users);
+  const value = assignedEditorEmail ? assignedEditorEmail.toLowerCase() : null;
+  const result = await db
+    .update(users)
+    .set({ assignedEditorEmail: value })
+    .where(eq(users.id, userId))
+    .returning({ id: users.id });
+  if (result.length === 0) throw new Error("user not found");
 }
 
 export async function updateEditorAssignment(
   userId: string,
-  assignment: {
-    assignedStudios?: string[];
-    excludedClientEmails?: string[];
-  },
+  assignment: { assignedStudios?: string[]; excludedClientEmails?: string[] },
 ): Promise<void> {
-  await ensureFromMock(userId);
-  const users = await readUsers();
-  const i = users.findIndex((u) => u.id === userId);
-  if (i < 0) throw new Error("user not found");
+  const patch: { assignedStudios?: string[] | null; excludedClientEmails?: string[] | null } = {};
   if (assignment.assignedStudios !== undefined) {
-    users[i].assignedStudios = assignment.assignedStudios.length
-      ? assignment.assignedStudios
-      : undefined;
+    patch.assignedStudios = assignment.assignedStudios.length ? assignment.assignedStudios : null;
   }
   if (assignment.excludedClientEmails !== undefined) {
-    users[i].excludedClientEmails = assignment.excludedClientEmails.length
+    patch.excludedClientEmails = assignment.excludedClientEmails.length
       ? assignment.excludedClientEmails.map((e) => e.toLowerCase())
-      : undefined;
+      : null;
   }
-  await writeUsers(users);
+  const result = await db
+    .update(users)
+    .set(patch)
+    .where(eq(users.id, userId))
+    .returning({ id: users.id });
+  if (result.length === 0) throw new Error("user not found");
 }
 
-/**
- * Set every client's assignedEditorEmail to the given email. Mock clients
- * get promoted into the B2 store along the way. Returns the count of
- * clients updated.
- */
-export async function assignEditorToAllClients(
-  editorEmail: string,
-): Promise<number> {
+export async function assignEditorToAllClients(editorEmail: string): Promise<number> {
   const lowered = editorEmail.toLowerCase();
-  // Promote every mock client first so the assignment persists.
-  for (const m of mockUsers) {
-    if (m.role === "client") {
-      await ensureFromMock(m.id);
-    }
-  }
-  const users = await readUsers();
-  let count = 0;
-  for (const u of users) {
-    if (u.role === "client") {
-      u.assignedEditorEmail = lowered;
-      count++;
-    }
-  }
-  await writeUsers(users);
-  return count;
+  const result = await db
+    .update(users)
+    .set({ assignedEditorEmail: lowered })
+    .where(eq(users.role, "client"))
+    .returning({ id: users.id });
+  return result.length;
 }
 
-export async function verifyPassword(
-  plain: string,
-  hash: string,
-): Promise<boolean> {
+export async function verifyPassword(plain: string, hash: string): Promise<boolean> {
+  if (!hash) return false;
   return bcrypt.compare(plain, hash);
 }
 
 // ---------- Password reset tokens ----------
 
-async function readResetTokens(): Promise<ResetToken[]> {
-  return readState<ResetToken[]>(RESET_KEY, []);
-}
-
-async function writeResetTokens(list: ResetToken[]): Promise<void> {
-  await writeState(RESET_KEY, list);
-}
-
 export async function createResetToken(userId: string, email: string): Promise<string> {
   const token = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 14)}`;
-  const list = await readResetTokens();
-  // Clean up old expired tokens for this user
-  const cleaned = list.filter(
-    (t) => t.userId !== userId || (t.expiresAt > Date.now() && !t.used),
-  );
-  cleaned.push({
+  // Clean up tokens that are either expired or already used for this user
+  // before issuing a new one.
+  await db
+    .delete(resetTokens)
+    .where(
+      and(
+        eq(resetTokens.userId, userId),
+        or(eq(resetTokens.used, true), lt(resetTokens.expiresAt, new Date())),
+      ),
+    );
+  await db.insert(resetTokens).values({
     token,
     userId,
-    email,
-    expiresAt: Date.now() + 60 * 60 * 1000, // 1 hour
-    used: false,
+    email: email.toLowerCase(),
+    expiresAt: new Date(Date.now() + 60 * 60 * 1000),
   });
-  await writeResetTokens(cleaned);
   return token;
 }
 
-export async function consumeResetToken(
-  token: string,
-): Promise<ResetToken | null> {
-  const list = await readResetTokens();
-  const i = list.findIndex((t) => t.token === token);
-  if (i < 0) return null;
-  const t = list[i];
-  if (t.used || t.expiresAt < Date.now()) return null;
-  list[i] = { ...t, used: true };
-  await writeResetTokens(list);
-  return t;
+export async function consumeResetToken(token: string): Promise<{
+  token: string;
+  userId: string;
+  email: string;
+  expiresAt: number;
+  used: boolean;
+} | null> {
+  const [row] = await db
+    .select()
+    .from(resetTokens)
+    .where(eq(resetTokens.token, token))
+    .limit(1);
+  if (!row) return null;
+  if (row.used || row.expiresAt.getTime() < Date.now()) return null;
+  await db.update(resetTokens).set({ used: true }).where(eq(resetTokens.token, token));
+  return rowToToken(row);
+}
+
+function rowToToken(row: ResetTokenRow) {
+  return {
+    token: row.token,
+    userId: row.userId,
+    email: row.email,
+    expiresAt: row.expiresAt.getTime(),
+    used: true,
+  };
 }
 
 function randomAvatarColor(): string {

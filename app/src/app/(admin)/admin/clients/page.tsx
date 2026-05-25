@@ -10,6 +10,9 @@ import { mockUsers } from "@/lib/mock-data";
 import { listClientSessions } from "@/lib/studio-store";
 import { loadEditorScope } from "@/lib/editor-access";
 import { PLAN_LIMITS } from "@/lib/types";
+import { InviteClientButton } from "./_components/InviteClientButton";
+import { ClientsTable } from "./_components/ClientsTable";
+import { listStudios } from "@/lib/studio-registry";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +26,15 @@ export default async function AdminClientsPage() {
   const user = requireEditorOrAdmin();
   const scope = await loadEditorScope(user);
   const stored = await listAllUsers();
+  // Studio registry (DB-backed) feeds the invite modal's studio
+  // dropdown + multi-select so newly-created studios show up without
+  // a redeploy.
+  const allStudios = await listStudios();
+  // Scoped admins only see options for the studios they own.
+  const studioOptions =
+    scope.studios === null
+      ? allStudios
+      : allStudios.filter((s) => scope.studios!.includes(s.slug));
   const seen = new Set(stored.map((u) => u.email.toLowerCase()));
 
   const allClients = [
@@ -32,9 +44,18 @@ export default async function AdminClientsPage() {
     ),
   ];
 
-  const visibleClients = allClients.filter(
-    (c) => !scope.excludedClientEmails.has(c.email.toLowerCase()),
-  );
+  const visibleClients = allClients
+    .filter((c) => !scope.excludedClientEmails.has(c.email.toLowerCase()))
+    .filter((c) => {
+      // Scoped admin / editor with studios: client must have a home
+      // studio in scope. Clients with no homeStudio set fall back to
+      // visibility only for super-admins / editors with assigned-client
+      // overrides. assignedClientEmails always win.
+      if (scope.studios === null) return true;
+      if (scope.assignedClientEmails.has(c.email.toLowerCase())) return true;
+      const cs = (c as { homeStudio?: string | null }).homeStudio;
+      return !!cs && scope.studios!.includes(cs);
+    });
 
   // Walk each client's real B2 sessions
   const rows = await Promise.all(
@@ -65,89 +86,39 @@ export default async function AdminClientsPage() {
 
   return (
     <>
-      <div className="mb-8">
-        <h1 className="display text-[36px]">Clients</h1>
-        <p className="text-text-muted text-[13px] mt-1">
-          {rows.length} client{rows.length === 1 ? "" : "s"} with real footage in B2.
-        </p>
+      <div className="mb-8 flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="display text-[36px]">Clients</h1>
+          <p className="text-text-muted text-[13px] mt-1">
+            {rows.length} client{rows.length === 1 ? "" : "s"} with real footage in B2.
+          </p>
+        </div>
+        {user.role === "admin" ? (
+          <InviteClientButton
+            studios={studioOptions.map((s) => ({
+              slug: s.slug,
+              displayName: s.displayName,
+            }))}
+          />
+        ) : null}
       </div>
 
-      {rows.length === 0 ? (
-        <div className="bg-bg-elev border border-border rounded-lg p-12 text-center">
-          <p className="text-text-muted text-[13px]">No clients yet.</p>
-        </div>
-      ) : (
-        <div className="bg-bg-elev border border-border rounded-[16px] overflow-hidden">
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr className="text-text-muted text-[11px] uppercase tracking-wider border-b border-border">
-                <th className="text-left p-4 font-medium">Client</th>
-                <th className="text-left p-4 font-medium">Plan</th>
-                <th className="text-left p-4 font-medium">Sessions</th>
-                <th className="text-left p-4 font-medium">Files</th>
-                <th className="text-left p-4 font-medium">Storage</th>
-                <th className="text-left p-4 font-medium">Last activity</th>
-                <th className="text-right p-4 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((c) => {
-                const limit = PLAN_LIMITS[c.plan];
-                return (
-                  <tr
-                    key={c.id}
-                    className="border-b border-border last:border-0 hover:bg-bg-elev-2"
-                  >
-                    <td className="p-4">
-                      <div className="flex items-center gap-3">
-                        <div
-                          className="w-9 h-9 rounded-full flex items-center justify-center font-semibold text-[12px]"
-                          style={{ background: c.avatarColor }}
-                        >
-                          {c.avatar}
-                        </div>
-                        <div>
-                          <div className="font-medium">
-                            {c.firstName} {c.lastName}
-                          </div>
-                          <div className="text-text-muted text-[11px]">
-                            {c.email}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      <span className="inline-block px-2.5 py-1 rounded-full bg-bg-elev-3 border border-border text-[11px]">
-                        {limit?.label ?? c.plan}
-                      </span>
-                    </td>
-                    <td className="p-4">{c.sessionCount}</td>
-                    <td className="p-4">{c.totalFiles}</td>
-                    <td className="p-4">{fmtBytes(c.totalSize)}</td>
-                    <td className="p-4 text-text-muted">
-                      {c.lastSession
-                        ? new Date(c.lastSession).toLocaleDateString()
-                        : "—"}
-                    </td>
-                    <td className="p-4 text-right">
-                      {user.role === "admin" ? (
-                        <Link
-                          href={`/admin/clients/${c.id}`}
-                          className="inline-block px-3 py-1.5 rounded-[8px] bg-bg-elev-3 border border-border text-[12px]"
-                        >
-                          Manage
-                        </Link>
-                      ) : (
-                        <span className="text-text-dim text-[11px]">view only</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <ClientsTable
+        rows={rows.map((c) => ({
+          id: c.id,
+          email: c.email,
+          firstName: c.firstName,
+          lastName: c.lastName,
+          avatar: c.avatar,
+          avatarColor: c.avatarColor,
+          planLabel: PLAN_LIMITS[c.plan]?.label ?? c.plan,
+          planKey: c.plan,
+          sessionCount: c.sessionCount,
+          totalFiles: c.totalFiles,
+          totalSize: c.totalSize,
+          lastSession: c.lastSession,
+        }))}
+      />
     </>
   );
 }

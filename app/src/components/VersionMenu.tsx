@@ -36,10 +36,21 @@ export function VersionMenu({
   fileId,
   canManage,
   onChange,
+  showNewBadge,
+  showRevisedBadge,
 }: {
   fileId: string;
   canManage: boolean;
   onChange?: () => void;
+  // When true AND active > 1, render a "NEW" pill next to the version
+  // chip. The parent decides — typically: client viewer + approvalStatus
+  // is "pending" (editor just uploaded a follow-up).
+  showNewBadge?: boolean;
+  // When true AND active > 1, render a "REVISED" pill instead of NEW —
+  // signals to the client that this version addresses their previous
+  // revision request. Parent passes true when there's existing revision
+  // history on the file.
+  showRevisedBadge?: boolean;
 }) {
   const router = useRouter();
   const [data, setData] = useState<VersionsResponse["versions"]>(null);
@@ -129,6 +140,10 @@ export function VersionMenu({
   const hasMultiple = versions.length > 1;
   const nextN = (versions.length ? Math.max(...versions.map((v) => v.n)) : 1) + 1;
 
+  // Revised wins over New — both require active >= 2.
+  const showRevised = !!showRevisedBadge && active >= 2;
+  const showNew = !showRevised && !!showNewBadge && active >= 2;
+
   return (
     <div ref={wrapRef} className="relative inline-flex items-center gap-1">
       <button
@@ -144,6 +159,21 @@ export function VersionMenu({
       >
         v{active}
       </button>
+      {showRevised ? (
+        <span
+          className="px-1.5 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wider bg-accent text-white animate-pulse"
+          title="The editor addressed your revision request — review and approve."
+        >
+          REVISED
+        </span>
+      ) : showNew ? (
+        <span
+          className="px-1.5 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wider bg-accent text-white animate-pulse"
+          title="The editor uploaded a new version for your review."
+        >
+          NEW
+        </span>
+      ) : null}
 
       {canManage ? (
         <>
@@ -171,7 +201,10 @@ export function VersionMenu({
       ) : null}
 
       {open && hasMultiple ? (
-        <div className="absolute right-0 top-full mt-1 z-50 w-72 bg-bg-elev border border-border rounded-[10px] shadow-float p-2">
+        // z-[1000] sits above the <video> element, which natively
+        // composites high in some browsers and was eating the dropdown
+        // rows. The opaque background + border keeps it readable.
+        <div className="absolute left-0 top-full mt-1 z-[1000] w-72 bg-bg-elev border border-border rounded-[10px] shadow-float p-2">
           <div className="text-[10px] uppercase tracking-wider text-text-dim px-2 py-1">
             Versions
           </div>
@@ -204,11 +237,12 @@ export function VersionMenu({
               >
                 ↗
               </a>
-              {canManage && v.n !== active ? (
+              {v.n !== active ? (
                 <button
                   onClick={() => makeActive(v.n)}
                   disabled={busy}
                   className="px-2 py-1 rounded-[6px] bg-accent text-white text-[11px] disabled:opacity-50"
+                  title="Switch this video to display this version"
                 >
                   Use
                 </button>

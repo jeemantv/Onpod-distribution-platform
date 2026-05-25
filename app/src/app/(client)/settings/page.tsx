@@ -1,21 +1,31 @@
 import { TopNav } from "@/components/TopNav";
-import { requireClient } from "@/lib/session";
+import { requireSession } from "@/lib/session";
 import { getCreditsForUser } from "@/lib/mock-data";
 import { PLAN_LIMITS } from "@/lib/types";
 import { SignOutButton } from "./_components/SignOutButton";
 
+// Settings is reachable from every role (avatar menu). Each role sees a
+// curated slice: clients keep billing + cancel-subscription, editors get
+// review/edit notifications, admins are punted at the admin panel.
 export default function SettingsPage() {
-  const user = requireClient();
-  const credits = getCreditsForUser(user.id);
-  const limits = PLAN_LIMITS[user.plan];
+  const user = requireSession();
+  const isClient = user.role === "client";
+  const isEditor = user.role === "editor";
+  const credits = isClient ? getCreditsForUser(user.id) : undefined;
+  const limits = isClient ? PLAN_LIMITS[user.plan] : null;
+  const backHref = isClient ? "/account" : "/admin/studios";
 
   return (
     <>
-      <TopNav user={user} backHref="/account" backLabel="Back" />
+      <TopNav user={user} backHref={backHref} backLabel="Back" />
       <main className="max-w-[860px] mx-auto px-8 py-10">
         <h1 className="display text-[36px] mb-1">Settings</h1>
         <p className="text-text-muted text-[13px] mb-8">
-          Profile, billing, and platform connections.
+          {isClient
+            ? "Profile, billing, and platform connections."
+            : isEditor
+              ? "Profile and notification preferences."
+              : "Profile and notifications."}
         </p>
 
         <Card title="Profile">
@@ -31,104 +41,94 @@ export default function SettingsPage() {
                 {user.firstName} {user.lastName}
               </div>
               <div className="text-[13px] text-text-muted">{user.email}</div>
-            </div>
-          </div>
-        </Card>
-
-        <Card title="Billing">
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div>
-              <div className="text-[14px]">{limits.label}</div>
-              <div className="text-[12px] text-text-muted mt-1">
-                {limits.priceUsd === 0
-                  ? limits.source === "onpod"
-                    ? "Bundled with your OnPod studio package — no charge."
-                    : "Admin-granted plan."
-                  : `$${limits.priceUsd} USD / month · renews automatically`}
+              <div className="text-[10px] uppercase tracking-wider text-text-dim mt-1">
+                {user.role}
               </div>
             </div>
-            <button className="px-4 py-2 rounded-[8px] bg-bg-elev-3 border border-border-strong text-[13px]">
-              Manage billing
-            </button>
           </div>
+        </Card>
 
-          <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <BundleStat label="Episodes / month" value={fmtCap(limits.episodes)} />
-            <BundleStat label="Reels / month" value={fmtCap(limits.reels)} />
-            <BundleStat label="Thumbnails / month" value={fmtCap(limits.thumbnails)} />
-          </div>
-
-          {credits ? (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5">
-              <Quota label="Episodes used" used={credits.podcastsUsed} total={limits.episodes} />
-              <Quota label="Reels used" used={credits.opusClipsUsed} total={limits.reels} />
-              <Quota label="Thumbnails used" used={credits.coverArtsUsed} total={limits.thumbnails} />
-              <Quota label="Articles used" used={credits.articlesUsed} total={limits.articles} />
+        {isClient && limits ? (
+          <Card title="Billing">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div>
+                <div className="text-[14px]">{limits.label}</div>
+                <div className="text-[12px] text-text-muted mt-1">
+                  {limits.priceUsd === 0
+                    ? limits.source === "onpod"
+                      ? "Bundled with your OnPod studio package — no charge."
+                      : "Admin-granted plan."
+                    : `$${limits.priceUsd} USD / month · renews automatically`}
+                </div>
+              </div>
+              <button className="px-4 py-2 rounded-[8px] bg-bg-elev-3 border border-border-strong text-[13px]">
+                Manage billing
+              </button>
             </div>
-          ) : null}
-        </Card>
 
-        <Card title="Other plans">
-          <p className="text-[12px] text-text-muted mb-3">
-            Need more? Upgrade or get in touch.
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <PlanCard
-              title="OnPod Studio (free bundle)"
-              price="Free"
-              bundle="6 · 60 · 10"
-              note="Bundled with your OnPod studio package"
-            />
-            <PlanCard
-              title="OnPod Studio direct"
-              price="$39 / mo"
-              bundle="6 · 60 · 10"
-              note="OnPod clients, not on a studio plan"
-            />
-            <PlanCard
-              title="OnPod Studio direct ×2"
-              price="$89 / mo"
-              bundle="12 · 120 · 20"
-              note="Higher-volume OnPod direct creators"
-            />
-            <PlanCard
-              title="External clients"
-              price="$89 / mo"
-              bundle="6 · 60 · 10"
-              note="Clients of partner / external studios"
-            />
-            <PlanCard
-              title="External clients ×2"
-              price="$120 / mo"
-              bundle="12 · 120 · 20"
-              note="2× bundle for external-studio clients"
-            />
-          </div>
-        </Card>
+            <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <BundleStat label="Episodes / month" value={fmtCap(limits.episodes)} />
+              <BundleStat label="Reels / month" value={fmtCap(limits.reels)} />
+              <BundleStat label="Thumbnails / month" value={fmtCap(limits.thumbnails)} />
+            </div>
+
+            {credits ? (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5">
+                <Quota label="Episodes used" used={credits.podcastsUsed} total={limits.episodes} />
+                <Quota label="Reels used" used={credits.opusClipsUsed} total={limits.reels} />
+                <Quota label="Thumbnails used" used={credits.coverArtsUsed} total={limits.thumbnails} />
+                <Quota label="Articles used" used={credits.articlesUsed} total={limits.articles} />
+              </div>
+            ) : null}
+          </Card>
+        ) : null}
 
         <Card title="Email notifications">
-          <Toggle label="Approval requests" defaultOn />
-          <Toggle label="Clips ready" defaultOn />
-          <Toggle label="Transcription ready" />
-          <Toggle label="Weekly summary" />
+          {isClient ? (
+            <>
+              <Toggle label="Approval requests" defaultOn />
+              <Toggle label="New version ready for review" defaultOn />
+              <Toggle label="Clips ready" defaultOn />
+              <Toggle label="Transcription ready" />
+              <Toggle label="Weekly summary" />
+            </>
+          ) : isEditor ? (
+            <>
+              <Toggle label="New edit requests assigned to me" defaultOn />
+              <Toggle label="Client review requests" defaultOn />
+              <Toggle label="Approval responses from clients" defaultOn />
+              <Toggle label="Weekly summary" />
+            </>
+          ) : (
+            <>
+              <Toggle label="Stripe payment failures" defaultOn />
+              <Toggle label="New signups" />
+              <Toggle label="Daily summary" />
+            </>
+          )}
         </Card>
 
-        <Card title="Platform connections">
-          <Connection name="YouTube" connected />
-          <Connection name="Spotify (RSS)" connected />
-          <Connection name="Apple Podcasts (RSS)" />
-        </Card>
+        {isClient ? (
+          <Card title="Platform connections">
+            <Connection name="YouTube" connected />
+            <Connection name="Spotify (RSS)" connected />
+            <Connection name="Apple Podcasts (RSS)" />
+          </Card>
+        ) : null}
 
-        <Card title="Danger zone" tone="danger">
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <p className="text-[13px] text-text-muted">
-              Soft-deletes your account. OnPod admins can restore for 30 days.
-            </p>
-            <button className="px-4 py-2 rounded-[8px] bg-[rgba(239,68,68,0.12)] border border-[rgba(239,68,68,0.3)] text-[#f87171] text-[13px]">
-              Delete account
-            </button>
-          </div>
-        </Card>
+        {isClient ? (
+          <Card title="Subscription" tone="danger">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <p className="text-[13px] text-text-muted">
+                Cancel your subscription. You&apos;ll keep access until the end of
+                your current billing period, then lose access automatically.
+              </p>
+              <button className="px-4 py-2 rounded-[8px] bg-[rgba(239,68,68,0.12)] border border-[rgba(239,68,68,0.3)] text-[#f87171] text-[13px]">
+                Cancel subscription
+              </button>
+            </div>
+          </Card>
+        ) : null}
 
         <div className="mt-8 flex justify-end">
           <SignOutButton />
@@ -174,29 +174,6 @@ function BundleStat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function PlanCard({
-  title,
-  price,
-  bundle,
-  note,
-}: {
-  title: string;
-  price: string;
-  bundle: string;
-  note: string;
-}) {
-  return (
-    <div className="rounded-[10px] bg-bg-elev-2 border border-border px-4 py-3">
-      <div className="flex items-baseline justify-between">
-        <div className="font-medium text-[14px]">{title}</div>
-        <div className="text-[13px] text-text-muted">{price}</div>
-      </div>
-      <div className="text-[13px] mt-1">{bundle}</div>
-      <div className="text-[11px] text-text-dim mt-1">{note}</div>
-    </div>
-  );
-}
-
 function Quota({ label, used, total }: { label: string; used: number; total: number }) {
   const isUnlimited = !isFinite(total);
   const pct = isUnlimited ? 0 : Math.min(100, (used / total) * 100);
@@ -209,10 +186,7 @@ function Quota({ label, used, total }: { label: string; used: number; total: num
         </span>
       </div>
       <div className="h-1.5 bg-bg-elev-3 rounded-full overflow-hidden">
-        <div
-          className="h-full bg-accent rounded-full"
-          style={{ width: `${pct}%` }}
-        />
+        <div className="h-full bg-accent rounded-full" style={{ width: `${pct}%` }} />
       </div>
     </div>
   );

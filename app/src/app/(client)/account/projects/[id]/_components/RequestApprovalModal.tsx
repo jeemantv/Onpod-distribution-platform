@@ -24,15 +24,34 @@ export function RequestApprovalModal({
     `Hi,\n\nYour latest OnPod session files are ready for review. Please open the link below to approve or request changes.\n\nFiles awaiting your review:\n${unapprovedFiles.map((f) => `  • ${f.name}`).join("\n") || "  (none)"}\n\nReview here: ${shareUrl}\n\nThanks,\nOnPod Studios`,
   );
   const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   void projectId;
 
-  const send = () => {
+  const send = async () => {
     setSending(true);
-    setTimeout(() => {
-      setSending(false);
-      onSent();
-    }, 600);
+    setError(null);
+    // Flip each target file to "pending" in the DB so both the client and
+    // the editor see "Waiting for approval" after a reload.
+    const failed: string[] = [];
+    await Promise.all(
+      unapprovedFiles.map(async (f) => {
+        const res = await fetch(`/api/files/${f.id}/meta`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ approvalStatus: "pending" }),
+        }).catch(() => null);
+        if (!res || !res.ok) failed.push(f.name);
+      }),
+    );
+    // Email delivery is wired up in Phase 3 (Resend). For now we just
+    // persist the approval state so the badges flip.
+    setSending(false);
+    if (failed.length > 0) {
+      setError(`Could not mark ${failed.length} file${failed.length === 1 ? "" : "s"} as pending. Try again.`);
+      return;
+    }
+    onSent();
   };
 
   return (
@@ -56,6 +75,9 @@ export function RequestApprovalModal({
         </>
       }
     >
+      {error ? (
+        <p className="mb-3 text-[12px] text-danger">{error}</p>
+      ) : null}
       <div className="grid grid-cols-1 gap-4">
         <div>
           <label className="block text-[12px] text-text-muted mb-2">To</label>

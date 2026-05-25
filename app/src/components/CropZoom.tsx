@@ -25,7 +25,7 @@ interface Props {
 export function CropZoom({
   open,
   imageUrl,
-  aspect = 16 / 9,
+  aspect,
   contextImageUrl,
   contextLabel,
   onCancel,
@@ -37,6 +37,11 @@ export function CropZoom({
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [loaded, setLoaded] = useState(false);
   const [isPngSource, setIsPngSource] = useState(false);
+  // Canvas aspect derived from the source image on load, so the crop
+  // frame matches the host's natural shape instead of forcing 16:9. The
+  // optional prop overrides this when a caller already knows the target
+  // slot's aspect (e.g. Bannerbear layer dims, once we wire those up).
+  const [imageAspect, setImageAspect] = useState<number>(aspect ?? 16 / 9);
   const dragRef = useRef<{
     dragging: boolean;
     startX: number;
@@ -45,11 +50,13 @@ export function CropZoom({
     baseY: number;
   }>({ dragging: false, startX: 0, startY: 0, baseX: 0, baseY: 0 });
 
-  // Larger canvas so users can zoom WAY out and still capture the full
-  // image — Bannerbear downsamples anyway, and bigger inputs mean less
-  // accidental cropping when the user is unsure of the framing.
-  const W = 2048;
-  const H = Math.round(W / aspect);
+  // Canvas size — Bannerbear downsamples anyway. 1600 on the long axis
+  // is plenty for a thumbnail layer and keeps PNG exports well under
+  // Vercel's 4.5 MB body limit so applyAdjust doesn't choke on cutouts.
+  const a = aspect ?? imageAspect;
+  const LONG = 1600;
+  const W = a >= 1 ? LONG : Math.round(LONG * a);
+  const H = a >= 1 ? Math.round(LONG / a) : LONG;
 
   function fitContainScale(img: HTMLImageElement): number {
     const sx = W / img.width;
@@ -92,6 +99,9 @@ export function CropZoom({
     img.crossOrigin = "anonymous";
     function done(loaded: HTMLImageElement) {
       imgRef.current = loaded;
+      if (!aspect && loaded.width > 0 && loaded.height > 0) {
+        setImageAspect(loaded.width / loaded.height);
+      }
       setScale(fitCoverScale(loaded));
       setPan({ x: 0, y: 0 });
       setLoaded(true);
@@ -171,11 +181,37 @@ export function CropZoom({
     const canvas = canvasRef.current;
     if (!canvas) return;
     const mime = isPngSource ? "image/png" : "image/jpeg";
-    const data =
+
+    // Helper — emit the canvas at a given scale.
+    function dataAt(scale: number, m: "image/png" | "image/jpeg"): string {
+      const sw = Math.max(1, Math.round(canvas!.width * scale));
+      const sh = Math.max(1, Math.round(canvas!.height * scale));
+      const out = document.createElement("canvas");
+      out.width = sw;
+      out.height = sh;
+      const oc = out.getContext("2d");
+      if (!oc) return "";
+      // No backdrop fill — we want transparency to pass through for PNG.
+      oc.drawImage(canvas!, 0, 0, sw, sh);
+      return m === "image/png" ? out.toDataURL("image/png") : out.toDataURL("image/jpeg", 0.9);
+    }
+
+    // Start at full size. If the resulting base64 overshoots Vercel's
+    // body limit, progressively shrink — never flatten alpha to a white
+    // background, that's how cutout PNGs were getting a background "back".
+    let scale = 1;
+    let data =
       mime === "image/png"
         ? canvas.toDataURL("image/png")
-        : canvas.toDataURL("image/jpeg", 0.92);
-    const b64 = data.split(",")[1] ?? "";
+        : canvas.toDataURL("image/jpeg", 0.9);
+    let b64 = data.split(",")[1] ?? "";
+    let approxBytes = Math.round((b64.length * 3) / 4);
+    while (approxBytes > 3_800_000 && scale > 0.4) {
+      scale -= 0.15;
+      data = dataAt(scale, mime);
+      b64 = data.split(",")[1] ?? "";
+      approxBytes = Math.round((b64.length * 3) / 4);
+    }
     onApply({ base64: b64, mime });
   }
 

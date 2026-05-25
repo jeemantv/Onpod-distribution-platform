@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 import { completeMultipartUpload } from "@/lib/b2";
-import { requireEditorOrAdmin } from "@/lib/session";
-import { STUDIO_ROOT } from "@/lib/studio";
+import { getSession } from "@/lib/session";
+import { getUserByEmail } from "@/lib/auth-store";
+import { STUDIO_ROOT, parseKey, sessionBelongsToEmail } from "@/lib/studio";
 
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
-  requireEditorOrAdmin();
+  const user = getSession();
+  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
   const { key, uploadId, parts } = (await req.json()) as {
     key: string;
     uploadId: string;
@@ -17,6 +20,23 @@ export async function POST(req: Request) {
   }
   if (!key.startsWith(STUDIO_ROOT)) {
     return NextResponse.json({ error: "invalid_key" }, { status: 400 });
+  }
+
+  if (user.role !== "admin" && (user.role as string) !== "editor") {
+    const stored = await getUserByEmail(user.email).catch(() => null);
+    if (!stored?.selfUploadEnabled) {
+      return NextResponse.json(
+        { error: "forbidden", message: "Self-upload isn't enabled for your account." },
+        { status: 403 },
+      );
+    }
+    const parsed = parseKey(key);
+    if (!parsed.sessionFolder || !sessionBelongsToEmail(parsed.sessionFolder, user.email)) {
+      return NextResponse.json(
+        { error: "forbidden", message: "You can only finalize uploads in your own session folder." },
+        { status: 403 },
+      );
+    }
   }
 
   try {

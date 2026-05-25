@@ -3,6 +3,7 @@ import { decodeFileId } from "@/lib/b2";
 import type { AIPackage } from "@/lib/claude";
 import { getAI, saveAI } from "@/lib/transcript-store";
 import { getSession } from "@/lib/session";
+import { activeVideoKey } from "@/lib/versions-store";
 
 const VALID_FIELDS: ReadonlyArray<keyof AIPackage> = [
   "title",
@@ -27,17 +28,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid_field" }, { status: 400 });
   }
 
-  let key: string;
+  let canonical: string;
   try {
-    key = decodeFileId(fileId);
+    canonical = decodeFileId(fileId);
   } catch {
     return NextResponse.json({ error: "invalid_file_id" }, { status: 400 });
   }
-  const [ownerId] = key.split("/", 1);
+  const [ownerId] = canonical.split("/", 1);
   if (user.role !== "admin" && ownerId !== user.id) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
+  const key = await activeVideoKey(canonical);
   const ai = await getAI(key);
   if (!ai) {
     return NextResponse.json(

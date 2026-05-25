@@ -5,6 +5,7 @@ export type Role = "client" | "editor" | "admin";
 // "direct_*" is sold to clients not attached to an OnPod studio.
 // "ext_studio_*" is for clients of external (white-label) studios.
 export type Plan =
+  | "free"
   | "onpod_studio"
   | "direct_base"
   | "direct_double"
@@ -147,6 +148,21 @@ const BASE = { episodes: 6, reels: 60, thumbnails: 10, articles: 30 };
 const DOUBLE = { episodes: 12, reels: 120, thumbnails: 20, articles: 60 };
 
 export const PLAN_LIMITS: Record<Plan, PlanLimit> = {
+  free: {
+    label: "Free (download + approve only)",
+    tier: "base",
+    source: "direct",
+    episodes: 0,
+    reels: 0,
+    thumbnails: 0,
+    articles: 0,
+    podcasts: 0,
+    opusClips: 0,
+    coverArts: 0,
+    priceUsd: 0,
+    priceCad: 0,
+    billed: "free",
+  },
   onpod_studio: {
     label: "OnPod Studio (free)",
     tier: "base",
@@ -184,7 +200,7 @@ export const PLAN_LIMITS: Record<Plan, PlanLimit> = {
     billed: "client",
   },
   ext_studio_base: {
-    label: "External clients",
+    label: "Starter",
     tier: "base",
     source: "external",
     ...BASE,
@@ -196,7 +212,7 @@ export const PLAN_LIMITS: Record<Plan, PlanLimit> = {
     billed: "client",
   },
   ext_studio_double: {
-    label: "External clients ×2",
+    label: "Master",
     tier: "double",
     source: "external",
     ...DOUBLE,

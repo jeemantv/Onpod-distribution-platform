@@ -10,6 +10,19 @@ import {
   canonicalKey,
   isVersionedKey,
 } from "@/lib/versions-store";
+import { setFileMetaEntry } from "@/lib/file-meta-store";
+import { getRevisions, saveRevisions } from "@/lib/revisions-store";
+import { STUDIO_ROOT, parseKey } from "@/lib/studio";
+
+function metaKeysFor(key: string): { ownerId: string; projectId: string } | null {
+  if (!key.startsWith(STUDIO_ROOT)) return null;
+  const parsed = parseKey(key);
+  if (!parsed.studio || !parsed.bucket || !parsed.sessionFolder) return null;
+  return {
+    ownerId: "studios",
+    projectId: `studio:${parsed.studio}:${parsed.bucket}:${parsed.sessionFolder}`,
+  };
+}
 
 export const maxDuration = 60;
 
@@ -20,6 +33,10 @@ interface Body {
   parts: { partNumber: number; etag: string }[];
   versionNumber: number;
   note?: string;
+  // The filename the editor picked locally (e.g. "intro-recut.mp4").
+  // We display this instead of the synthetic .vN suffix derived from
+  // the canonical key, so the row title matches the actual file.
+  displayFilename?: string;
 }
 
 export async function POST(req: Request) {
@@ -59,7 +76,28 @@ export async function POST(req: Request) {
       uploadedByEmail: user.email,
       uploadedByName: `${user.firstName} ${user.lastName}`.trim() || user.email,
       note: body.note?.trim() || undefined,
+      displayFilename: body.displayFilename?.trim() || undefined,
     });
+
+    // Reset the loop: file flips to "Ready for approval" (approvalStatus
+    // pending), and we clear the previous reviewSentAt so the "In revision"
+    // signal evaporates. The note history itself is kept — the editor can
+    // see what was requested even after marking them done.
+    const meta = metaKeysFor(canonical);
+    if (meta) {
+      await setFileMetaEntry(meta.ownerId, meta.projectId, canonical, {
+        approvalStatus: "pending",
+      }).catch((err) => console.warn("[upload-version/complete] meta flip failed", err));
+    }
+    const existing = await getRevisions(canonical).catch(() => null);
+    if (existing && existing.reviewSentAt) {
+      await saveRevisions(canonical, {
+        ...existing,
+        status: "open",
+        reviewSentAt: undefined,
+      }).catch((err) => console.warn("[upload-version/complete] revisions reset failed", err));
+    }
+
     return NextResponse.json({
       key: result.key,
       sizeBytes: result.sizeBytes,

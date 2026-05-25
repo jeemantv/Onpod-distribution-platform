@@ -20,12 +20,15 @@ import {
 } from "./studio";
 
 export interface StudioSummary {
-  slug: StudioSlug;
+  // Phase 3.1: relaxed from StudioSlug to string so DB-backed studios
+  // (created at runtime via /api/admin/studios) flow through this type
+  // alongside the legacy hardcoded slugs.
+  slug: string;
   buckets: Record<Bucket, { sessionCount: number; sizeBytes: number }>;
 }
 
 export interface SessionSummary {
-  studio: StudioSlug;
+  studio: string;
   bucket: Bucket;
   folder: string;
   parsed: ParsedSession | null;
@@ -48,7 +51,18 @@ export interface SessionFile {
  */
 export async function summarizeStudios(): Promise<StudioSummary[]> {
   const out: StudioSummary[] = [];
-  for (const slug of STUDIO_SLUGS) {
+  // Pull the DB-backed studio registry so newly-created workspaces
+  // show up without a redeploy. Fall back to the static STUDIO_SLUGS
+  // list when the registry is empty (e.g. tests with no migrations).
+  let slugs: readonly string[] = STUDIO_SLUGS;
+  try {
+    const { listStudios } = await import("./studio-registry");
+    const live = await listStudios();
+    if (live.length) slugs = live.map((s) => s.slug);
+  } catch {
+    /* fall through to static */
+  }
+  for (const slug of slugs) {
     const items = await listFiles(studioPrefix(slug));
     const buckets: StudioSummary["buckets"] = {
       clients: { sessionCount: 0, sizeBytes: 0 },
@@ -138,7 +152,15 @@ export async function listSessionFiles(
  */
 export async function listClientSessions(email: string): Promise<SessionSummary[]> {
   const out: SessionSummary[] = [];
-  for (const slug of STUDIO_SLUGS) {
+  let slugs: readonly string[] = STUDIO_SLUGS;
+  try {
+    const { listStudios } = await import("./studio-registry");
+    const live = await listStudios();
+    if (live.length) slugs = live.map((s) => s.slug);
+  } catch {
+    /* fall through to static */
+  }
+  for (const slug of slugs) {
     const prefix = bucketPrefix(slug, "clients");
     const folders = await listFolders(prefix);
     for (const folderPrefix of folders) {

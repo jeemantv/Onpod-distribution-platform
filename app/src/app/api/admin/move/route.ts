@@ -1,15 +1,14 @@
 // Move a session folder (or a single file) between studio buckets.
 // Editor and admin can move; admin-only is enforced for hard-delete elsewhere.
 import { NextResponse } from "next/server";
-import { requireEditorOrAdmin } from "@/lib/session";
 import { movePrefix, moveFile } from "@/lib/b2";
 import {
   BUCKETS,
-  STUDIO_SLUGS,
   bucketPrefix,
   type Bucket,
   type StudioSlug,
 } from "@/lib/studio";
+import { assertStudioAccess } from "@/lib/editor-access";
 
 export const maxDuration = 60;
 
@@ -22,22 +21,17 @@ interface MoveBody {
   filename?: string;
 }
 
-function validateLocation(studio: string, bucket: string): boolean {
-  return (
-    STUDIO_SLUGS.includes(studio as StudioSlug) &&
-    BUCKETS.includes(bucket as Bucket)
-  );
-}
-
 export async function POST(req: Request) {
-  requireEditorOrAdmin();
   const body = (await req.json()) as MoveBody;
-  if (
-    !validateLocation(body.fromStudio, body.fromBucket) ||
-    !validateLocation(body.toStudio, body.toBucket)
-  ) {
-    return NextResponse.json({ error: "invalid_location" }, { status: 400 });
+  // Both source and destination studios must be (a) real and (b) in the
+  // actor's scope. Bucket is a static enum, simple .includes is fine.
+  if (!BUCKETS.includes(body.fromBucket) || !BUCKETS.includes(body.toBucket)) {
+    return NextResponse.json({ error: "invalid_bucket" }, { status: 400 });
   }
+  const blockFrom = await assertStudioAccess(body.fromStudio);
+  if (blockFrom) return blockFrom;
+  const blockTo = await assertStudioAccess(body.toStudio);
+  if (blockTo) return blockTo;
   if (!body.folder) {
     return NextResponse.json({ error: "missing_folder" }, { status: 400 });
   }

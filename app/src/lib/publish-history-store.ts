@@ -1,6 +1,8 @@
-// Publish-history store, backed by B2 (serverless-safe).
+// Postgres-backed publish history.
 
-import { readState, writeState } from "./state-store";
+import { desc, eq, inArray } from "drizzle-orm";
+import { db } from "./db";
+import { publishHistory } from "./db/schema";
 import type { PublishAction, PublishPlatform, VidType } from "./types";
 
 export interface PublishHistoryRow {
@@ -19,38 +21,64 @@ export interface PublishHistoryRow {
   createdAt: string;
 }
 
-const KEY = "publish-history.json";
+type DbRow = typeof publishHistory.$inferSelect;
 
-async function readAll(): Promise<PublishHistoryRow[]> {
-  return readState<PublishHistoryRow[]>(KEY, []);
-}
-
-async function writeAll(rows: PublishHistoryRow[]): Promise<void> {
-  await writeState(KEY, rows);
+function toRow(r: DbRow): PublishHistoryRow {
+  return {
+    id: r.id,
+    userId: r.userId,
+    // No real files table yet — return the B2 key as the file identifier.
+    fileId: r.fileKey,
+    fileKey: r.fileKey,
+    fileName: r.fileName,
+    platform: r.platform,
+    action: r.action,
+    vidType: r.vidType,
+    externalId: r.externalId,
+    externalUrl: r.externalUrl,
+    scheduledFor: r.scheduledFor ? r.scheduledFor.toISOString() : null,
+    metadata: (r.metadata ?? {}) as Record<string, unknown>,
+    createdAt: r.createdAt.toISOString(),
+  };
 }
 
 export async function recordPublish(
   row: Omit<PublishHistoryRow, "id" | "createdAt">,
 ): Promise<PublishHistoryRow> {
-  const rows = await readAll();
-  const full: PublishHistoryRow = {
-    ...row,
-    id: `ph_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    createdAt: new Date().toISOString(),
-  };
-  rows.unshift(full);
-  await writeAll(rows);
-  return full;
+  const [r] = await db
+    .insert(publishHistory)
+    .values({
+      userId: row.userId,
+      fileKey: row.fileKey,
+      fileName: row.fileName,
+      platform: row.platform,
+      action: row.action,
+      vidType: row.vidType,
+      externalId: row.externalId,
+      externalUrl: row.externalUrl,
+      scheduledFor: row.scheduledFor ? new Date(row.scheduledFor) : null,
+      metadata: row.metadata,
+    })
+    .returning();
+  return toRow(r);
 }
 
 export async function historyForUser(userId: string): Promise<PublishHistoryRow[]> {
-  const rows = await readAll();
-  return rows.filter((r) => r.userId === userId);
+  const rows = await db
+    .select()
+    .from(publishHistory)
+    .where(eq(publishHistory.userId, userId))
+    .orderBy(desc(publishHistory.createdAt));
+  return rows.map(toRow);
 }
 
 export async function historyForFile(fileKey: string): Promise<PublishHistoryRow[]> {
-  const rows = await readAll();
-  return rows.filter((r) => r.fileKey === fileKey);
+  const rows = await db
+    .select()
+    .from(publishHistory)
+    .where(eq(publishHistory.fileKey, fileKey))
+    .orderBy(desc(publishHistory.createdAt));
+  return rows.map(toRow);
 }
 
 export async function historyForUserGroupedByFile(
@@ -60,6 +88,28 @@ export async function historyForUserGroupedByFile(
   const out: Record<string, PublishHistoryRow[]> = {};
   for (const r of rows) {
     (out[r.fileKey] ??= []).push(r);
+  }
+  return out;
+}
+
+/**
+ * Bulk fetch publish history for a set of B2 keys, grouped by key.
+ * Used when rendering a session page so every file row can decorate
+ * itself with a "Published — YouTube" badge without N+1 queries.
+ */
+export async function historyByFileKeys(
+  fileKeys: string[],
+): Promise<Record<string, PublishHistoryRow[]>> {
+  const out: Record<string, PublishHistoryRow[]> = {};
+  if (fileKeys.length === 0) return out;
+  const rows = await db
+    .select()
+    .from(publishHistory)
+    .where(inArray(publishHistory.fileKey, fileKeys))
+    .orderBy(desc(publishHistory.createdAt));
+  for (const r of rows) {
+    const row = toRow(r);
+    (out[row.fileKey] ??= []).push(row);
   }
   return out;
 }

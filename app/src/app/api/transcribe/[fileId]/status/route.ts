@@ -9,6 +9,7 @@ import {
 } from "@/lib/transcript-store";
 import { getSession } from "@/lib/session";
 import { canAccessKey } from "@/lib/access";
+import { activeVideoKey } from "@/lib/versions-store";
 
 // Status derives purely from B2 state:
 //   ai.json present                → ready
@@ -22,15 +23,18 @@ export async function GET(
   const user = getSession();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  let key: string;
+  let canonical: string;
   try {
-    key = decodeFileId(params.fileId);
+    canonical = decodeFileId(params.fileId);
   } catch {
     return NextResponse.json({ error: "invalid_file_id" }, { status: 400 });
   }
-  if (!canAccessKey(user, key)) {
+  if (!canAccessKey(user, canonical)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
+  // AI sidecars hang off the active version's key — see transcribe POST
+  // for why. Resolving here keeps status consistent with where saves land.
+  const key = await activeVideoKey(canonical);
 
   const includeData = new URL(req.url).searchParams.get("include") === "data";
 

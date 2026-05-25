@@ -12,14 +12,36 @@
 // Multiple clients on one recording: separate sessions, one per client,
 // or rename to use a join key — out of scope for v1.
 
-export const STUDIO_SLUGS = ["ottawa", "montreal", "brossard", "laval"] as const;
-export type StudioSlug = (typeof STUDIO_SLUGS)[number];
+// ottawa/montreal/brossard/laval are OnPod's Pearl-fed studios (n8n
+// owns folder creation). "externals" holds clients onboarded from the
+// future website, manual admin invites, or non-OnPod studios — they
+// self-upload (or admin uploads for them).
+// Phase 3.1: dropped `as const` so STUDIO_SLUGS.includes(str) accepts any
+// string (the array became a hint, not a closed enum). Dynamic studios
+// live in the DB registry (lib/studio-registry.ts); these five are the
+// initial seed and a legacy fallback.
+export const STUDIO_SLUGS: readonly string[] = [
+  "ottawa",
+  "montreal",
+  "brossard",
+  "laval",
+  "externals",
+];
+// StudioSlug widened to string so dynamic slugs flow through every
+// signature that references this type. Runtime validation lives in
+// studio-registry's isKnownStudio() — call when slug enters from input.
+export type StudioSlug = string;
 
-export const STUDIO_LABEL: Record<StudioSlug, string> = {
+// Widened to string-key so dynamic studio slugs from the registry are
+// passable to consumers that still read this hardcoded map. The five
+// values below are the legacy fallback; new studios get their labels
+// from lib/studio-registry's `studioLabels()` async getter.
+export const STUDIO_LABEL: Record<string, string> = {
   ottawa: "Ottawa",
   montreal: "Montréal",
   brossard: "Brossard",
   laval: "Laval",
+  externals: "Externals",
 };
 
 export const BUCKETS = [
@@ -39,16 +61,20 @@ export const BUCKET_LABEL: Record<Bucket, string> = {
 
 export const STUDIO_ROOT = "studios/";
 
-export function studioPrefix(studio: StudioSlug): string {
+// Phase 3.1: relaxed from StudioSlug to string so dynamic studios from
+// the studios table flow through path helpers without ceremony. The
+// original 5 slugs still work; new slugs created via the registry do
+// too. Validation happens at the registry level, not in path strings.
+export function studioPrefix(studio: string): string {
   return `${STUDIO_ROOT}${studio}/`;
 }
 
-export function bucketPrefix(studio: StudioSlug, bucket: Bucket): string {
+export function bucketPrefix(studio: string, bucket: Bucket): string {
   return `${studioPrefix(studio)}${bucket}/`;
 }
 
 export function sessionPrefix(
-  studio: StudioSlug,
+  studio: string,
   sessionFolder: string,
 ): string {
   return `${bucketPrefix(studio, "clients")}${sessionFolder}/`;

@@ -230,9 +230,13 @@ export function publicUrl(key: string): string {
 
 export function classifyByFilename(name: string): "raw" | "edited" | "clip" | "asset" {
   const lower = name.toLowerCase();
+  // Images are always assets — never video, so a cover art sitting in
+  // the clips/ folder (e.g. `clips/clip_foo.mp4.cover.jpg`) doesn't get
+  // pulled into the Clips tab just because its filename contains "clip".
+  if (/\.(png|jpg|jpeg|webp|gif|svg|bmp|avif|heic|heif)$/.test(lower)) return "asset";
   if (/(cam\d|_raw|audio_master|\.wav$)/.test(lower)) return "raw";
   if (/(clip|short)/.test(lower)) return "clip";
-  if (/(cover|logo|thumbnail|lower_third|asset|\.png$|\.jpg$|\.jpeg$|\.webp$)/.test(lower)) return "asset";
+  if (/(cover|logo|thumbnail|lower_third|asset)/.test(lower)) return "asset";
   if (lower.endsWith(".mp4") || lower.endsWith(".mov")) return "edited";
   return "asset";
 }

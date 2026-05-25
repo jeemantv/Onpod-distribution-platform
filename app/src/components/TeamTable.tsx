@@ -17,13 +17,10 @@ interface UserRow {
 }
 
 const ROLE_OPTIONS = ["client", "editor", "admin"] as const;
-const STUDIO_SLUGS = ["ottawa", "montreal", "brossard", "laval"] as const;
-const STUDIO_LABEL: Record<string, string> = {
-  ottawa: "Ottawa",
-  montreal: "Montréal",
-  brossard: "Brossard",
-  laval: "Laval",
-};
+// Pulled from lib/studio so adding a new workspace (e.g. externals)
+// flows through to the editor-assignment dropdown automatically.
+import { STUDIO_SLUGS, STUDIO_LABEL as STUDIO_LABEL_LIVE } from "@/lib/studio";
+const STUDIO_LABEL: Record<string, string> = STUDIO_LABEL_LIVE;
 
 export function TeamTable({
   users,
@@ -31,12 +28,17 @@ export function TeamTable({
   currentUserId,
   canDelete = false,
   allClients = [],
+  availableStudios,
 }: {
   users: UserRow[];
   canChangeRoles: boolean;
   currentUserId: string;
   canDelete?: boolean;
   allClients?: { email: string; name: string }[];
+  // DB-backed studio list — when present, replaces the static
+  // STUDIO_SLUGS/STUDIO_LABEL constants so dynamic studios show up in
+  // the assignment grid.
+  availableStudios?: { slug: string; displayName: string }[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
@@ -91,7 +93,9 @@ export function TeamTable({
         ? `All studios · ${excluded} excluded`
         : "All studios";
     }
-    return studios.map((s) => STUDIO_LABEL[s] ?? s).join(", ");
+    return studios
+      .map((s) => availableStudios?.find((opt) => opt.slug === s)?.displayName ?? STUDIO_LABEL[s] ?? s)
+      .join(", ");
   }
 
   return (
@@ -203,6 +207,7 @@ export function TeamTable({
         <AssignmentModal
           user={assignFor}
           allClients={allClients}
+          availableStudios={availableStudios}
           onClose={() => setAssignFor(null)}
           onSaved={() => {
             setAssignFor(null);
@@ -323,11 +328,13 @@ function AssignmentModal({
   allClients,
   onClose,
   onSaved,
+  availableStudios,
 }: {
   user: UserRow;
   allClients: { email: string; name: string }[];
   onClose: () => void;
   onSaved: () => void;
+  availableStudios?: { slug: string; displayName: string }[];
 }) {
   const initialStudios = user.assignedStudios ?? [];
   const initialAll = initialStudios.includes("all");
@@ -431,17 +438,17 @@ function AssignmentModal({
           </label>
           {!allStudios ? (
             <div className="grid grid-cols-2 gap-2">
-              {STUDIO_SLUGS.map((s) => (
+              {(availableStudios ?? STUDIO_SLUGS.map((s) => ({ slug: s, displayName: STUDIO_LABEL[s] ?? s }))).map((s) => (
                 <label
-                  key={s}
+                  key={s.slug}
                   className="flex items-center gap-2 px-3 py-2 bg-bg-elev-2 border border-border rounded-[8px] text-[13px]"
                 >
                   <input
                     type="checkbox"
-                    checked={studios.includes(s)}
-                    onChange={() => toggleStudio(s)}
+                    checked={studios.includes(s.slug)}
+                    onChange={() => toggleStudio(s.slug)}
                   />
-                  {STUDIO_LABEL[s]}
+                  {s.displayName}
                 </label>
               ))}
             </div>

@@ -216,7 +216,7 @@ export async function addToPlaylist(
   videoId: string,
   playlistId: string,
 ): Promise<void> {
-  await fetch(
+  const res = await fetch(
     `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet`,
     {
       method: "POST",
@@ -232,6 +232,10 @@ export async function addToPlaylist(
       }),
     },
   );
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`playlistItems.insert ${res.status}: ${detail.slice(0, 300)}`);
+  }
 }
 
 export interface UploadOptions {
@@ -312,24 +316,14 @@ export async function uploadVideo(opts: UploadOptions): Promise<{ videoId: strin
   const data = (await res.json()) as { id?: string };
   if (!data.id) throw new Error("videos.insert returned no id");
 
-  // Add to playlist if requested
+  // Add to playlist if requested — surface failures, don't silently drop them.
   if (opts.playlistId) {
-    await fetch(
-      `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${opts.accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          snippet: {
-            playlistId: opts.playlistId,
-            resourceId: { kind: "youtube#video", videoId: data.id },
-          },
-        }),
-      },
-    ).catch((err) => console.error("[playlist add failed]", err));
+    try {
+      await addToPlaylist(opts.accessToken, data.id, opts.playlistId);
+    } catch (err) {
+      console.error("[playlist add failed]", err);
+      throw err;
+    }
   }
 
   return { videoId: data.id };

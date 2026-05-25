@@ -1,0 +1,1 @@
+ALTER TABLE "vizard_template_overrides" ADD COLUMN "lock_code" text;

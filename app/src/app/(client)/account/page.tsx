@@ -4,6 +4,9 @@ import { requireClient } from "@/lib/session";
 import { listClientSessions } from "@/lib/studio-store";
 import { STUDIO_LABEL } from "@/lib/studio";
 import { PLAN_LIMITS } from "@/lib/types";
+import { getUserByEmail } from "@/lib/auth-store";
+import { StartSessionButton } from "./_components/StartSessionButton";
+import { SessionList } from "./_components/SessionList";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +24,11 @@ export default async function AccountPage() {
   // logged-in user's email.
   const sessions = await listClientSessions(user.email).catch(() => []);
   const plan = PLAN_LIMITS[user.plan];
+  // Self-upload toggle drives the "Start new session" button. One DB
+  // read per page render so admin flips take effect on next reload.
+  const stored = await getUserByEmail(user.email).catch(() => null);
+  const canStartSession = !!stored?.selfUploadEnabled;
+  const homeStudio = stored?.homeStudio ?? "externals";
 
   return (
     <>
@@ -39,69 +47,34 @@ export default async function AccountPage() {
               {plan?.label ?? user.plan}
             </span>
             <Link
-              href="/settings"
+              href="/settings/billing"
               className="px-3 py-1.5 bg-bg-elev border border-border rounded-[8px] text-[12px] text-text-muted hover:text-text hover:border-border-strong"
             >
               Manage plan
             </Link>
+            {canStartSession ? (
+              <StartSessionButton homeStudio={homeStudio} email={user.email} />
+            ) : null}
           </div>
         </div>
 
-        {sessions.length === 0 ? (
-          <div className="bg-bg-elev border border-border rounded-lg p-12 text-center">
-            <p className="text-text-muted">
-              No sessions yet. New recordings will appear here after your next OnPod session.
-            </p>
-          </div>
-        ) : (
-          <ul className="space-y-2">
-            {sessions.map((s) => (
-              <li key={`${s.studio}/${s.folder}`}>
-                <Link
-                  href={`/account/sessions/${s.studio}/${encodeURIComponent(s.folder)}`}
-                  className="group flex items-center gap-3 sm:gap-4 px-4 sm:px-5 py-3 sm:py-4 bg-bg-elev border border-border rounded-lg hover:border-border-strong hover:bg-bg-elev-2 transition"
-                >
-                  <div className="w-10 h-10 rounded-md bg-bg-elev-3 flex items-center justify-center text-text-muted shrink-0">
-                    <svg
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                    </svg>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-[13px] sm:text-[14px]">
-                      {s.parsed ? `${s.parsed.date} ${s.parsed.time}` : s.folder}{" "}
-                      — {STUDIO_LABEL[s.studio]}
-                    </div>
-                    <p className="text-[11px] sm:text-[12px] text-text-muted mt-1">
-                      {s.fileCount} files · {fmtBytes(s.sizeBytes)}
-                      {s.lastModified ? (
-                        <> · {new Date(s.lastModified).toLocaleDateString()}</>
-                      ) : null}
-                    </p>
-                  </div>
-                  <span className="text-text-dim group-hover:text-text shrink-0">
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <polyline points="9 18 15 12 9 6" />
-                    </svg>
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
+        <SessionList
+          sessions={sessions.map((s) => ({
+            studio: s.studio,
+            studioLabel: STUDIO_LABEL[s.studio] ?? s.studio,
+            folder: s.folder,
+            parsed: s.parsed
+              ? {
+                  date: s.parsed.date,
+                  time: s.parsed.time,
+                  email: s.parsed.email,
+                }
+              : null,
+            fileCount: s.fileCount,
+            sizeBytes: s.sizeBytes,
+            lastModified: s.lastModified,
+          }))}
+        />
       </main>
     </>
   );

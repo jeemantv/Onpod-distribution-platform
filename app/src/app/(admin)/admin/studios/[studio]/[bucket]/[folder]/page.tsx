@@ -19,7 +19,6 @@ import {
 } from "@/lib/b2";
 import { AI_SUFFIX, TRANSCRIPT_SUFFIX } from "@/lib/transcript-store";
 import type { FileItem } from "@/lib/types";
-import { SessionUploader } from "@/components/SessionUploader";
 import { FilePortal } from "@/app/(client)/account/projects/[id]/_components/FilePortal";
 import {
   canonicalKey,
@@ -67,6 +66,31 @@ export default async function SessionPage({
   const syntheticProjectId = `studio:${studio}:${bucket}:${folder}`;
   void listFiles;
 
+  // Per-file overrides (folder type, approval status) live in the
+  // file_meta table keyed by (ownerId="studios", projectId=synthetic).
+  // Studio paths share that owner so this query pulls every override
+  // for the current studio in one shot.
+  const { getFileMeta } = await import("@/lib/file-meta-store");
+  const metaOverrides = await getFileMeta("studios", syntheticProjectId);
+
+  // Bulk-load publish history so each row gets the "Published — YouTube"
+  // (etc.) badge without N+1 queries.
+  const { historyByFileKeys } = await import("@/lib/publish-history-store");
+  const videoKeys = visibleObjects
+    .filter((o) => /\.(mp4|mov|webm)$/i.test(o.filename))
+    .map((o) => o.key);
+  const activeKeys = (
+    await Promise.all(
+      videoKeys.map(async (k) => {
+        const a = await resolveActive(canonicalKey(k)).catch(() => null);
+        return a?.key;
+      }),
+    )
+  ).filter((k): k is string => typeof k === "string");
+  const publishByKey = await historyByFileKeys([
+    ...new Set([...videoKeys, ...activeKeys]),
+  ]);
+
   const files: FileItem[] = await Promise.all(
     visibleObjects.map(async (o) => {
       // For video files, resolve the active version (which may be a
@@ -75,17 +99,33 @@ export default async function SessionPage({
       const canonical = canonicalKey(o.key);
       const active = isVideo ? await resolveActive(canonical) : null;
       const liveKey = active && active.n > 1 ? active.key : o.key;
+      const liveFilename =
+        active && active.n > 1
+          ? active.displayFilename ??
+            active.key.split("/").pop() ??
+            o.filename
+          : o.filename;
+      const override = metaOverrides[canonical] ?? metaOverrides[o.key];
+      const publishRows = [
+        ...(publishByKey[liveKey] ?? []),
+        ...(liveKey !== o.key ? publishByKey[o.key] ?? [] : []),
+      ];
+      const publishStates = publishRows.map((row) => ({
+        platform: row.platform,
+        action: row.action,
+        vidType: row.vidType ?? undefined,
+      }));
       return {
-        id: encodeFileId(canonical), // stable identifier = canonical (v1) key
+        id: encodeFileId(canonical),
         projectId: syntheticProjectId,
-        name: o.filename,
-        type: classifyByFilename(o.filename),
+        name: liveFilename,
+        type: override?.type ?? classifyByFilename(o.filename),
         mimeType: guessMimeType(o.filename),
         sizeBytes: o.sizeBytes,
         backblazeKey: liveKey,
         uploadedAt: o.lastModified ?? new Date().toISOString(),
-        approvalStatus: "none",
-        publishStates: [],
+        approvalStatus: override?.approvalStatus ?? "none",
+        publishStates,
         downloadCount: 0,
       };
     }),
@@ -141,10 +181,6 @@ export default async function SessionPage({
         </div>
       </div>
 
-      <div className="mb-6">
-        <SessionUploader studio={studio} bucket={bucket} folder={folder} />
-      </div>
-
       <FilePortal
         projectId={syntheticProjectId}
         files={files}
@@ -153,6 +189,9 @@ export default async function SessionPage({
         studioContext={{ studio, bucket, folder }}
         currentUserEmail={user.email}
         canMarkDone={user.role === "admin" || user.role === "editor"}
+        userPlan={user.plan}
+        userRole={user.role}
+        canUpload
       />
     </>
   );

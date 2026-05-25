@@ -1,33 +1,55 @@
 import Link from "next/link";
 import { TopNav } from "@/components/TopNav";
 import { requireEditorOrAdmin } from "@/lib/session";
+import { loadEditorScope } from "@/lib/editor-access";
 
+// Super-admin sees everything.
 const ADMIN_NAV = [
   { href: "/admin/studios", label: "Studios" },
   { href: "/admin/edits", label: "Edits" },
-  { href: "/admin/reviews", label: "Reviews" },
   { href: "/admin/clients", label: "Clients" },
   { href: "/admin/team", label: "Team" },
   { href: "/admin/projects", label: "All projects" },
+  // Integrations is the super-admin hub for third-party tooling
+  // (Vizard templates, Stripe billing links, future OpusClip + AI
+  // provider config). Lives above Revenue/Settings since you'll
+  // touch it more often.
+  { href: "/admin/integrations/vizard", label: "Integrations" },
+  { href: "/admin/integrations/stripe", label: "Stripe links" },
   { href: "/admin/revenue", label: "Revenue" },
   { href: "/admin/settings", label: "Settings" },
 ];
 
+// Studio-scoped admin (running an external studio inside OnPod) — sees
+// only the entry points relevant to their workspace. No global revenue
+// dashboard, no OnPod settings, no cross-studio projects.
+const SCOPED_ADMIN_NAV = [
+  { href: "/admin/studios", label: "Studios" },
+  { href: "/admin/clients", label: "Clients" },
+  { href: "/admin/team", label: "Team" },
+];
+
 const EDITOR_NAV = [
   { href: "/admin/edits", label: "Edits" },
-  { href: "/admin/reviews", label: "Reviews" },
   { href: "/admin/studios", label: "Studios" },
   { href: "/admin/clients", label: "Clients" },
   { href: "/admin/projects", label: "All projects" },
 ];
 
-export default function AdminLayout({
+export default async function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   const user = requireEditorOrAdmin();
-  const NAV = user.role === "admin" ? ADMIN_NAV : EDITOR_NAV;
+  const scope = await loadEditorScope(user);
+  const isScopedAdmin = user.role === "admin" && scope.studios !== null;
+  const NAV =
+    user.role === "admin"
+      ? isScopedAdmin
+        ? SCOPED_ADMIN_NAV
+        : ADMIN_NAV
+      : EDITOR_NAV;
   return (
     <>
       <TopNav user={user} />

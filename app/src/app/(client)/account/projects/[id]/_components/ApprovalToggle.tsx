@@ -30,9 +30,9 @@ export function ApprovalToggle({
     : value === "approved"
       ? "Approved"
       : value === "pending"
-        ? "Awaiting review"
+        ? "Ready for approval"
         : value === "rejected"
-          ? "Changes requested"
+          ? "In revision"
           : "Approve";
 
   const next: ApprovalStatus = value === "approved" ? "none" : "approved";
