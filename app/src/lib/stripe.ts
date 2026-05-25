@@ -115,7 +115,7 @@ const TRIAL_LINKS: Array<Omit<TrialLink, "url"> & { envName: string }> = [
     label: "7-day trial → Starter",
     plan: "ext_studio_base",
     trialDays: 7,
-    priceCad: 122,
+    priceCad: 39,
   },
 ];
 

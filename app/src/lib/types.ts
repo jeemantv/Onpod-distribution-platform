@@ -184,7 +184,7 @@ export const PLAN_LIMITS: Record<Plan, PlanLimit> = {
     opusClips: BASE.reels,
     coverArts: BASE.thumbnails,
     priceUsd: 39,
-    priceCad: 53,
+    priceCad: 39,
     billed: "client",
   },
   direct_double: {
@@ -196,7 +196,7 @@ export const PLAN_LIMITS: Record<Plan, PlanLimit> = {
     opusClips: DOUBLE.reels,
     coverArts: DOUBLE.thumbnails,
     priceUsd: 89,
-    priceCad: 122,
+    priceCad: 89,
     billed: "client",
   },
   ext_studio_base: {
@@ -207,8 +207,8 @@ export const PLAN_LIMITS: Record<Plan, PlanLimit> = {
     podcasts: BASE.episodes,
     opusClips: BASE.reels,
     coverArts: BASE.thumbnails,
-    priceUsd: 89,
-    priceCad: 122,
+    priceUsd: 39,
+    priceCad: 39,
     billed: "client",
   },
   ext_studio_double: {
@@ -219,8 +219,8 @@ export const PLAN_LIMITS: Record<Plan, PlanLimit> = {
     podcasts: DOUBLE.episodes,
     opusClips: DOUBLE.reels,
     coverArts: DOUBLE.thumbnails,
-    priceUsd: 120,
-    priceCad: 164,
+    priceUsd: 89,
+    priceCad: 89,
     billed: "client",
   },
   unlimited: {
