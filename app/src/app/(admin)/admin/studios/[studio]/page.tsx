@@ -67,7 +67,6 @@ export default async function StudioPage({
         <div className="mb-8">
           <StudioSettingsPanel
             slug={studio}
-            initialPaymentLinkUrl={studioRow.paymentLinkUrl}
             initialInvites={(await listStudioInvites(studio)).map((inv) => ({
               id: inv.id,
               token: inv.token,
@@ -78,7 +77,6 @@ export default async function StudioPage({
               revokedAt: inv.revokedAt ? inv.revokedAt.toISOString() : null,
             }))}
             origin={`${headers().get("x-forwarded-proto") ?? "https"}://${headers().get("host") ?? "onpod.vercel.app"}`}
-            isSuperAdmin={scope.studios === null}
           />
         </div>
       ) : null}

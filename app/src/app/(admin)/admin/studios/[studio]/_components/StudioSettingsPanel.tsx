@@ -1,8 +1,11 @@
 "use client";
 
-// Studio admin settings: shareable signup invites + Stripe Payment Link
-// URL. Lives on /admin/studios/[studio]. Scoped admins can edit only
-// their own studios (server enforces this via loadEditorScope).
+// Studio admin settings: shareable signup invites. Lives on
+// /admin/studios/[studio]. Scoped admins can edit only their own
+// studios (server enforces this via loadEditorScope).
+//
+// The legacy per-studio "Payment URL" field was removed — OnPod now
+// owns billing centrally; studios earn free storage instead.
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -20,26 +23,16 @@ interface InviteRow {
 export function StudioSettingsPanel({
   slug,
   initialInvites,
-  initialPaymentLinkUrl,
   origin,
-  isSuperAdmin,
 }: {
   slug: string;
   initialInvites: InviteRow[];
-  initialPaymentLinkUrl: string | null;
   origin: string;
-  // OnPod controls billing now; per-studio payment link is super-admin
-  // only (legacy escape hatch). Scoped admins don't see the section.
-  isSuperAdmin: boolean;
 }) {
   const router = useRouter();
   const [invites, setInvites] = useState<InviteRow[]>(initialInvites);
   const [busy, setBusy] = useState(false);
   const [label, setLabel] = useState("");
-  const [paymentLinkUrl, setPaymentLinkUrl] = useState(initialPaymentLinkUrl ?? "");
-  const [savingPayment, setSavingPayment] = useState(false);
-  const [paymentSaved, setPaymentSaved] = useState(false);
-  const [paymentError, setPaymentError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   // `copied` tracks the most recently-copied identifier. We tag with a
   // suffix so the URL-copy and embed-copy buttons don't collide.
@@ -102,28 +95,6 @@ export function StudioSettingsPanel({
     }
   };
 
-  const savePayment = async () => {
-    setSavingPayment(true);
-    setPaymentError(null);
-    setPaymentSaved(false);
-    try {
-      const res = await fetch(`/api/admin/studios/${slug}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paymentLinkUrl: paymentLinkUrl.trim() || null }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error((data as { message?: string }).message ?? `HTTP ${res.status}`);
-      }
-      setPaymentSaved(true);
-      router.refresh();
-    } catch (err) {
-      setPaymentError((err as Error).message);
-    } finally {
-      setSavingPayment(false);
-    }
-  };
 
   return (
     <div className="space-y-6">
@@ -209,51 +180,6 @@ export function StudioSettingsPanel({
         )}
       </section>
 
-      {isSuperAdmin ? (
-      <section className="p-6 rounded-[16px] bg-bg-elev border border-border">
-        <div className="mb-3 p-3 rounded-[10px] bg-[rgba(245,158,11,0.08)] border border-[rgba(245,158,11,0.25)] text-[12px] text-[#fbbf24]">
-          OnPod owns billing now. Studios earn free storage (up to 20 TB) for
-          bringing clients — they don&apos;t collect payment directly. This per-studio
-          payment URL is a legacy escape hatch; leave empty unless you have a
-          specific reason.
-        </div>
-        <h2 className="display text-[18px] mb-1">Payment (super-admin only)</h2>
-        <p className="text-text-muted text-[12px] mb-4">
-          Paste your Stripe Payment Link (or similar) here. New clients see a
-          &quot;Set up payment&quot; CTA after they sign up via your invite
-          link. OnPod doesn&apos;t process the payment — you do.
-        </p>
-        <div className="flex items-center gap-2">
-          <input
-            type="url"
-            value={paymentLinkUrl}
-            onChange={(e) => {
-              setPaymentLinkUrl(e.target.value);
-              setPaymentSaved(false);
-            }}
-            placeholder="https://buy.stripe.com/…"
-            className="flex-1 px-3 py-2 bg-bg-elev-2 border border-border rounded-[10px] text-[13px]"
-          />
-          <button
-            onClick={savePayment}
-            disabled={
-              savingPayment || paymentLinkUrl === (initialPaymentLinkUrl ?? "")
-            }
-            className="px-4 py-2 rounded-[10px] bg-accent text-white text-[13px] font-medium disabled:opacity-50"
-          >
-            {savingPayment ? "Saving…" : paymentSaved ? "✓ Saved" : "Save"}
-          </button>
-        </div>
-        {paymentError ? (
-          <p className="text-[12px] text-danger mt-2">{paymentError}</p>
-        ) : null}
-        {paymentLinkUrl ? (
-          <p className="text-[11px] text-text-dim mt-2">
-            New signups will see this link. Leave empty to skip the payment step.
-          </p>
-        ) : null}
-      </section>
-      ) : null}
     </div>
   );
 }
