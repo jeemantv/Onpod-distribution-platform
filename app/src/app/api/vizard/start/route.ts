@@ -3,6 +3,7 @@
 // /api/vizard/webhook on completion.
 
 import { NextResponse } from "next/server";
+import { eq } from "drizzle-orm";
 import { decodeFileId, publicUrl } from "@/lib/b2";
 import { getSession } from "@/lib/session";
 import { gate } from "@/lib/plan-gate-route";
@@ -10,11 +11,16 @@ import { canAccessKey } from "@/lib/access";
 import { createClipProject } from "@/lib/vizard";
 import { recordVizardJob } from "@/lib/vizard-job-store";
 import { parseKey } from "@/lib/studio";
+import { db } from "@/lib/db";
+import { vizardTemplateOverrides } from "@/lib/db/schema";
 
 interface RequestBody {
   fileId: string;
   lang?: string;
   templateId?: string;
+  // 4-digit code if the template is locked. Required for clients on a
+  // locked template; admin / editor bypass at the server below.
+  lockCode?: string;
 }
 
 function extOf(name: string): string {
@@ -40,6 +46,26 @@ export async function POST(req: Request) {
   }
   if (!canAccessKey(user, key)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+
+  // Server-side template lock enforcement. The client-side /verify call
+  // is just a UX preview — without this server check a client could
+  // POST start with any templateId and skip the lock entirely.
+  if (body.templateId && user.role !== "admin" && (user.role as string) !== "editor") {
+    const [override] = await db
+      .select({ lockCode: vizardTemplateOverrides.lockCode })
+      .from(vizardTemplateOverrides)
+      .where(eq(vizardTemplateOverrides.templateId, body.templateId))
+      .limit(1);
+    if (override?.lockCode) {
+      const supplied = body.lockCode?.trim() ?? "";
+      if (supplied !== override.lockCode) {
+        return NextResponse.json(
+          { error: "locked_template", message: "This template requires a 4-digit code." },
+          { status: 403 },
+        );
+      }
+    }
   }
 
   const videoUrl = publicUrl(key);

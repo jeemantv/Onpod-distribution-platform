@@ -31,6 +31,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ received: true, known: false });
   }
 
+  // Idempotency guard. Vizard's dashboard-level webhook + the per-job
+  // webhook URL we send both fire — we don't want to re-download 40
+  // clips a second time or flip status backwards from succeeded.
+  if (stored.status === "succeeded" && (stored.clipsDelivered ?? 0) > 0) {
+    return NextResponse.json({
+      received: true,
+      alreadyDelivered: true,
+      clipsDelivered: stored.clipsDelivered,
+    });
+  }
+
   try {
     const remote = await queryClipProject(projectId);
     if (remote.code !== 2000 || !remote.videos || remote.videos.length === 0) {

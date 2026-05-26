@@ -4,6 +4,7 @@ import { generateArticle, type ArticleFormat } from "@/lib/claude";
 import { getAI, getTranscript, saveAI } from "@/lib/transcript-store";
 import { getSession } from "@/lib/session";
 import { gate } from "@/lib/plan-gate-route";
+import { activeVideoKey } from "@/lib/versions-store";
 
 const VALID: ReadonlyArray<ArticleFormat> = [
   "linkedin",
@@ -27,16 +28,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid_format" }, { status: 400 });
   }
 
-  let key: string;
+  let canonical: string;
   try {
-    key = decodeFileId(fileId);
+    canonical = decodeFileId(fileId);
   } catch {
     return NextResponse.json({ error: "invalid_file_id" }, { status: 400 });
   }
-  const [ownerId] = key.split("/", 1);
+  const [ownerId] = canonical.split("/", 1);
   if (user.role !== "admin" && ownerId !== user.id) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
+
+  // AI lives on the active version's key so a v2 doesn't inherit v1's
+  // article output. Other AI routes (transcribe, save-field, regen)
+  // already do this — this route was missed.
+  const key = await activeVideoKey(canonical);
 
   const transcript = await getTranscript(key);
   const ai = await getAI(key);

@@ -47,7 +47,10 @@ export function OpusClipModal({
   const [lockCodeInput, setLockCodeInput] = useState("");
   const [lockError, setLockError] = useState<string | null>(null);
   const [verifyingLock, setVerifyingLock] = useState(false);
-  const [verifiedTemplates, setVerifiedTemplates] = useState<Set<string>>(new Set());
+  // Keep the verified code per-template so we can pass it through to
+  // /api/vizard/start (server re-checks server-side; the verify call is
+  // just a UX preview).
+  const [verifiedCodes, setVerifiedCodes] = useState<Record<string, string>>({});
 
   const verifyLockCode = async () => {
     if (!pendingLockTemplate) return;
@@ -68,11 +71,10 @@ export function OpusClipModal({
           (data as { message?: string }).message ?? "Incorrect code.",
         );
       }
-      setVerifiedTemplates((prev) => {
-        const next = new Set(prev);
-        next.add(pendingLockTemplate.id);
-        return next;
-      });
+      setVerifiedCodes((prev) => ({
+        ...prev,
+        [pendingLockTemplate.id]: lockCodeInput,
+      }));
       setVizardTemplateId(pendingLockTemplate.id);
       setPendingLockTemplate(null);
       setLockCodeInput("");
@@ -147,6 +149,11 @@ export function OpusClipModal({
           body: JSON.stringify({
             fileId,
             templateId: vizardTemplateId || undefined,
+            // Server re-checks the lock against the DB; the verify call
+            // earlier was just a UX preview.
+            lockCode: vizardTemplateId
+              ? verifiedCodes[vizardTemplateId]
+              : undefined,
           }),
         });
         if (!res.ok) {
@@ -280,7 +287,7 @@ export function OpusClipModal({
                   // Locked templates need the 4-digit code first —
                   // unless the user already verified it this session,
                   // or they're admin/editor (server still verifies).
-                  if (t.locked && !verifiedTemplates.has(t.id)) {
+                  if (t.locked && !verifiedCodes[t.id]) {
                     setPendingLockTemplate(t);
                     setLockCodeInput("");
                     setLockError(null);

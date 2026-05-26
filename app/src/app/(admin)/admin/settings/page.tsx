@@ -1,4 +1,9 @@
+import { notFound } from "next/navigation";
 import { PLAN_LIMITS, type Plan } from "@/lib/types";
+import { requireAdmin } from "@/lib/session";
+import { loadEditorScope } from "@/lib/editor-access";
+
+export const dynamic = "force-dynamic";
 
 const INTEGRATIONS = [
   { key: "DEEPGRAM_API_KEY", label: "Deepgram (transcription)" },
@@ -23,7 +28,12 @@ const PRICING_PLANS: Plan[] = [
   "unlimited",
 ];
 
-export default function AdminSettingsPage() {
+export default async function AdminSettingsPage() {
+  // Super-admin only — integration keys + global plan pricing aren't
+  // for scoped admins (toronto, etc.).
+  const user = requireAdmin();
+  const scope = await loadEditorScope(user);
+  if (scope.studios !== null) notFound();
   return (
     <>
       <h1 className="display text-[36px] mb-2">Platform settings</h1>

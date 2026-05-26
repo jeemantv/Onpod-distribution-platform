@@ -1,5 +1,10 @@
+import { notFound } from "next/navigation";
 import { mockUsers } from "@/lib/mock-data";
 import { PLAN_LIMITS, type Plan } from "@/lib/types";
+import { requireAdmin } from "@/lib/session";
+import { loadEditorScope } from "@/lib/editor-access";
+
+export const dynamic = "force-dynamic";
 
 const PAID_PLANS: Plan[] = [
   "onpod_studio",
@@ -9,7 +14,13 @@ const PAID_PLANS: Plan[] = [
   "ext_studio_double",
 ];
 
-export default function AdminRevenuePage() {
+export default async function AdminRevenuePage() {
+  // Super-admin only. Scoped admins (toronto, etc.) shouldn't see
+  // OnPod-wide revenue numbers.
+  const user = requireAdmin();
+  const scope = await loadEditorScope(user);
+  if (scope.studios !== null) notFound();
+
   const clients = mockUsers.filter((u) => u.role === "client");
   const mrr = clients.reduce(
     (sum, u) => sum + PLAN_LIMITS[u.plan].priceCad,
@@ -33,7 +44,8 @@ export default function AdminRevenuePage() {
     <>
       <h1 className="display text-[36px] mb-2">Revenue</h1>
       <p className="text-text-muted text-[13px] mb-8">
-        Live numbers from Stripe (mocked in this scaffold).
+        Demo numbers — sourced from the in-memory mock user list, not
+        Stripe. Real MRR wiring is a later iteration.
       </p>
 
       <div className="grid grid-cols-3 gap-4 mb-8">
