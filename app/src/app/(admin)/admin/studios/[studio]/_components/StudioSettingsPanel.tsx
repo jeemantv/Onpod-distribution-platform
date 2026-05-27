@@ -24,11 +24,38 @@ export function StudioSettingsPanel({
   slug,
   initialInvites,
   origin,
+  editors = [],
+  initialDefaultEditor = null,
 }: {
   slug: string;
   initialInvites: InviteRow[];
   origin: string;
+  editors?: { email: string; name: string }[];
+  initialDefaultEditor?: string | null;
 }) {
+  const [defaultEditor, setDefaultEditor] = useState<string | null>(initialDefaultEditor);
+  const [editorSaving, setEditorSaving] = useState(false);
+  const [editorSavedAt, setEditorSavedAt] = useState<number | null>(null);
+
+  const saveDefaultEditor = async (email: string | null) => {
+    const previous = defaultEditor;
+    setDefaultEditor(email);
+    setEditorSaving(true);
+    const res = await fetch(`/api/admin/studios/${slug}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ defaultEditorEmail: email }),
+    }).catch(() => null);
+    setEditorSaving(false);
+    if (!res || !res.ok) {
+      setDefaultEditor(previous);
+      const txt = (await res?.text().catch(() => "")) ?? "";
+      alert(`Couldn't save default editor. ${txt.slice(0, 200)}`);
+      return;
+    }
+    setEditorSavedAt(Date.now());
+    setTimeout(() => setEditorSavedAt(null), 2000);
+  };
   const router = useRouter();
   const [invites, setInvites] = useState<InviteRow[]>(initialInvites);
   const [busy, setBusy] = useState(false);
@@ -98,6 +125,35 @@ export function StudioSettingsPanel({
 
   return (
     <div className="space-y-6">
+      <section className="p-6 rounded-[16px] bg-bg-elev border border-border">
+        <h2 className="display text-[18px] mb-1">Default editor</h2>
+        <p className="text-text-muted text-[12px] mb-4">
+          Every new client created in this studio gets this editor assigned
+          automatically. They can still be reassigned later from the Clients
+          tab. Leave blank to skip auto-assignment.
+        </p>
+        <div className="flex items-center gap-3 flex-wrap">
+          <select
+            value={defaultEditor ?? ""}
+            disabled={editorSaving}
+            onChange={(e) => void saveDefaultEditor(e.target.value || null)}
+            className="flex-1 min-w-[200px] max-w-[400px] bg-bg-elev-2 border border-border rounded-[10px] px-3 py-2 text-[13px]"
+          >
+            <option value="">— none (no auto-assignment) —</option>
+            {editors.map((ed) => (
+              <option key={ed.email} value={ed.email}>
+                {ed.name} · {ed.email}
+              </option>
+            ))}
+          </select>
+          {editorSaving ? (
+            <span className="text-[11px] text-text-muted">Saving…</span>
+          ) : editorSavedAt ? (
+            <span className="text-[11px] text-success">Saved ✓</span>
+          ) : null}
+        </div>
+      </section>
+
       <section className="p-6 rounded-[16px] bg-bg-elev border border-border">
         <h2 className="display text-[18px] mb-1">Signup invite links</h2>
         <p className="text-text-muted text-[12px] mb-4">

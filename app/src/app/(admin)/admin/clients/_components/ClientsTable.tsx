@@ -20,6 +20,12 @@ interface Row {
   totalFiles: number;
   totalSize: number;
   lastSession: string | null;
+  assignedEditorEmail: string | null;
+}
+
+interface EditorOption {
+  email: string;
+  name: string;
 }
 
 function fmtBytes(n: number): string {
@@ -28,8 +34,38 @@ function fmtBytes(n: number): string {
   return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
-export function ClientsTable({ rows }: { rows: Row[] }) {
+export function ClientsTable({
+  rows,
+  editors = [],
+  canAssignEditor = false,
+}: {
+  rows: Row[];
+  editors?: EditorOption[];
+  canAssignEditor?: boolean;
+}) {
   const [q, setQ] = useState("");
+  const [assignments, setAssignments] = useState<Record<string, string | null>>(
+    () => Object.fromEntries(rows.map((r) => [r.id, r.assignedEditorEmail])),
+  );
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  const assignEditor = async (clientId: string, editorEmail: string | null) => {
+    setSavingId(clientId);
+    const previous = assignments[clientId] ?? null;
+    setAssignments((prev) => ({ ...prev, [clientId]: editorEmail }));
+    const res = await fetch(`/api/admin/users/${clientId}/assigned-editor`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assignedEditorEmail: editorEmail }),
+    }).catch(() => null);
+    setSavingId(null);
+    if (!res || !res.ok) {
+      // Roll back on failure.
+      setAssignments((prev) => ({ ...prev, [clientId]: previous }));
+      const txt = (await res?.text().catch(() => "")) ?? "";
+      alert(`Couldn't update editor. ${txt.slice(0, 200)}`);
+    }
+  };
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();
     if (!term) return rows;
@@ -70,6 +106,9 @@ export function ClientsTable({ rows }: { rows: Row[] }) {
               <tr className="text-text-muted text-[11px] uppercase tracking-wider border-b border-border">
                 <th className="text-left p-4 font-medium">Client</th>
                 <th className="text-left p-4 font-medium">Plan</th>
+                {canAssignEditor ? (
+                  <th className="text-left p-4 font-medium">Editor</th>
+                ) : null}
                 <th className="text-left p-4 font-medium">Sessions</th>
                 <th className="text-left p-4 font-medium">Files</th>
                 <th className="text-left p-4 font-medium">Storage</th>
@@ -106,6 +145,29 @@ export function ClientsTable({ rows }: { rows: Row[] }) {
                       </span>
                     </Link>
                   </td>
+                  {canAssignEditor ? (
+                    <td
+                      className="p-3"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <select
+                        value={assignments[c.id] ?? ""}
+                        disabled={savingId === c.id}
+                        onChange={(e) =>
+                          void assignEditor(c.id, e.target.value || null)
+                        }
+                        className="w-full max-w-[180px] bg-bg-elev-3 border border-border rounded-[8px] px-2 py-1.5 text-[12px]"
+                        aria-label={`Editor for ${c.firstName} ${c.lastName}`}
+                      >
+                        <option value="">— unassigned —</option>
+                        {editors.map((ed) => (
+                          <option key={ed.email} value={ed.email}>
+                            {ed.name}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                  ) : null}
                   <td className="p-0">
                     <Link href={`/admin/clients/${c.id}`} className="block p-4">{c.sessionCount}</Link>
                   </td>

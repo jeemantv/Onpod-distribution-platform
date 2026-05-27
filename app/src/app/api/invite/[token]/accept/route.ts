@@ -16,6 +16,7 @@ import {
   createUser,
   updateUserHomeStudio,
   updateUserSelfUpload,
+  updateUserAssignedEditor,
 } from "@/lib/auth-store";
 import { issueMagicToken, buildMagicLinkUrl } from "@/lib/magic-link";
 import { sendEmail, welcomeMagicLinkEmail } from "@/lib/email";
@@ -75,6 +76,11 @@ export async function POST(
 
   await updateUserHomeStudio(user.id, invite.studioSlug).catch(() => undefined);
   await updateUserSelfUpload(user.id, true).catch(() => undefined);
+  // Auto-assign the studio's default editor — only on first creation so
+  // existing clients with a manually-set editor don't get overwritten.
+  if (created && studio.defaultEditorEmail) {
+    await updateUserAssignedEditor(user.id, studio.defaultEditorEmail).catch(() => undefined);
+  }
 
   const { token } = await issueMagicToken(email);
   const signInUrl = buildMagicLinkUrl(siteOrigin(req), token);

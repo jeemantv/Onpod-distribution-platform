@@ -31,8 +31,8 @@ export function RequestApprovalModal({
   const send = async () => {
     setSending(true);
     setError(null);
-    // Flip each target file to "pending" in the DB so both the client and
-    // the editor see "Waiting for approval" after a reload.
+    // 1. Flip each target file to "pending" in the DB so both client and
+    //    editor see "Waiting for approval" after a reload.
     const failed: string[] = [];
     await Promise.all(
       unapprovedFiles.map(async (f) => {
@@ -44,11 +44,26 @@ export function RequestApprovalModal({
         if (!res || !res.ok) failed.push(f.name);
       }),
     );
-    // Email delivery is wired up in Phase 3 (Resend). For now we just
-    // persist the approval state so the badges flip.
+    // 2. Send the actual email via Resend.
+    const emailRes = await fetch("/api/approvals/request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        projectId,
+        to,
+        subject,
+        body,
+        fileNames: unapprovedFiles.map((f) => f.name),
+      }),
+    }).catch(() => null);
     setSending(false);
     if (failed.length > 0) {
       setError(`Could not mark ${failed.length} file${failed.length === 1 ? "" : "s"} as pending. Try again.`);
+      return;
+    }
+    if (!emailRes || !emailRes.ok) {
+      const txt = (await emailRes?.text().catch(() => "")) ?? "";
+      setError(`Files were flagged but the email didn't send. ${txt.slice(0, 200)}`);
       return;
     }
     onSent();
@@ -75,6 +90,28 @@ export function RequestApprovalModal({
         </>
       }
     >
+      {unapprovedFiles.length === 0 ? (
+        <div className="mb-4 p-3 rounded-[10px] bg-[rgba(245,158,11,0.08)] border border-[rgba(245,158,11,0.25)] text-[12px] text-[#fbbf24]">
+          No files selected. Close this and tick the checkbox on each file you
+          want included in the approval email, then click Request approval
+          again.
+        </div>
+      ) : (
+        <div className="mb-4 p-3 rounded-[10px] bg-bg-elev-2 border border-border text-[12px]">
+          <div className="font-medium mb-1.5">
+            {unapprovedFiles.length} file{unapprovedFiles.length === 1 ? "" : "s"} will be listed in the email:
+          </div>
+          <ul className="text-text-muted space-y-0.5">
+            {unapprovedFiles.slice(0, 8).map((f) => (
+              <li key={f.id} className="truncate">• {f.name}</li>
+            ))}
+            {unapprovedFiles.length > 8 ? (
+              <li>+ {unapprovedFiles.length - 8} more</li>
+            ) : null}
+          </ul>
+        </div>
+      )}
+
       {error ? (
         <p className="mb-3 text-[12px] text-danger">{error}</p>
       ) : null}

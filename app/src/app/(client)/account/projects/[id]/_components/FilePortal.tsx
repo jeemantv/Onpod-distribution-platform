@@ -1058,17 +1058,13 @@ export function FilePortal({
       ) : null}
       {modal?.kind === "request-approval"
         ? (() => {
-            // When the editor has checked specific files, only those are
-            // sent for approval. With nothing selected, fall back to
-            // every unapproved file in the session (the original
-            // bulk-flow).
-            const selectedApprovable = files.filter(
+            // Selected-files-only: the email lists *only* what the editor
+            // explicitly checked. Removed the old fallback to "all
+            // unapproved files in the session" — that caused 5-file
+            // emails when the editor really meant 1.
+            const targets = files.filter(
               (f) => selected.has(f.id) && needsApproval(f) && f.approvalStatus === "none",
             );
-            const targets =
-              selectedApprovable.length > 0
-                ? selectedApprovable
-                : files.filter((f) => needsApproval(f) && f.approvalStatus === "none");
             const targetIds = new Set(targets.map((t) => t.id));
             return (
               <RequestApprovalModal

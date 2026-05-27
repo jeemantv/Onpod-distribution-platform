@@ -78,9 +78,20 @@ export default async function AdminClientsPage() {
         totalFiles,
         totalSize,
         lastSession,
+        assignedEditorEmail:
+          (c as { assignedEditorEmail?: string | null }).assignedEditorEmail ?? null,
       };
     }),
   );
+
+  // Editor options for the per-row assignment dropdown. Only show editors;
+  // admins handle clients via direct sign-in not assignment.
+  const editorOptions = stored
+    .filter((u) => u.role === "editor")
+    .map((u) => ({
+      email: u.email,
+      name: `${u.firstName} ${u.lastName}`.trim() || u.email,
+    }));
 
   rows.sort((a, b) => (b.lastSession ?? "").localeCompare(a.lastSession ?? ""));
 
@@ -104,6 +115,8 @@ export default async function AdminClientsPage() {
       </div>
 
       <ClientsTable
+        canAssignEditor={user.role === "admin"}
+        editors={editorOptions}
         rows={rows.map((c) => ({
           id: c.id,
           email: c.email,
@@ -117,6 +130,7 @@ export default async function AdminClientsPage() {
           totalFiles: c.totalFiles,
           totalSize: c.totalSize,
           lastSession: c.lastSession,
+          assignedEditorEmail: c.assignedEditorEmail,
         }))}
       />
     </>

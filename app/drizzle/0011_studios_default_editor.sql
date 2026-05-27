@@ -1,0 +1,1 @@
+ALTER TABLE "studios" ADD COLUMN "default_editor_email" text;

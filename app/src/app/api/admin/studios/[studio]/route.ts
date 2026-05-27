@@ -10,6 +10,7 @@ import {
   setStudioKind,
   getStudio,
   setStudioPaymentLink,
+  setStudioDefaultEditor,
   type StudioKind,
 } from "@/lib/studio-registry";
 import { loadEditorScope } from "@/lib/editor-access";
@@ -45,6 +46,7 @@ export async function PATCH(
     displayName?: string;
     kind?: StudioKind;
     paymentLinkUrl?: string | null;
+    defaultEditorEmail?: string | null;
   } | null;
   if (!body) {
     return NextResponse.json({ error: "invalid_body" }, { status: 400 });
@@ -59,6 +61,9 @@ export async function PATCH(
     }
     if (body.paymentLinkUrl !== undefined) {
       await setStudioPaymentLink(params.studio, body.paymentLinkUrl);
+    }
+    if (body.defaultEditorEmail !== undefined) {
+      await setStudioDefaultEditor(params.studio, body.defaultEditorEmail);
     }
     const row = await getStudio(params.studio);
     return NextResponse.json({ ok: true, studio: row });

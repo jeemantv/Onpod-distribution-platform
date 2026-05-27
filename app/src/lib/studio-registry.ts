@@ -20,6 +20,7 @@ export interface StudioRegistryEntry {
   displayName: string;
   kind: StudioKind;
   paymentLinkUrl: string | null;
+  defaultEditorEmail: string | null;
   createdAt: Date;
 }
 
@@ -29,8 +30,22 @@ function toEntry(r: StudioRow): StudioRegistryEntry {
     displayName: r.displayName,
     kind: (r.kind === "onpod" ? "onpod" : "external"),
     paymentLinkUrl: r.paymentLinkUrl ?? null,
+    defaultEditorEmail: r.defaultEditorEmail ?? null,
     createdAt: r.createdAt,
   };
+}
+
+export async function setStudioDefaultEditor(
+  slug: string,
+  editorEmail: string | null,
+): Promise<void> {
+  const v = editorEmail?.trim().toLowerCase() || null;
+  const result = await db
+    .update(studios)
+    .set({ defaultEditorEmail: v })
+    .where(eq(studios.slug, slug))
+    .returning({ id: studios.id });
+  if (result.length === 0) throw new Error("studio not found");
 }
 
 export async function setStudioPaymentLink(

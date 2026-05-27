@@ -103,6 +103,10 @@ export const studios = pgTable(
     // surfaces it on the signup confirmation page; we don't process the
     // payment ourselves. Null = no payment step shown to new clients.
     paymentLinkUrl: text("payment_link_url"),
+    // Default editor for new clients created in this studio. The invite
+    // flow uses this to auto-populate users.assignedEditorEmail so the
+    // editor immediately sees the new client in their dashboard.
+    defaultEditorEmail: text("default_editor_email"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   },
   (t) => ({

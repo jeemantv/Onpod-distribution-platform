@@ -78,6 +78,13 @@
       "when": 1779855496309,
       "tag": "0010_file_statuses",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1779857032233,
+      "tag": "0011_studios_default_editor",
+      "breakpoints": true
     }
   ]
 }

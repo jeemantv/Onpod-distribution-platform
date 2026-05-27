@@ -17,9 +17,10 @@ import {
   updateUserHomeStudio,
   updateUserSelfUpload,
   updateEditorAssignment,
+  updateUserAssignedEditor,
   updateUserRole,
 } from "@/lib/auth-store";
-import { listStudios } from "@/lib/studio-registry";
+import { listStudios, getStudio } from "@/lib/studio-registry";
 
 interface Body {
   email: string;
@@ -128,6 +129,17 @@ export async function POST(req: Request) {
       await updateUserHomeStudio(user.id, homeStudio).catch((err) =>
         console.warn("[clients/invite] homeStudio update failed", err),
       );
+      // Auto-assign the studio's default editor — first-time creation only,
+      // so re-inviting an existing client doesn't clobber their explicit
+      // editor pick.
+      if (created) {
+        const studioRow = await getStudio(homeStudio).catch(() => null);
+        if (studioRow?.defaultEditorEmail) {
+          await updateUserAssignedEditor(user.id, studioRow.defaultEditorEmail).catch((err) =>
+            console.warn("[clients/invite] default editor assign failed", err),
+          );
+        }
+      }
     }
     await updateUserSelfUpload(user.id, selfUploadEnabled).catch((err) =>
       console.warn("[clients/invite] selfUpload update failed", err),

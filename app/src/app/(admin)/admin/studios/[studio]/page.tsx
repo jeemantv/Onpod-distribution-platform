@@ -9,6 +9,7 @@ import {
 import { getStudio, listStudioInvites } from "@/lib/studio-registry";
 import { StudioNameEditor } from "../_components/StudioNameEditor";
 import { StudioSettingsPanel } from "./_components/StudioSettingsPanel";
+import { listAllUsers } from "@/lib/auth-store";
 import { headers } from "next/headers";
 
 export const dynamic = "force-dynamic";
@@ -67,6 +68,13 @@ export default async function StudioPage({
         <div className="mb-8">
           <StudioSettingsPanel
             slug={studio}
+            initialDefaultEditor={studioRow.defaultEditorEmail}
+            editors={(await listAllUsers())
+              .filter((u) => u.role === "editor")
+              .map((u) => ({
+                email: u.email,
+                name: `${u.firstName} ${u.lastName}`.trim() || u.email,
+              }))}
             initialInvites={(await listStudioInvites(studio)).map((inv) => ({
               id: inv.id,
               token: inv.token,
