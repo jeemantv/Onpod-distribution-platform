@@ -7,6 +7,7 @@ import { PLAN_LIMITS } from "@/lib/types";
 import { effectivePlan, getUserByEmail, trialStateFor } from "@/lib/auth-store";
 import { StartSessionButton } from "./_components/StartSessionButton";
 import { SessionList } from "./_components/SessionList";
+import { StudioReferralCard } from "./_components/StudioReferralCard";
 
 export const dynamic = "force-dynamic";
 
@@ -71,6 +72,13 @@ export default async function AccountPage() {
             ) : null}
           </div>
         </div>
+
+        {homeStudio === "externals" ? (
+          <StudioReferralCard
+            clientFirstName={user.firstName}
+            clientEmail={user.email}
+          />
+        ) : null}
 
         <SessionList
           sessions={sessions.map((s) => ({
