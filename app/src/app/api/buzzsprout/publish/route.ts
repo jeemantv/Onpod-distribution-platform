@@ -6,7 +6,8 @@
 // row the Spotify RSS modal uses, so the client gets a one-click flow.
 
 import { NextResponse } from "next/server";
-import { decodeFileId, publicUrl } from "@/lib/b2";
+import { HeadObjectCommand } from "@aws-sdk/client-s3";
+import { b2, bucket, decodeFileId, publicUrl } from "@/lib/b2";
 import { getSession } from "@/lib/session";
 import { canAccessKey } from "@/lib/access";
 import { gate } from "@/lib/plan-gate-route";
@@ -15,6 +16,23 @@ import { createEpisode } from "@/lib/buzzsprout";
 import { getAI, getTranscript } from "@/lib/transcript-store";
 import { activeVideoKey } from "@/lib/versions-store";
 import { recordPublish } from "@/lib/publish-history-store";
+
+// If n8n (or any sidecar process) drops <videoKey>.mp3 or .m4a next to
+// the video, prefer that — Buzzsprout's "processing" time drops from
+// 15–30min (downloading a multi-GB MP4) to seconds (a tiny audio file).
+// Falls back to the MP4 when no sibling exists.
+async function preferAudioSibling(videoKey: string): Promise<string> {
+  const candidates = [`${videoKey}.mp3`, `${videoKey}.m4a`];
+  for (const candidate of candidates) {
+    try {
+      await b2.send(new HeadObjectCommand({ Bucket: bucket, Key: candidate }));
+      return candidate;
+    } catch {
+      /* not found, try next */
+    }
+  }
+  return videoKey;
+}
 
 interface RequestBody {
   fileId: string;
@@ -68,6 +86,12 @@ export async function POST(req: Request) {
   // Resolve to whichever version is currently active so re-uploads
   // publish the new edit, not v1.
   const key = await activeVideoKey(canonical);
+  // If an audio sibling exists, hand Buzzsprout that URL instead of the
+  // video. Buzzsprout still works on the MP4 fallback — they extract
+  // audio server-side — but it's much slower than serving them MP3
+  // directly. Once n8n is wired up to drop .mp3 next to the finalized
+  // edit, this kicks in automatically.
+  const audioKey = await preferAudioSibling(key);
   const ai = await getAI(key);
   const transcript = await getTranscript(key);
 
@@ -80,7 +104,7 @@ export async function POST(req: Request) {
     body.summary ?? (ai?.summary ? ai.summary : description.slice(0, 280));
   const tags = body.tags ?? (ai?.tags?.length ? ai.tags.join(", ") : undefined);
 
-  const audioUrl = publicUrl(key);
+  const audioUrl = publicUrl(audioKey);
 
   try {
     const episode = await createEpisode(creds.podcastId, creds.token, {
@@ -107,7 +131,14 @@ export async function POST(req: Request) {
       externalId: String(episode.id),
       externalUrl: null,
       scheduledFor: null,
-      metadata: { provider: "buzzsprout", podcastId: creds.podcastId },
+      metadata: {
+        provider: "buzzsprout",
+        podcastId: creds.podcastId,
+        // Track which URL we actually handed Buzzsprout so we can debug
+        // "why is processing slow?" without re-checking B2.
+        sentAudioKey: audioKey,
+        sentAudioOnly: audioKey !== key,
+      },
     });
     return NextResponse.json({
       ok: true,
