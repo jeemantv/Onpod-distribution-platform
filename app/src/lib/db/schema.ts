@@ -55,6 +55,11 @@ export const users = pgTable(
     emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true, mode: "date" }),
     stripeCustomerId: text("stripe_customer_id"),
     stripeSubscriptionId: text("stripe_subscription_id"),
+    // 7-day free trial window. Set on signup for new clients. When this
+    // is in the past AND the user has no Stripe subscription, the
+    // effective plan downgrades to "free" regardless of the `plan`
+    // column. Cleared when admin assigns a plan or Stripe sub activates.
+    trialEndsAt: timestamp("trial_ends_at", { withTimezone: true, mode: "date" }),
     // Buzzsprout integration: per-client podcast hosting. Token is the
     // client's personal Buzzsprout API token; podcastId identifies their
     // show. When both are set, the Buzzsprout button publishes via API

@@ -4,7 +4,7 @@
 import { NextResponse } from "next/server";
 import { PLAN_LIMITS, type Plan } from "./types";
 import { userCanUse, type GatedFeature } from "./plan-gate";
-import { getUserByEmail } from "./auth-store";
+import { effectivePlan, getUserByEmail } from "./auth-store";
 
 interface PlanCarrier {
   plan?: Plan | string;
@@ -26,10 +26,14 @@ export async function gate(
   // Admin / editor bypass — userCanUse already handles this.
   if (userCanUse(user, feature)) return null;
   // Re-check against fresh DB plan in case the session is stale.
+  // effectivePlan() also downgrades to "free" when a trial has expired
+  // and no Stripe sub backs the stored plan — so trial users can't keep
+  // unlimited features after day 7.
   if (user.email) {
     const stored = await getUserByEmail(user.email).catch(() => null);
-    if (stored && userCanUse({ ...user, plan: stored.plan }, feature)) {
-      return null;
+    if (stored) {
+      const live = effectivePlan(stored);
+      if (userCanUse({ ...user, plan: live }, feature)) return null;
     }
   }
   const planKey = user.plan ?? "free";

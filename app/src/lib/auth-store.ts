@@ -31,6 +31,11 @@ export interface StoredUser {
   // Client-only — undefined for admin/editor and pre-Phase-2 clients.
   homeStudio?: string;
   selfUploadEnabled?: boolean;
+  // 7-day free trial expiry. Set on signup; cleared when admin assigns
+  // a plan or a Stripe sub activates. Null = no trial (pre-Phase-trial
+  // users, manually-onboarded studio clients, etc.)
+  trialEndsAt?: string;
+  stripeSubscriptionId?: string;
 }
 
 const SALT_ROUNDS = 10;
@@ -52,6 +57,53 @@ function toStored(u: User): StoredUser {
     excludedClientEmails: u.excludedClientEmails ?? undefined,
     homeStudio: u.homeStudio ?? undefined,
     selfUploadEnabled: u.selfUploadEnabled,
+    trialEndsAt: u.trialEndsAt ? u.trialEndsAt.toISOString() : undefined,
+    stripeSubscriptionId: u.stripeSubscriptionId ?? undefined,
+  };
+}
+
+// Length of the auto-granted trial for new clients, in days. Editable
+// here if you want to extend the window. 0 disables trials entirely.
+export const TRIAL_DAYS = 7;
+// Plan new clients live on during their trial — gives them every
+// feature so they can evaluate fully. Downgrades to "free" on expiry.
+export const TRIAL_PLAN = "unlimited";
+
+export interface TrialState {
+  active: boolean;
+  endsAt: Date | null;
+  daysLeft: number; // 0 when expired or no trial
+}
+
+/**
+ * Resolve a stored user's "effective" plan — what gates should use.
+ * A trial in progress → the stored plan (probably TRIAL_PLAN).
+ * Expired trial AND no Stripe sub → "free".
+ * Anything else → the stored plan unchanged.
+ */
+export function effectivePlan(
+  u: Pick<StoredUser, "plan" | "trialEndsAt" | "stripeSubscriptionId">,
+): string {
+  if (!u.trialEndsAt) return u.plan;
+  const endsAt = new Date(u.trialEndsAt).getTime();
+  if (Number.isFinite(endsAt) && endsAt > Date.now()) return u.plan;
+  if (u.stripeSubscriptionId) return u.plan; // they've subscribed since
+  return "free";
+}
+
+export function trialStateFor(
+  u: Pick<StoredUser, "trialEndsAt" | "stripeSubscriptionId">,
+): TrialState {
+  if (!u.trialEndsAt || u.stripeSubscriptionId) {
+    return { active: false, endsAt: null, daysLeft: 0 };
+  }
+  const endsAt = new Date(u.trialEndsAt);
+  const ms = endsAt.getTime() - Date.now();
+  if (ms <= 0) return { active: false, endsAt, daysLeft: 0 };
+  return {
+    active: true,
+    endsAt,
+    daysLeft: Math.max(1, Math.ceil(ms / (24 * 60 * 60 * 1000))),
   };
 }
 
@@ -94,16 +146,26 @@ export async function createUser(input: CreateUserInput): Promise<StoredUser> {
   }
   const passwordHash = await bcrypt.hash(input.password, SALT_ROUNDS);
   const initials = ((input.firstName[0] ?? "?") + (input.lastName[0] ?? "?")).toUpperCase();
+  const role = input.role ?? "client";
+  // New clients land on a 7-day trial of the top plan. Editors/admins
+  // don't trial — they have full access through their role.
+  const isClient = role === "client";
+  const trialEndsAt = isClient && TRIAL_DAYS > 0
+    ? new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000)
+    : null;
+  const initialPlan = isClient && trialEndsAt ? TRIAL_PLAN : "free";
   const [row] = await db
     .insert(users)
     .values({
       email,
       passwordHash,
-      role: input.role ?? "client",
+      role,
+      plan: initialPlan,
       firstName: input.firstName,
       lastName: input.lastName,
       avatar: initials,
       avatarColor: randomAvatarColor(),
+      trialEndsAt,
     })
     .returning();
   return toStored(row);
@@ -156,9 +218,12 @@ export async function getUserByStripeCustomerId(customerId: string): Promise<Sto
 }
 
 export async function updateUserPlan(userId: string, plan: string): Promise<void> {
+  // An explicit plan change supersedes the trial — clear trialEndsAt so
+  // the user doesn't auto-downgrade later. Admin-grants and Stripe
+  // upgrades both route through here.
   const result = await db
     .update(users)
-    .set({ plan })
+    .set({ plan, trialEndsAt: null })
     .where(eq(users.id, userId))
     .returning({ id: users.id });
   if (result.length === 0) throw new Error("user not found");

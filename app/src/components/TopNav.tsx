@@ -3,8 +3,9 @@ import { Logo } from "./Logo";
 import { UserMenu } from "./UserMenu";
 import { FeedbackButton } from "./FeedbackButton";
 import type { User } from "@/lib/types";
+import { getUserByEmail, trialStateFor } from "@/lib/auth-store";
 
-export function TopNav({
+export async function TopNav({
   user,
   backHref,
   backLabel,
@@ -13,12 +14,33 @@ export function TopNav({
   backHref?: string;
   backLabel?: string;
 }) {
+  // Pull trial state from DB. Cheap query; lets the banner stay accurate
+  // even when the session JWT is older than the latest plan change.
+  const trial =
+    user.role === "client" && !user.guest
+      ? trialStateFor(
+          (await getUserByEmail(user.email).catch(() => null)) ?? {
+            trialEndsAt: undefined,
+            stripeSubscriptionId: undefined,
+          },
+        )
+      : { active: false, endsAt: null, daysLeft: 0 };
+
   return (
     <>
     {user.guest ? (
       <div className="bg-[rgba(168,85,247,0.18)] border-b border-[rgba(168,85,247,0.35)] text-[#e9d5ff] text-[12px] text-center py-1.5 px-4">
         Guest editor mode — viewing as {user.firstName} {user.lastName}.
         Notes you leave are signed <strong>{user.guest.name}</strong>.
+      </div>
+    ) : null}
+    {trial.active ? (
+      <div className="bg-[rgba(16,185,129,0.12)] border-b border-[rgba(16,185,129,0.3)] text-[#34d399] text-[12px] text-center py-1.5 px-4">
+        Free trial — {trial.daysLeft} day{trial.daysLeft === 1 ? "" : "s"} left.{" "}
+        <Link href="/settings/billing" className="underline font-medium">
+          Pick a plan
+        </Link>{" "}
+        to keep your features after it ends.
       </div>
     ) : null}
     <header className="sticky top-0 z-50 flex items-center justify-between px-4 sm:px-8 py-3 sm:py-4 border-b border-[rgba(255,255,255,0.08)] bg-[rgba(10,10,11,0.85)] backdrop-blur-xl gap-2">
