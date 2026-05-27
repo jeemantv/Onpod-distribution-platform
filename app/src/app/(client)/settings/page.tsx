@@ -5,7 +5,7 @@ import { getCreditsForUser } from "@/lib/mock-data";
 import { PLAN_LIMITS } from "@/lib/types";
 import { SignOutButton } from "./_components/SignOutButton";
 import { ExternalEditorCard } from "./_components/ExternalEditorCard";
-import { effectivePlan, getUserByEmail } from "@/lib/auth-store";
+import { effectivePlan, getUserByEmail, trialStateFor } from "@/lib/auth-store";
 import { getConnection } from "@/lib/youtube-store";
 import { getBuzzsproutCreds } from "@/lib/buzzsprout-store";
 
@@ -26,6 +26,10 @@ export default async function SettingsPage() {
   const limits = isClient
     ? (PLAN_LIMITS as Record<string, (typeof PLAN_LIMITS)[keyof typeof PLAN_LIMITS]>)[livePlan] ?? null
     : null;
+  const trial = stored ? trialStateFor(stored) : { active: false, daysLeft: 0, endsAt: null };
+  const displayPlanLabel = trial.active
+    ? `Free trial · ${trial.daysLeft} day${trial.daysLeft === 1 ? "" : "s"} left`
+    : limits?.label ?? livePlan;
   const youtube = isClient ? await getConnection(user.id).catch(() => null) : null;
   const buzzsprout = isClient ? await getBuzzsproutCreds(user.id).catch(() => null) : null;
   const backHref = isClient ? "/account" : "/admin/studios";
@@ -67,13 +71,15 @@ export default async function SettingsPage() {
           <Card title="Billing">
             <div className="flex items-center justify-between gap-4 flex-wrap">
               <div>
-                <div className="text-[14px]">{limits.label}</div>
+                <div className="text-[14px]">{displayPlanLabel}</div>
                 <div className="text-[12px] text-text-muted mt-1">
-                  {limits.priceCad === 0
-                    ? limits.source === "onpod"
-                      ? "Bundled with your OnPod studio package — no charge."
-                      : "Admin-granted plan."
-                    : `$${limits.priceCad} CAD / month · renews automatically`}
+                  {trial.active
+                    ? `Unlimited features during trial · ${trial.endsAt ? `ends ${trial.endsAt.toLocaleDateString()}` : ""}`
+                    : limits.priceCad === 0
+                      ? limits.source === "onpod"
+                        ? "Bundled with your OnPod studio package — no charge."
+                        : "Admin-granted plan."
+                      : `$${limits.priceCad} CAD / month · renews automatically`}
                 </div>
               </div>
               <Link

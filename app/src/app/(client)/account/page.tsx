@@ -4,7 +4,7 @@ import { requireClient } from "@/lib/session";
 import { listClientSessions } from "@/lib/studio-store";
 import { STUDIO_LABEL } from "@/lib/studio";
 import { PLAN_LIMITS } from "@/lib/types";
-import { getUserByEmail } from "@/lib/auth-store";
+import { effectivePlan, getUserByEmail, trialStateFor } from "@/lib/auth-store";
 import { StartSessionButton } from "./_components/StartSessionButton";
 import { SessionList } from "./_components/SessionList";
 
@@ -23,10 +23,24 @@ export default async function AccountPage() {
   // in B2 — sessions are picked up by matching the folder email to the
   // logged-in user's email.
   const sessions = await listClientSessions(user.email).catch(() => []);
-  const plan = PLAN_LIMITS[user.plan];
-  // Self-upload toggle drives the "Start new session" button. One DB
-  // read per page render so admin flips take effect on next reload.
+  // Self-upload toggle + plan resolution both read from the DB. The
+  // session JWT lags Stripe / trial transitions, so we resolve fresh
+  // every render — one query, worth the correctness.
   const stored = await getUserByEmail(user.email).catch(() => null);
+  const livePlan = stored ? effectivePlan(stored) : user.plan;
+  const planLimits = (PLAN_LIMITS as Record<string, (typeof PLAN_LIMITS)[keyof typeof PLAN_LIMITS]>)[livePlan];
+  const trial = stored ? trialStateFor(stored) : { active: false, daysLeft: 0, endsAt: null };
+  // Display label: trial users see "Free trial · N days left" (not the
+  // raw "Unlimited (admin)" label they'd otherwise get). Everyone else
+  // sees the actual plan label.
+  const planTagLabel = trial.active
+    ? `Free trial · ${trial.daysLeft} day${trial.daysLeft === 1 ? "" : "s"} left`
+    : planLimits?.label ?? livePlan;
+  const planTagTone = trial.active
+    ? "bg-[rgba(16,185,129,0.12)] text-[#34d399]"
+    : livePlan === "free"
+      ? "bg-[rgba(245,158,11,0.12)] text-[#fbbf24]"
+      : "bg-[rgba(20,184,166,0.1)] text-accent-2";
   const canStartSession = !!stored?.selfUploadEnabled;
   const homeStudio = stored?.homeStudio ?? "externals";
 
@@ -42,9 +56,9 @@ export default async function AccountPage() {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="inline-flex items-center gap-2 px-3 py-1.5 bg-[rgba(20,184,166,0.1)] text-accent-2 rounded-full text-[12px] font-medium">
+            <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[12px] font-medium ${planTagTone}`}>
               <span className="w-[6px] h-[6px] rounded-full bg-current" />
-              {plan?.label ?? user.plan}
+              {planTagLabel}
             </span>
             <Link
               href="/settings/billing"
