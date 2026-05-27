@@ -1,7 +1,10 @@
 "use client";
 
+// Renders the manual Spotify RSS publish flow inline (no Modal wrapper),
+// so it can be embedded as a tab inside BuzzsproutModal. Handles its own
+// state + push action; the parent only owns the modal frame + tabs.
+
 import { useEffect, useState } from "react";
-import { Modal } from "@/components/Modal";
 import type { FileItem } from "@/lib/types";
 
 interface ShowConfig {
@@ -15,18 +18,15 @@ interface ShowConfig {
   coverUrl: string;
 }
 
-export function SpotifyModal({
+export function SpotifyRssPanel({
   fileId,
   file,
-  aiReady,
   onClose,
 }: {
   fileId: string;
   file: FileItem;
-  aiReady: boolean;
   onClose: () => void;
 }) {
-  void aiReady;
   const [show, setShow] = useState<ShowConfig | null>(null);
   const [feedUrl, setFeedUrl] = useState<string | null>(null);
   const [title, setTitle] = useState("");
@@ -104,71 +104,50 @@ export function SpotifyModal({
 
   if (success) {
     return (
-      <Modal title="Episode added to feed" subtitle={file.name} onClose={onClose} size="lg">
-        <div className="text-center py-4">
-          <div className="inline-flex w-14 h-14 rounded-full bg-[rgba(16,185,129,0.15)] text-[#34d399] items-center justify-center mb-4">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-          </div>
-          <p className="text-[14px] mb-2">
-            {success.count} episode{success.count === 1 ? "" : "s"} live in your feed
-          </p>
-          <p className="text-[12px] text-text-muted mb-1">Public feed URL:</p>
-          <code className="block px-3 py-2 bg-bg-elev-2 border border-border rounded-[8px] text-[12px] text-accent-2 break-all">
-            {success.feedUrl}
-          </code>
-          <div className="mt-5 text-left text-[12px] text-text-muted space-y-2">
-            <p className="font-medium text-text">Next steps:</p>
-            <p>
-              1. Open{" "}
-              <a className="text-accent underline" target="_blank" rel="noreferrer" href="https://podcasters.spotify.com">
-                Spotify for Podcasters
-              </a>{" "}
-              → Add show → &quot;I already have a podcast&quot; → paste the feed URL above. Spotify emails a verification code.
-            </p>
-            <p>
-              2. Open{" "}
-              <a className="text-accent underline" target="_blank" rel="noreferrer" href="https://podcastsconnect.apple.com">
-                Apple Podcasts Connect
-              </a>{" "}
-              → New Show → &quot;Add a show with an RSS feed&quot;.
-            </p>
-            <p>
-              3. Repeat once for each directory you want (Overcast, Pocket Casts, Amazon Music, etc.). After this one-time setup, every new episode auto-distributes.
-            </p>
-          </div>
-          <div className="mt-6">
-            <button onClick={onClose} className="px-4 py-2 rounded-[8px] bg-bg-elev-3 border border-border-strong text-[13px]">
-              Close
-            </button>
-          </div>
+      <div className="text-center py-4">
+        <div className="inline-flex w-14 h-14 rounded-full bg-[rgba(16,185,129,0.15)] text-[#34d399] items-center justify-center mb-4">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
         </div>
-      </Modal>
+        <p className="text-[14px] mb-2">
+          {success.count} episode{success.count === 1 ? "" : "s"} live in your feed
+        </p>
+        <p className="text-[12px] text-text-muted mb-1">Public feed URL:</p>
+        <code className="block px-3 py-2 bg-bg-elev-2 border border-border rounded-[8px] text-[12px] text-accent-2 break-all">
+          {success.feedUrl}
+        </code>
+        <div className="mt-5 text-left text-[12px] text-text-muted space-y-2">
+          <p className="font-medium text-text">Next steps:</p>
+          <p>
+            1. Open{" "}
+            <a className="text-accent underline" target="_blank" rel="noreferrer" href="https://podcasters.spotify.com">
+              Spotify for Podcasters
+            </a>{" "}
+            → Add show → &quot;I already have a podcast&quot; → paste the feed URL above. Spotify emails a verification code.
+          </p>
+          <p>
+            2. Open{" "}
+            <a className="text-accent underline" target="_blank" rel="noreferrer" href="https://podcastsconnect.apple.com">
+              Apple Podcasts Connect
+            </a>{" "}
+            → New Show → &quot;Add a show with an RSS feed&quot;.
+          </p>
+          <p>
+            3. Repeat for any other directory you want (Overcast, Pocket Casts, Amazon Music, etc.). Future episodes auto-distribute.
+          </p>
+        </div>
+        <div className="mt-6">
+          <button onClick={onClose} className="px-4 py-2 rounded-[8px] bg-bg-elev-3 border border-border-strong text-[13px]">
+            Close
+          </button>
+        </div>
+      </div>
     );
   }
 
   return (
-    <Modal
-      title="Push to your podcast feed"
-      subtitle={file.name}
-      onClose={onClose}
-      size="lg"
-      footer={
-        <>
-          <button onClick={onClose} className="px-4 py-2 text-text-muted hover:text-text">
-            Cancel
-          </button>
-          <button
-            disabled={pushing || !title.trim()}
-            onClick={push}
-            className="px-5 py-2.5 rounded-[10px] bg-accent text-white text-[13px] font-medium disabled:opacity-60"
-          >
-            {pushing ? "Pushing…" : "Push to feed"}
-          </button>
-        </>
-      }
-    >
+    <div>
       <div className="mb-5 p-4 bg-bg-elev-2 border border-border rounded-[12px]">
         <div className="text-[12px] text-text-muted mb-2">Your podcast feed URL</div>
         {feedUrl ? (
@@ -219,6 +198,19 @@ export function SpotifyModal({
         </div>
       ) : null}
 
+      <div className="mt-6 flex items-center justify-end gap-2">
+        <button onClick={onClose} className="px-4 py-2 text-text-muted hover:text-text">
+          Cancel
+        </button>
+        <button
+          disabled={pushing || !title.trim()}
+          onClick={push}
+          className="px-5 py-2.5 rounded-[10px] bg-accent text-white text-[13px] font-medium disabled:opacity-60"
+        >
+          {pushing ? "Pushing…" : "Push to feed"}
+        </button>
+      </div>
+
       <style jsx>{`
         :global(.input-sp) {
           width: 100%;
@@ -231,7 +223,7 @@ export function SpotifyModal({
           font-size: 13px;
         }
       `}</style>
-    </Modal>
+    </div>
   );
 }
 

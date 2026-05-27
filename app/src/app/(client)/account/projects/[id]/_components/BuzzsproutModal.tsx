@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Modal } from "@/components/Modal";
 import type { FileItem } from "@/lib/types";
-import { SpotifyModal } from "./SpotifyModal";
+import { SpotifyRssPanel } from "./SpotifyRssPanel";
 
 interface ConnectionStatus {
   connected: boolean;
@@ -247,17 +247,6 @@ export function BuzzsproutModal({
     return "Publish now";
   }, [publishing, form.mode]);
 
-  if (tab === "rss") {
-    return (
-      <SpotifyModal
-        fileId={fileId}
-        file={file}
-        aiReady={!!hasAI}
-        onClose={onClose}
-      />
-    );
-  }
-
   if (success) {
     return (
       <Modal title="Sent to Buzzsprout" subtitle={file.name} onClose={onClose} size="lg">
@@ -297,6 +286,12 @@ export function BuzzsproutModal({
     form.mode === "schedule" &&
     (!form.scheduledAt || new Date(form.scheduledAt).getTime() < Date.now());
 
+  // The footer only carries the Buzzsprout publish CTA. When the user
+  // switches to the RSS tab, the panel renders its own action button
+  // inline (so the modal footer would be misleading) — hide it.
+  const showBuzzsproutFooter = tab === "buzzsprout" && status?.connected;
+  const showGenericFooter = tab === "buzzsprout" && !status?.connected;
+
   return (
     <Modal
       title="Publish to Buzzsprout"
@@ -304,7 +299,7 @@ export function BuzzsproutModal({
       onClose={onClose}
       size="lg"
       footer={
-        status?.connected ? (
+        showBuzzsproutFooter ? (
           <>
             <button onClick={onClose} className="px-4 py-2 text-text-muted hover:text-text">
               Close (keeps draft)
@@ -317,16 +312,21 @@ export function BuzzsproutModal({
               {ctaLabel}
             </button>
           </>
-        ) : (
+        ) : showGenericFooter ? (
           <button onClick={onClose} className="px-4 py-2 text-text-muted hover:text-text">
             Close
           </button>
-        )
+        ) : undefined
       }
     >
-      <Tabs current={tab} onChange={setTab} />
+      <div className="flex items-start justify-between gap-3 mb-5">
+        <Tabs current={tab} onChange={setTab} />
+        <GuideButton />
+      </div>
 
-      {!status ? (
+      {tab === "rss" ? (
+        <SpotifyRssPanel fileId={fileId} file={file} onClose={onClose} />
+      ) : !status ? (
         <div className="text-[13px] text-text-muted py-10 text-center">Loading…</div>
       ) : !status.connected ? (
         <InlineConnect
@@ -687,6 +687,25 @@ function ModeBtn({
     >
       {children}
     </button>
+  );
+}
+
+function GuideButton() {
+  return (
+    <a
+      href="/docs/podcast-setup"
+      target="_blank"
+      rel="noreferrer"
+      title="Open setup + distribution guide (downloadable as MD or PDF)"
+      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[8px] bg-bg-elev-2 border border-border hover:border-border-strong text-[11px] text-text-muted hover:text-text shrink-0"
+    >
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <polyline points="7 10 12 15 17 10" />
+        <line x1="12" y1="15" x2="12" y2="3" />
+      </svg>
+      <span className="hidden sm:inline">Guide</span>
+    </a>
   );
 }
 
