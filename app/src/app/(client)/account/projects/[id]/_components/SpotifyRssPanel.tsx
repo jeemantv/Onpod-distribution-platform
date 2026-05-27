@@ -27,6 +27,7 @@ export function SpotifyRssPanel({
   file: FileItem;
   onClose: () => void;
 }) {
+  void file;
   const [show, setShow] = useState<ShowConfig | null>(null);
   const [feedUrl, setFeedUrl] = useState<string | null>(null);
   const [title, setTitle] = useState("");
@@ -34,6 +35,7 @@ export function SpotifyRssPanel({
   const [season, setSeason] = useState("");
   const [episode, setEpisode] = useState("");
   const [pushing, setPushing] = useState(false);
+  const [hasAI, setHasAI] = useState<boolean | null>(null);
   const [success, setSuccess] = useState<{ feedUrl: string; count: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,18 +48,22 @@ export function SpotifyRssPanel({
       ]);
       const showBody = (await showRes.json()) as { show: ShowConfig | null };
       const statusBody = (await statusRes.json().catch(() => ({}))) as {
+        hasAI?: boolean;
         ai?: { title: string; description: string };
       };
       if (cancelled) return;
+      setHasAI(!!statusBody.hasAI);
       if (showBody.show) {
         setShow(showBody.show);
         setFeedUrl(`${window.location.origin}/feeds/${showBody.show.slug}.xml`);
       }
+      // Only prefill from AI when AI exists. No "fallback to filename" —
+      // that produces title strings like "edited_v2_take_3" which
+      // clients have to delete anyway. Empty + a clear "No transcript"
+      // warning is the cleaner default.
       if (statusBody.ai) {
         setTitle(statusBody.ai.title);
         setDescription(statusBody.ai.description);
-      } else {
-        setTitle(file.name.replace(/\.\w+$/, ""));
       }
     })();
     return () => {
@@ -148,6 +154,14 @@ export function SpotifyRssPanel({
 
   return (
     <div>
+      {hasAI === false ? (
+        <div className="mb-5 p-3 rounded-[10px] bg-[rgba(245,158,11,0.08)] border border-[rgba(245,158,11,0.25)] text-[12px] text-[#fbbf24]">
+          <strong>No transcript yet.</strong> Title + description are empty
+          until you generate one — close this and click the AI button on
+          the file row first, or type them manually below.
+        </div>
+      ) : null}
+
       <div className="mb-5 p-4 bg-bg-elev-2 border border-border rounded-[12px]">
         <div className="text-[12px] text-text-muted mb-2">Your podcast feed URL</div>
         {feedUrl ? (

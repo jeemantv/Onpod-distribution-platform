@@ -132,26 +132,31 @@ export function BuzzsproutModal({
       setStatus(s);
       setHasAI(!!a.hasAI);
 
-      // Hydrate priority: saved draft > AI metadata > file name. We only
-      // run this once on first mount so user edits aren't clobbered.
+      // Hydrate priority: saved draft > AI metadata > nothing. We deliberately
+      // do NOT fall back to the filename when there's no transcript — empty
+      // fields are clearer than a guessy auto-fill the editor would have
+      // to wipe out manually. The "No transcript" panel below the form
+      // tells them to run AI first.
       if (!hydrated.current) {
         hydrated.current = true;
         const saved = readDraft(fileId);
         if (saved && (saved.title || saved.description)) {
           setForm(saved);
-        } else {
+        } else if (a.ai) {
           const base: DraftForm = {
             ...EMPTY_FORM,
-            title: a.ai?.title ?? file.name.replace(/\.\w+$/, ""),
-            description: a.ai?.description ?? "",
+            title: a.ai.title ?? "",
+            description: a.ai.description ?? "",
             summary:
-              a.ai?.summary ??
-              (a.ai?.description ? a.ai.description.slice(0, 280) : ""),
-            tags: a.ai?.tags?.join(", ") ?? "",
+              a.ai.summary ??
+              (a.ai.description ? a.ai.description.slice(0, 280) : ""),
+            tags: a.ai.tags?.join(", ") ?? "",
           };
           setForm(base);
           writeDraft(fileId, base);
         }
+        // else: no AI yet → form stays empty. User triggers AI from the
+        // dashboard, then reopens this modal to get pre-fill.
       }
     })();
     return () => {
@@ -354,10 +359,11 @@ export function BuzzsproutModal({
 
           {hasAI === false ? (
             <div className="p-3 rounded-[10px] bg-[rgba(245,158,11,0.08)] border border-[rgba(245,158,11,0.25)] text-[12px] text-[#fbbf24]">
-              Heads up — AI metadata isn&apos;t generated for this file yet, so
-              title, description, summary, and tags are blank. You can fill
-              them in manually below, or close this and click the AI button
-              first to auto-fill everything.
+              <strong>No transcript yet.</strong> Title, description, summary,
+              and tags are empty until you generate one — close this modal,
+              click the AI button on the file row, wait for it to finish,
+              then come back. You can also type these manually if you
+              prefer.
             </div>
           ) : null}
 

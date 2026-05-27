@@ -406,7 +406,7 @@ export function YouTubeModal({
       >
         {aiLoaded
           ? "AI-generated metadata loaded. Edit before publishing."
-          : "No AI content yet — run the AI button first for auto-filled metadata."}
+          : "No transcript yet — title, description, and tags are empty. Close this, click the AI button on the file row, then come back."}
       </div>
 
       {durationSec !== null ? (
