@@ -40,6 +40,10 @@ export interface User {
   stripeSubscriptionId: string | null;
   creditsResetAt: string;
   createdAt: string;
+  // Set when this user is acting as a guest editor on behalf of the
+  // client identified by id/email. Lets call-sites detect impersonation
+  // (audit attribution, banner UI, narrower canAccessKey).
+  guest?: { email: string; name: string };
 }
 
 export interface Credits {

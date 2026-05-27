@@ -16,6 +16,7 @@ import {
   getUserByEmail as getStoredUserByEmail,
   listAllUsers as listStoredUsers,
 } from "@/lib/auth-store";
+import { getExternalEditor } from "@/lib/external-editor-store";
 import { mockUsers } from "@/lib/mock-data";
 import { parseKey, STUDIO_ROOT } from "@/lib/studio";
 import { setFileMetaEntry } from "@/lib/file-meta-store";
@@ -47,10 +48,17 @@ function buildEmail(args: {
   fileLabel: string;
   notesCount: number;
   url: string;
+  // When sending to an external (freelance) editor, the email mentions
+  // that the link is a one-click guest sign-in — no password to wrangle.
+  isGuestLink?: boolean;
 }): { subject: string; html: string; text: string } {
   const subject = `Review request: ${args.fileLabel} (${args.notesCount} ${
     args.notesCount === 1 ? "note" : "notes"
   })`;
+  const linkLabel = args.isGuestLink ? "Open as guest editor" : "Open in OnPod";
+  const guestFootnote = args.isGuestLink
+    ? `<p style="color:#6b6b73;font-size:12px;">This is a one-click guest sign-in scoped to ${args.clientName}'s files. Bookmark it — it works until ${args.clientName} revokes access.</p>`
+    : "";
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 520px; margin: 0 auto; padding: 24px;">
       <h1 style="font-size: 22px;">Review request from ${args.clientName}</h1>
@@ -58,12 +66,13 @@ function buildEmail(args: {
       <p>There ${args.notesCount === 1 ? "is 1 note" : `are ${args.notesCount} notes`} to address.</p>
       <p style="margin: 24px 0;">
         <a href="${args.url}" style="background: #ff3b30; color: white; padding: 12px 20px; border-radius: 8px; text-decoration: none; font-weight: 600;">
-          Open in OnPod
+          ${linkLabel}
         </a>
       </p>
+      ${guestFootnote}
     </div>
   `;
-  const text = `Review request from ${args.clientName}\n\n${args.notesCount} ${args.notesCount === 1 ? "note" : "notes"} on ${args.fileLabel}.\n\nOpen: ${args.url}`;
+  const text = `Review request from ${args.clientName}\n\n${args.notesCount} ${args.notesCount === 1 ? "note" : "notes"} on ${args.fileLabel}.\n\n${linkLabel}: ${args.url}`;
   return { subject, html, text };
 }
 
@@ -98,11 +107,23 @@ export async function POST(
   }
 
   // Resolve recipient — checked in order:
-  //   1. revisions file-level assignment
-  //   2. client-level (user.assignedEditorEmail)
-  //   3. STUDIO_REVIEWS_EMAIL env (catch-all inbox)
-  //   4. fallback: first editor account on the system (mock OR B2)
+  //   1. revisions file-level assignment (explicit override)
+  //   2. user's external editor (their own freelancer)  ← new
+  //   3. user.assignedEditorEmail (OnPod team)
+  //   4. STUDIO_REVIEWS_EMAIL env (catch-all inbox)
+  //   5. fallback: first editor account on the system (mock OR B2)
   let recipient = file.assignedEditorEmail;
+  let isGuestLink = false;
+  let guestUrl: string | null = null;
+  if (!recipient) {
+    const guestEditor = await getExternalEditor(user.id).catch(() => null);
+    if (guestEditor) {
+      recipient = guestEditor.email;
+      isGuestLink = true;
+      const origin = process.env.NEXTAUTH_URL ?? new URL(req.url).origin;
+      guestUrl = `${origin}/guest/${encodeURIComponent(guestEditor.token)}`;
+    }
+  }
   if (!recipient) {
     const stored = await getStoredUserByEmail(user.email);
     const fromStored = (stored as { assignedEditorEmail?: string } | null)?.assignedEditorEmail;
@@ -120,7 +141,10 @@ export async function POST(
 
   const clientName = `${user.firstName} ${user.lastName}`.trim() || user.email;
   const filename = key.split("/").slice(-1)[0] ?? "video";
-  const url = reviewLinkFor(req, key);
+  // For external editors, point them at the guest sign-in URL — that
+  // signs them in as a scoped guest and drops them on /account where the
+  // file is reachable. Internal editors get the admin deep link.
+  const url = isGuestLink && guestUrl ? guestUrl : reviewLinkFor(req, key);
   const openCount = file.notes.filter((n) => n.status === "open").length;
 
   if (!recipient) {
@@ -137,6 +161,7 @@ export async function POST(
     fileLabel: filename,
     notesCount: openCount || file.notes.length,
     url,
+    isGuestLink,
   });
   try {
     await sendEmail({

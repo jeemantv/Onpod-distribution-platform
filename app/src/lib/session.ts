@@ -27,6 +27,14 @@ interface SessionPayload {
   role: Role;
   plan: User["plan"];
   exp: number;
+  // Guest editor session: when a client's external editor redeems
+  // /guest/<token>, the session is anchored to the client (uid/email)
+  // but tracks the guest's real identity here so audit fields (revision
+  // notes, version uploads) use the guest's name + email.
+  guest?: {
+    email: string;
+    name: string;
+  };
 }
 
 function b64urlEncode(buf: Buffer | string): string {
@@ -82,7 +90,21 @@ function payloadToUser(p: SessionPayload): User {
     stripeSubscriptionId: null,
     creditsResetAt: "",
     createdAt: "",
+    guest: p.guest,
   };
+}
+
+/**
+ * Returns the guest identity attached to the current session, or null if
+ * this is a regular sign-in. Lets call sites attribute actions (revision
+ * notes, uploads) to the guest's real name + email rather than the
+ * client's.
+ */
+export function getGuestIdentity(): { email: string; name: string } | null {
+  const c = cookies().get(COOKIE_NAME);
+  if (!c?.value) return null;
+  const payload = verify(c.value);
+  return payload?.guest ?? null;
 }
 
 export function getSession(): User | null {
@@ -101,12 +123,16 @@ export function requireSession(): User {
 
 export function requireAdmin(): User {
   const u = requireSession();
+  // Guest editors carry role="editor" so file-level gates open, but
+  // they never get admin chrome — punt to /account.
+  if (u.guest) redirect("/account");
   if (u.role !== "admin") redirect("/account");
   return u;
 }
 
 export function requireEditorOrAdmin(): User {
   const u = requireSession();
+  if (u.guest) redirect("/account");
   if (u.role !== "admin" && (u.role as string) !== "editor") redirect("/account");
   return u;
 }
@@ -141,6 +167,37 @@ export function setSession(user: SignInUserShape): void {
     role: user.role,
     plan: user.plan ?? "free",
     exp: Math.floor(Date.now() / 1000) + MAX_AGE_SECONDS,
+  };
+  cookies().set(COOKIE_NAME, sign(payload), {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: MAX_AGE_SECONDS,
+    secure: process.env.NODE_ENV === "production",
+  });
+}
+
+/**
+ * Set a guest editor session: signed in as the client (so canAccessKey
+ * passes for that client's files) but tagged with the guest's real
+ * identity for audit. The session role is "client" — the guest doesn't
+ * inherit cross-tenant editor powers.
+ */
+export function setGuestSession(args: {
+  client: SignInUserShape;
+  guest: { email: string; name: string };
+}): void {
+  const payload: SessionPayload = {
+    uid: args.client.id,
+    email: args.client.email,
+    firstName: args.client.firstName,
+    lastName: args.client.lastName,
+    avatar: args.client.avatar,
+    avatarColor: args.client.avatarColor,
+    role: args.client.role,
+    plan: args.client.plan ?? "free",
+    exp: Math.floor(Date.now() / 1000) + MAX_AGE_SECONDS,
+    guest: args.guest,
   };
   cookies().set(COOKIE_NAME, sign(payload), {
     httpOnly: true,

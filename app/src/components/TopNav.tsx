@@ -14,6 +14,13 @@ export function TopNav({
   backLabel?: string;
 }) {
   return (
+    <>
+    {user.guest ? (
+      <div className="bg-[rgba(168,85,247,0.18)] border-b border-[rgba(168,85,247,0.35)] text-[#e9d5ff] text-[12px] text-center py-1.5 px-4">
+        Guest editor mode — viewing as {user.firstName} {user.lastName}.
+        Notes you leave are signed <strong>{user.guest.name}</strong>.
+      </div>
+    ) : null}
     <header className="sticky top-0 z-50 flex items-center justify-between px-4 sm:px-8 py-3 sm:py-4 border-b border-[rgba(255,255,255,0.08)] bg-[rgba(10,10,11,0.85)] backdrop-blur-xl gap-2">
       <div className="flex items-center gap-3 sm:gap-6 min-w-0">
         {backHref ? (
@@ -53,5 +60,6 @@ export function TopNav({
         <UserMenu user={user} />
       </div>
     </header>
+    </>
   );
 }

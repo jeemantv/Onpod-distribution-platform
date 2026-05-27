@@ -3,6 +3,7 @@ import { requireSession } from "@/lib/session";
 import { getCreditsForUser } from "@/lib/mock-data";
 import { PLAN_LIMITS } from "@/lib/types";
 import { SignOutButton } from "./_components/SignOutButton";
+import { ExternalEditorCard } from "./_components/ExternalEditorCard";
 
 // Settings is reachable from every role (avatar menu). Each role sees a
 // curated slice: clients keep billing + cancel-subscription, editors get
@@ -115,6 +116,8 @@ export default function SettingsPage() {
             <Connection name="Apple Podcasts (RSS)" />
           </Card>
         ) : null}
+
+        {isClient ? <ExternalEditorCard /> : null}
 
         {isClient ? (
           <Card title="Subscription" tone="danger">

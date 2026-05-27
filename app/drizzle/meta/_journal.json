@@ -85,6 +85,13 @@
       "when": 1779857032233,
       "tag": "0011_studios_default_editor",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1779857483104,
+      "tag": "0012_external_editor",
+      "breakpoints": true
     }
   ]
 }

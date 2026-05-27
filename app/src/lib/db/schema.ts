@@ -62,6 +62,17 @@ export const users = pgTable(
     // missing, the modal falls back to the manual Spotify RSS flow.
     buzzsproutPodcastId: text("buzzsprout_podcast_id"),
     buzzsproutToken: text("buzzsprout_token"),
+    // External video editor — the client's own freelancer who isn't on
+    // OnPod's team. When set, the client's revision-request emails go
+    // here, and the editor can sign in via /guest/<token> as a scoped
+    // guest of just this one client (read+revise+upload versions).
+    externalEditorEmail: text("external_editor_email"),
+    externalEditorName: text("external_editor_name"),
+    externalEditorToken: text("external_editor_token"),
+    externalEditorRevokedAt: timestamp("external_editor_revoked_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
     creditsResetAt: timestamp("credits_reset_at", { withTimezone: true, mode: "date" }),
     // Client-only: which editor reviews their requests.
     assignedEditorEmail: varchar("assigned_editor_email", { length: 320 }),

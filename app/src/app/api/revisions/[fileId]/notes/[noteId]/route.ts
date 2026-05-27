@@ -63,11 +63,13 @@ export async function PATCH(
       return NextResponse.json({ error: "forbidden_status" }, { status: 403 });
     }
     if (body.status === "done") {
+      // Guest editor → attribute to them, not the host client.
+      const actorEmail = user.guest?.email ?? user.email;
       file.notes[idx] = {
         ...file.notes[idx],
         status: "done",
         doneAt: Date.now(),
-        doneByEmail: user.email,
+        doneByEmail: actorEmail,
       };
     } else {
       file.notes[idx] = {

@@ -53,13 +53,21 @@ export async function POST(
     return NextResponse.json({ error: "empty_text" }, { status: 400 });
   }
   const file = (await getRevisions(key)) ?? emptyRevisions();
+  // When a guest editor is acting, attribute the note to them — not the
+  // host client — so audit fields reflect who actually left the comment.
+  const author = user.guest
+    ? { email: user.guest.email, name: user.guest.name }
+    : {
+        email: user.email,
+        name: `${user.firstName} ${user.lastName}`.trim() || user.email,
+      };
   const note: RevisionNote = {
     id: newNoteId(),
     timeSeconds: typeof body.timeSeconds === "number" ? body.timeSeconds : -1,
     text,
     status: "open",
-    createdByEmail: user.email,
-    createdByName: `${user.firstName} ${user.lastName}`.trim() || user.email,
+    createdByEmail: author.email,
+    createdByName: author.name,
     createdAt: Date.now(),
   };
   // newest first (matches the rest of the app)
