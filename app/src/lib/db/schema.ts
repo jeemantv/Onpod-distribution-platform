@@ -55,6 +55,13 @@ export const users = pgTable(
     emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true, mode: "date" }),
     stripeCustomerId: text("stripe_customer_id"),
     stripeSubscriptionId: text("stripe_subscription_id"),
+    // Buzzsprout integration: per-client podcast hosting. Token is the
+    // client's personal Buzzsprout API token; podcastId identifies their
+    // show. When both are set, the Buzzsprout button publishes via API
+    // (Buzzsprout fans the episode out to Spotify/Apple/etc). When
+    // missing, the modal falls back to the manual Spotify RSS flow.
+    buzzsproutPodcastId: text("buzzsprout_podcast_id"),
+    buzzsproutToken: text("buzzsprout_token"),
     creditsResetAt: timestamp("credits_reset_at", { withTimezone: true, mode: "date" }),
     // Client-only: which editor reviews their requests.
     assignedEditorEmail: varchar("assigned_editor_email", { length: 320 }),

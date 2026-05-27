@@ -487,4 +487,85 @@ describe("Client pages render", () => {
     const r = await hit("/settings/billing", { cookie });
     assert.equal(r.status, 200);
   });
+
+  test("Client GET /settings/podcast returns 200 HTML", async () => {
+    const { cookie } = await signIn(DEMO_CLIENT.email, DEMO_CLIENT.password);
+    const r = await hit("/settings/podcast", { cookie });
+    assert.equal(r.status, 200);
+  });
+
+  test("GET /docs/podcast-setup returns 200 HTML", async () => {
+    const r = await hit("/docs/podcast-setup");
+    assert.equal(r.status, 200);
+  });
+});
+
+// --- Buzzsprout integration ------------------------------------------
+
+describe("Buzzsprout API", () => {
+  test("GET /api/buzzsprout/status anon → 401", async () => {
+    const r = await hit("/api/buzzsprout/status");
+    assert.equal(r.status, 401);
+  });
+
+  test("GET /api/buzzsprout/status signed in → connected:false (no creds seeded)", async () => {
+    const { cookie } = await signIn(DEMO_CLIENT.email, DEMO_CLIENT.password);
+    const r = await hit("/api/buzzsprout/status", { cookie });
+    assert.equal(r.status, 200);
+    const body = r.json as { connected: boolean };
+    assert.equal(body.connected, false);
+  });
+
+  test("POST /api/buzzsprout/connect with bad podcast id → 400", async () => {
+    const { cookie } = await signIn(DEMO_CLIENT.email, DEMO_CLIENT.password);
+    const r = await hit("/api/buzzsprout/connect", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ podcastId: "not-numeric", token: "anything" }),
+      cookie,
+    });
+    assert.equal(r.status, 400);
+  });
+
+  test("POST /api/buzzsprout/connect with missing fields → 400", async () => {
+    const { cookie } = await signIn(DEMO_CLIENT.email, DEMO_CLIENT.password);
+    const r = await hit("/api/buzzsprout/connect", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+      cookie,
+    });
+    assert.equal(r.status, 400);
+  });
+
+  test("POST /api/buzzsprout/connect verifies with Buzzsprout (bogus → 400)", async () => {
+    const { cookie } = await signIn(DEMO_CLIENT.email, DEMO_CLIENT.password);
+    const r = await hit("/api/buzzsprout/connect", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ podcastId: "1", token: "definitely-not-a-real-token" }),
+      cookie,
+    });
+    // 400 from verify_failed (live Buzzsprout call). 502/504 also acceptable
+    // if their API is down at test time.
+    assert.ok(
+      [400, 502, 504].includes(r.status),
+      `expected 400/502, got ${r.status}: ${r.text.slice(0, 200)}`,
+    );
+  });
+
+  test("POST /api/buzzsprout/publish without fileId → 400", async () => {
+    const { cookie } = await signIn(DEMO_CLIENT.email, DEMO_CLIENT.password);
+    const r = await hit("/api/buzzsprout/publish", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+      cookie,
+    });
+    // 400 missing_fileId, 402 plan-gated, 412 not-connected — all valid.
+    assert.ok(
+      [400, 402, 412].includes(r.status),
+      `expected 400/402/412, got ${r.status}: ${r.text.slice(0, 200)}`,
+    );
+  });
 });

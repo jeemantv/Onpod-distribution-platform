@@ -11,7 +11,7 @@ import { VersionMenu } from "@/components/VersionMenu";
 import { AIStudioModal } from "./AIStudioModal";
 import { YouTubeModal, type PublishedInfo as YTPublishedInfo } from "./YouTubeModal";
 import { uploadToYouTube, type UploadProgress } from "@/lib/yt-uploader";
-import { SpotifyModal } from "./SpotifyModal";
+import { BuzzsproutModal } from "./BuzzsproutModal";
 import { OpusClipModal } from "./OpusClipModal";
 import { RequestApprovalModal } from "./RequestApprovalModal";
 import { UploadButton } from "./UploadButton";
@@ -949,7 +949,7 @@ export function FilePortal({
         />
       ) : null}
       {modal?.kind === "spotify" ? (
-        <SpotifyModal
+        <BuzzsproutModal
           fileId={modal.fileId}
           file={files.find((f) => f.id === modal.fileId)!}
           aiReady={!!aiReady[modal.fileId]}

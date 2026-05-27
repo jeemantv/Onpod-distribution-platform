@@ -75,14 +75,17 @@ export function FileActionButtons({
 
       {showSpotify ? (
         <ActionBtn
-          label="Spotify"
+          label="Buzzsprout"
           onClick={onSpotify}
           tint="green"
           gated={approvalGated}
           planGated={planGatedSpotify}
           icon={
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm4.5 14.4a.6.6 0 0 1-.84.21c-2.3-1.4-5.2-1.72-8.6-.93a.6.6 0 1 1-.27-1.18c3.71-.85 6.92-.49 9.5 1.07a.6.6 0 0 1 .21.83zm1.2-2.66a.75.75 0 0 1-1.05.27c-2.64-1.62-6.66-2.09-9.78-1.14a.75.75 0 1 1-.44-1.43c3.56-1.09 8-.56 11.04 1.27a.75.75 0 0 1 .23 1.03zm.1-2.78c-3.15-1.87-8.35-2.04-11.36-1.13a.9.9 0 1 1-.52-1.72c3.46-1.05 9.21-.84 12.84 1.31a.9.9 0 1 1-.96 1.54z" />
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="9" y="2" width="6" height="13" rx="3" />
+              <path d="M5 11v1a7 7 0 0 0 14 0v-1" />
+              <line x1="12" y1="19" x2="12" y2="22" />
+              <line x1="8" y1="22" x2="16" y2="22" />
             </svg>
           }
         />

@@ -2,6 +2,7 @@ import { TopNav } from "@/components/TopNav";
 import { requireSession } from "@/lib/session";
 import { getShowByUser } from "@/lib/podcast-store";
 import { PodcastSettingsForm } from "@/components/PodcastSettingsForm";
+import { BuzzsproutConnectionCard } from "@/components/BuzzsproutConnectionCard";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,10 @@ export default async function PodcastSettingsPage() {
             These fields appear in your podcast on Spotify, Apple Podcasts,
             and every other directory.
           </p>
+        </div>
+
+        <div className="mb-8">
+          <BuzzsproutConnectionCard />
         </div>
 
         <PodcastSettingsForm
