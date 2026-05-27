@@ -1,19 +1,23 @@
-import Link from "next/link";
+"use client";
 
-export const metadata = { title: "Podcast setup guide — OnPod" };
+import Link from "next/link";
 
 export default function PodcastSetupPage() {
   return (
-    <main className="max-w-[760px] mx-auto px-4 sm:px-8 py-10 text-[14px] leading-relaxed">
-      <Link href="/account" className="text-[12px] text-text-muted hover:text-text">
-        ← Back to account
-      </Link>
+    <main className="max-w-[760px] mx-auto px-4 sm:px-8 py-10 text-[14px] leading-relaxed print-doc">
+      <div className="print-hide">
+        <Link href="/account" className="text-[12px] text-text-muted hover:text-text">
+          ← Back to account
+        </Link>
+      </div>
       <h1 className="display text-[32px] mt-3 mb-2">Podcast setup guide</h1>
-      <p className="text-text-muted text-[13px] mb-8">
+      <p className="text-text-muted text-[13px] mb-4">
         How to get your podcast live on Spotify, Apple Podcasts, and the rest
         of the world. Two paths — Buzzsprout (recommended, paid) or Spotify
         manual (free, slower).
       </p>
+      <DownloadBar />
+      <PlatformReachCallout />
 
       <SectionTitle>The short version</SectionTitle>
       <p className="mb-4">
@@ -204,7 +208,251 @@ export default function PodcastSetupPage() {
         </Link>
         .
       </Q>
+
+      <SectionTitle>Where your podcast lands — full picture</SectionTitle>
+
+      <p className="mb-4">
+        Buzzsprout gives you <strong>one RSS feed URL</strong>. You submit
+        that URL once to each podcast platform, and from that moment on,
+        every new episode you publish in OnPod appears on all of them
+        automatically.
+      </p>
+
+      <pre className="text-[11px] leading-tight bg-bg-elev-2 border border-border rounded-[10px] p-4 mb-6 overflow-x-auto font-mono">{`Client uploads episode to Buzzsprout (via OnPod)
+        ↓
+Buzzsprout updates the RSS feed
+        ↓
+   ┌────┴────────────────────────────┐
+   ↓     ↓        ↓        ↓        ↓
+Spotify Apple  Amazon  Pocket Castbox + 30 more`}</pre>
+
+      <h3 className="text-[15px] font-medium mt-6 mb-2">Manual one-time submission (all free)</h3>
+      <div className="overflow-x-auto -mx-2 mb-6">
+        <table className="w-full text-[13px] border border-border rounded-[10px] overflow-hidden">
+          <thead>
+            <tr className="bg-bg-elev-2 text-text-muted text-[11px] uppercase tracking-wider">
+              <th className="text-left p-3">Platform</th>
+              <th className="text-left p-3">Submit at</th>
+              <th className="text-left p-3">Approval</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            <PRow name="Apple Podcasts" submit="podcastersapple.com" wait="1–7 days" />
+            <PRow name="Spotify" submit="podcasters.spotify.com" wait="~24 hours" />
+            <PRow name="Amazon Music / Audible" submit="podcasters.amazon.com" wait="24–48 hours" />
+            <PRow name="YouTube Music" submit="podcasterscreatorstudio.youtube.com" wait="instant" />
+            <PRow name="iHeartRadio" submit="iheart.com/podcasters" wait="1–2 weeks" />
+            <PRow name="TuneIn" submit="help.tunein.com" wait="a few days" />
+          </tbody>
+        </table>
+      </div>
+
+      <h3 className="text-[15px] font-medium mt-6 mb-2">Zero submission needed (auto-discovered)</h3>
+      <p className="text-text-muted mb-2 text-[13px]">
+        Once your podcast is approved on Apple Podcasts, these apps pull
+        from Apple&apos;s directory automatically:
+      </p>
+      <ul className="list-disc pl-6 space-y-0.5 mb-3 text-text-muted text-[13px]">
+        <li>Pocket Casts</li>
+        <li>Overcast</li>
+        <li>Castbox</li>
+        <li>Podcast Addict</li>
+        <li>Player FM</li>
+        <li>Podbean app</li>
+        <li>Castro</li>
+        <li>Stitcher</li>
+        <li>Most other podcast apps</li>
+      </ul>
+      <p className="text-[13px] mb-6">
+        <strong>Apple is the keystone</strong> — get on Apple, and ~25 apps
+        come along for free.
+      </p>
+
+      <h3 className="text-[15px] font-medium mt-6 mb-2">Buzzsprout&apos;s &quot;Get Listed&quot; shortcut</h3>
+      <p className="text-text-muted mb-2 text-[13px]">
+        Buzzsprout&apos;s dashboard has built-in <em>Get Listed</em> buttons
+        that pre-fill your RSS URL into each platform&apos;s submission form.
+        Click <em>Submit to Spotify</em> → Spotify Podcasters opens with the
+        RSS URL already filled in. Hit Submit and you&apos;re done. Same for
+        Apple, Amazon, YouTube Music, etc. The whole one-time setup takes
+        ~10 minutes total instead of an hour.
+      </p>
+
+      <SectionTitle>Realistic 7-day onboarding</SectionTitle>
+
+      <Phase title="Day 1 — initial setup (15 minutes)">
+        <ol className="list-decimal pl-5 space-y-1 text-text-muted">
+          <li>Sign up for Buzzsprout (or have us do it with your email).</li>
+          <li>Connect Buzzsprout to OnPod (paste API token in <Link className="underline text-accent-2" href="/settings/podcast">Settings → Podcast</Link>).</li>
+          <li>Upload your first episode through OnPod → Buzzsprout.</li>
+          <li>Click Buzzsprout&apos;s &quot;Get Listed&quot; buttons: Spotify, Apple, Amazon, YouTube Music.</li>
+        </ol>
+      </Phase>
+
+      <Phase title="Day 1–7 — waiting period">
+        <ul className="list-disc pl-5 space-y-1 text-text-muted">
+          <li>Spotify approves first (~24 hours).</li>
+          <li>Apple approves last (1–7 days), but unlocks 25+ other apps.</li>
+        </ul>
+      </Phase>
+
+      <Phase title="Day 8+ — fully automatic">
+        <p className="text-text-muted">
+          Every new episode you publish in OnPod goes to Buzzsprout via API
+          → updates the RSS feed → all platforms pull within 1–4 hours.
+          Nothing manual ever again.
+        </p>
+      </Phase>
+
+      <SectionTitle>Honest limitations</SectionTitle>
+
+      <h3 className="text-[15px] font-medium mt-4 mb-2">1. Platforms have slightly different rules</h3>
+      <ul className="list-disc pl-6 space-y-1 mb-4 text-text-muted text-[13px]">
+        <li>Spotify allows explicit language without flagging — Apple requires you to mark it explicit.</li>
+        <li>Apple requires episode artwork ≥3000×3000 — Spotify accepts 1400×1400.</li>
+        <li>Some platforms strip emojis from titles, some don&apos;t.</li>
+        <li>Buzzsprout handles most normalization automatically, but not all.</li>
+      </ul>
+
+      <h3 className="text-[15px] font-medium mt-4 mb-2">2. A few platforms are awkward</h3>
+      <ul className="list-disc pl-6 space-y-1 mb-4 text-text-muted text-[13px]">
+        <li><strong>iHeartRadio</strong> — manual review can take 2 weeks.</li>
+        <li><strong>Pandora</strong> — sometimes requires 10+ episodes before accepting.</li>
+        <li><strong>Audible</strong> (separate from Amazon Music) — curated only, can&apos;t self-submit.</li>
+        <li><strong>SoundCloud</strong> — separate ecosystem, manual upload, not RSS-based.</li>
+      </ul>
+
+      <h3 className="text-[15px] font-medium mt-4 mb-2">3. Statistics don&apos;t combine</h3>
+      <p className="text-text-muted text-[13px] mb-4">
+        Buzzsprout shows total downloads. Spotify shows Spotify-specific
+        listens. Apple shows Apple-specific listens. They never combine
+        into one true cross-platform metric — each platform jealously
+        guards their data. For OnPod analytics, this means &quot;total
+        downloads across RSS apps (excluding Spotify- and Apple-native
+        plays).&quot;
+      </p>
+
+      <SectionTitle>The honest pitch</SectionTitle>
+      <p className="mb-2">
+        For 95% of podcasts, Buzzsprout&apos;s RSS distribution covers
+        everything that matters. A few niche cases need extra work. But
+        for the typical OnPod client — business shows, interviews, expert
+        content — one RSS feed reaches every place your audience listens.
+      </p>
+      <p className="mb-4 italic">
+        &quot;Submit once to 4–5 directories. Approval takes a week. After
+        that, every episode you publish in OnPod is live on 30+ podcast
+        apps automatically.&quot;
+      </p>
+
+      <style jsx global>{`
+        @media print {
+          body {
+            background: white !important;
+            color: black !important;
+          }
+          .print-hide {
+            display: none !important;
+          }
+          .print-doc {
+            max-width: 100% !important;
+            padding: 0 !important;
+            color: black !important;
+          }
+          .print-doc * {
+            color: black !important;
+            background: white !important;
+            border-color: #ccc !important;
+          }
+          .print-doc a {
+            color: black !important;
+            text-decoration: underline !important;
+          }
+          .print-doc h1,
+          .print-doc h2,
+          .print-doc h3 {
+            page-break-after: avoid;
+          }
+          .print-doc pre {
+            page-break-inside: avoid;
+          }
+        }
+      `}</style>
     </main>
+  );
+}
+
+function DownloadBar() {
+  const printPage = () => {
+    if (typeof window !== "undefined") window.print();
+  };
+  return (
+    <div className="print-hide mb-8 flex flex-wrap items-center gap-2 p-3 bg-bg-elev border border-border rounded-[10px]">
+      <span className="text-[12px] text-text-muted mr-2">Save this guide:</span>
+      <a
+        href="/docs/podcast-distribution-guide.md"
+        download="onpod-podcast-distribution-guide.md"
+        className="px-3 py-1.5 rounded-[8px] bg-bg-elev-2 border border-border-strong text-[12px] hover:bg-bg-elev-3"
+      >
+        Download as Markdown
+      </a>
+      <button
+        type="button"
+        onClick={printPage}
+        className="px-3 py-1.5 rounded-[8px] bg-bg-elev-2 border border-border-strong text-[12px] hover:bg-bg-elev-3"
+      >
+        Save as PDF
+      </button>
+      <span className="ml-auto text-[11px] text-text-muted hidden sm:inline">
+        PDF uses your browser&apos;s print dialog → &quot;Save as PDF&quot;
+      </span>
+    </div>
+  );
+}
+
+function PlatformReachCallout() {
+  return (
+    <div className="print-hide mb-10 p-5 rounded-[12px] bg-[rgba(16,185,129,0.06)] border border-[rgba(16,185,129,0.25)]">
+      <h3 className="text-[15px] font-medium mb-2">
+        Connect Buzzsprout once → publish to 30+ podcast apps forever
+      </h3>
+      <p className="text-[12px] text-text-muted mb-3 leading-relaxed">
+        Spotify, Apple Podcasts, Amazon Music, and YouTube Music need a one-
+        time submission (10 min total via Buzzsprout&apos;s &quot;Get Listed&quot;
+        shortcut). Approval takes 1–7 days. After that, every episode you
+        publish in OnPod auto-distributes everywhere.
+      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-[12px]">
+        <span>✅ Spotify</span>
+        <span>✅ Apple Podcasts</span>
+        <span>✅ Amazon Music</span>
+        <span>✅ YouTube Music</span>
+        <span>✅ Pocket Casts</span>
+        <span>✅ Overcast</span>
+        <span>✅ Castbox</span>
+        <span>✅ Podcast Addict</span>
+        <span>✅ +22 more via Apple</span>
+      </div>
+    </div>
+  );
+}
+
+function Phase({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="mb-4 p-4 bg-bg-elev-2 border border-border rounded-[10px]">
+      <h4 className="text-[13px] font-medium mb-2">{title}</h4>
+      <div className="text-[13px]">{children}</div>
+    </div>
+  );
+}
+
+function PRow({ name, submit, wait }: { name: string; submit: string; wait: string }) {
+  return (
+    <tr>
+      <td className="p-3 font-medium">{name}</td>
+      <td className="p-3 text-text-muted font-mono text-[12px]">{submit}</td>
+      <td className="p-3 text-text-muted">{wait}</td>
+    </tr>
   );
 }
 
