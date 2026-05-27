@@ -19,7 +19,7 @@ import { AI_SUFFIX, TRANSCRIPT_SUFFIX } from "@/lib/transcript-store";
 import type { FileItem } from "@/lib/types";
 import { FilePortal } from "@/app/(client)/account/projects/[id]/_components/FilePortal";
 import { canonicalKey, isVersionedKey, resolveActive } from "@/lib/versions-store";
-import { getUserByEmail } from "@/lib/auth-store";
+import { effectivePlan, getUserByEmail } from "@/lib/auth-store";
 
 export const dynamic = "force-dynamic";
 
@@ -38,10 +38,12 @@ export default async function ClientSessionPage({
   }
   const parsed = parseSessionFolder(folder);
 
-  // Self-upload toggle lives on the user row — session payload doesn't
-  // carry it (would force a re-login on every admin flip). One DB hit
-  // per page render is acceptable.
+  // Self-upload toggle + effective plan both come from the DB. The
+  // session payload's plan can lag a Stripe upgrade by one re-login, so
+  // we read fresh here and pass that to FilePortal — buttons unlock
+  // immediately after checkout.
   const stored = await getUserByEmail(user.email).catch(() => null);
+  const livePlan = stored ? effectivePlan(stored) : user.plan;
   const selfUploadEnabled =
     user.role === "admin" ||
     (user.role as string) === "editor" ||
@@ -176,7 +178,7 @@ export default async function ClientSessionPage({
           studioSlug={studio}
           currentUserEmail={user.email}
           canMarkDone={user.role === "admin" || (user.role as string) === "editor"}
-          userPlan={user.plan}
+          userPlan={livePlan}
           userRole={user.role}
           canUpload={selfUploadEnabled}
         />

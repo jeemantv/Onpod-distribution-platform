@@ -1,19 +1,33 @@
+import Link from "next/link";
 import { TopNav } from "@/components/TopNav";
 import { requireSession } from "@/lib/session";
 import { getCreditsForUser } from "@/lib/mock-data";
 import { PLAN_LIMITS } from "@/lib/types";
 import { SignOutButton } from "./_components/SignOutButton";
 import { ExternalEditorCard } from "./_components/ExternalEditorCard";
+import { effectivePlan, getUserByEmail } from "@/lib/auth-store";
+import { getConnection } from "@/lib/youtube-store";
+import { getBuzzsproutCreds } from "@/lib/buzzsprout-store";
+
+export const dynamic = "force-dynamic";
 
 // Settings is reachable from every role (avatar menu). Each role sees a
 // curated slice: clients keep billing + cancel-subscription, editors get
 // review/edit notifications, admins are punted at the admin panel.
-export default function SettingsPage() {
+export default async function SettingsPage() {
   const user = requireSession();
   const isClient = user.role === "client";
   const isEditor = user.role === "editor";
+  // Effective plan from DB so post-Stripe upgrades reflect immediately
+  // (the session JWT lags one re-login behind otherwise).
+  const stored = isClient ? await getUserByEmail(user.email).catch(() => null) : null;
+  const livePlan = stored ? effectivePlan(stored) : user.plan;
   const credits = isClient ? getCreditsForUser(user.id) : undefined;
-  const limits = isClient ? PLAN_LIMITS[user.plan] : null;
+  const limits = isClient
+    ? (PLAN_LIMITS as Record<string, (typeof PLAN_LIMITS)[keyof typeof PLAN_LIMITS]>)[livePlan] ?? null
+    : null;
+  const youtube = isClient ? await getConnection(user.id).catch(() => null) : null;
+  const buzzsprout = isClient ? await getBuzzsproutCreds(user.id).catch(() => null) : null;
   const backHref = isClient ? "/account" : "/admin/studios";
 
   return (
@@ -62,9 +76,12 @@ export default function SettingsPage() {
                     : `$${limits.priceCad} CAD / month · renews automatically`}
                 </div>
               </div>
-              <button className="px-4 py-2 rounded-[8px] bg-bg-elev-3 border border-border-strong text-[13px]">
+              <Link
+                href="/settings/billing"
+                className="px-4 py-2 rounded-[8px] bg-bg-elev-3 border border-border-strong text-[13px] hover:border-text-muted"
+              >
                 Manage billing
-              </button>
+              </Link>
             </div>
 
             <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -111,9 +128,32 @@ export default function SettingsPage() {
 
         {isClient ? (
           <Card title="Platform connections">
-            <Connection name="YouTube" connected />
-            <Connection name="Spotify (RSS)" connected />
-            <Connection name="Apple Podcasts (RSS)" />
+            <Connection
+              name="YouTube"
+              connected={!!youtube}
+              detail={
+                youtube
+                  ? `Posting as ${youtube.channels.find((c) => c.id === youtube.activeChannelId)?.title ?? "your channel"}`
+                  : "Connect to publish episodes to YouTube"
+              }
+              href="/account"
+            />
+            <Connection
+              name="Buzzsprout"
+              connected={!!buzzsprout}
+              detail={
+                buzzsprout
+                  ? `Podcast #${buzzsprout.podcastId} · auto-distributes to Spotify, Apple, Amazon Music`
+                  : "Connect to publish episodes everywhere with one click"
+              }
+              href="/settings/podcast"
+            />
+            <Connection
+              name="OnPod RSS feed (free path)"
+              connected
+              detail="Built-in podcast feed you can submit manually to Spotify / Apple if you don't use Buzzsprout"
+              href="/settings/podcast"
+            />
           </Card>
         ) : null}
 
@@ -204,18 +244,49 @@ function Toggle({ label, defaultOn }: { label: string; defaultOn?: boolean }) {
   );
 }
 
-function Connection({ name, connected }: { name: string; connected?: boolean }) {
+function Connection({
+  name,
+  connected,
+  detail,
+  href,
+}: {
+  name: string;
+  connected?: boolean;
+  detail?: string;
+  href?: string;
+}) {
   return (
-    <div className="flex items-center justify-between py-2 text-[13px]">
-      <span>{name}</span>
+    <div className="flex items-center justify-between gap-3 py-3 text-[13px] border-b border-border last:border-0">
+      <div className="min-w-0 flex-1">
+        <div className="font-medium">{name}</div>
+        {detail ? (
+          <div className="text-[11px] text-text-muted mt-0.5">{detail}</div>
+        ) : null}
+      </div>
       {connected ? (
-        <button className="px-3 py-1.5 rounded-[8px] bg-[rgba(16,185,129,0.12)] border border-[rgba(16,185,129,0.3)] text-[#34d399] text-[12px]">
-          Connected · Manage
-        </button>
-      ) : (
-        <button className="px-3 py-1.5 rounded-[8px] bg-bg-elev-3 border border-border text-[12px]">
+        href ? (
+          <Link
+            href={href}
+            className="px-3 py-1.5 rounded-[8px] bg-[rgba(16,185,129,0.12)] border border-[rgba(16,185,129,0.3)] text-[#34d399] text-[12px] shrink-0"
+          >
+            Connected · Manage
+          </Link>
+        ) : (
+          <span className="px-3 py-1.5 rounded-[8px] bg-[rgba(16,185,129,0.12)] border border-[rgba(16,185,129,0.3)] text-[#34d399] text-[12px] shrink-0">
+            Connected
+          </span>
+        )
+      ) : href ? (
+        <Link
+          href={href}
+          className="px-3 py-1.5 rounded-[8px] bg-bg-elev-3 border border-border hover:border-border-strong text-[12px] shrink-0"
+        >
           Connect
-        </button>
+        </Link>
+      ) : (
+        <span className="px-3 py-1.5 rounded-[8px] bg-bg-elev-3 border border-border text-text-muted text-[12px] shrink-0">
+          Not connected
+        </span>
       )}
     </div>
   );

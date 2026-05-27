@@ -34,6 +34,9 @@ export default async function SessionPage({
   params: { studio: string; bucket: string; folder: string };
 }) {
   const user = requireEditorOrAdmin();
+  // Editor/admin always bypass plan gates, but the FilePortal prop is
+  // typed — pass through what the session says.
+  const livePlan = user.plan;
   if (!STUDIO_SLUGS.includes(params.studio as StudioSlug)) notFound();
   if (!BUCKETS.includes(params.bucket as Bucket)) notFound();
   const studio = params.studio as StudioSlug;
@@ -191,7 +194,7 @@ export default async function SessionPage({
         studioSlug={studio}
         currentUserEmail={user.email}
         canMarkDone={user.role === "admin" || user.role === "editor"}
-        userPlan={user.plan}
+        userPlan={livePlan}
         userRole={user.role}
         canUpload
       />

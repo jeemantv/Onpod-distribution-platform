@@ -18,7 +18,7 @@ import {
 import { AI_SUFFIX, TRANSCRIPT_SUFFIX } from "@/lib/transcript-store";
 import { historyForUserGroupedByFile } from "@/lib/publish-history-store";
 import { getFileMeta } from "@/lib/file-meta-store";
-import { getUserByEmail } from "@/lib/auth-store";
+import { effectivePlan, getUserByEmail } from "@/lib/auth-store";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +27,10 @@ export default async function ProjectPage({ params }: { params: { id: string } }
   const project = getProjectById(params.id);
   if (!project) notFound();
   if (project.userId !== user.id && user.role !== "admin") notFound();
+  // Plan from DB (effectivePlan) so post-Stripe upgrades unlock buttons
+  // immediately even if the session JWT is still on the trial/free plan.
+  const storedClient = await getUserByEmail(user.email).catch(() => null);
+  const livePlan = storedClient ? effectivePlan(storedClient) : user.plan;
 
   const b2Objects = await listFiles(projectPrefix(project.userId, project.id)).catch(
     (e) => {
@@ -117,7 +121,9 @@ export default async function ProjectPage({ params }: { params: { id: string } }
           files={files}
           aiReadyByFile={aiByFile}
           shareToken={project.shareToken}
-          studioSlug={(await getUserByEmail(user.email).catch(() => null))?.homeStudio ?? "_default"}
+          studioSlug={storedClient?.homeStudio ?? "_default"}
+          userPlan={livePlan}
+          userRole={user.role}
         />
       </main>
     </>
