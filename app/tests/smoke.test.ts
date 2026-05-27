@@ -554,6 +554,30 @@ describe("Buzzsprout API", () => {
     );
   });
 
+  test("GET /api/file-statuses anon → 401", async () => {
+    const r = await hit("/api/file-statuses?studio=externals");
+    assert.equal(r.status, 401);
+  });
+
+  test("GET /api/file-statuses signed in seeds defaults + returns 4", async () => {
+    const { cookie } = await signIn(DEMO_CLIENT.email, DEMO_CLIENT.password);
+    const r = await hit("/api/file-statuses?studio=externals", { cookie });
+    assert.equal(r.status, 200);
+    const body = r.json as { statuses?: { label: string }[] };
+    assert.ok(body.statuses && body.statuses.length >= 4, `got ${body.statuses?.length}`);
+  });
+
+  test("POST /api/file-statuses as client → 403", async () => {
+    const { cookie } = await signIn(DEMO_CLIENT.email, DEMO_CLIENT.password);
+    const r = await hit("/api/file-statuses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ studio: "externals", label: "Shipped", color: "#10b981" }),
+      cookie,
+    });
+    assert.equal(r.status, 403);
+  });
+
   test("POST /api/buzzsprout/publish without fileId → 400", async () => {
     const { cookie } = await signIn(DEMO_CLIENT.email, DEMO_CLIENT.password);
     const r = await hit("/api/buzzsprout/publish", {

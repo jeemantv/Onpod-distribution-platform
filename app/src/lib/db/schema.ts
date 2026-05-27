@@ -381,6 +381,33 @@ export const approvals = pgTable(
   }),
 );
 
+// Per-studio customizable status options. Replaces the hardcoded
+// pending/approved/rejected enum. Each studio gets a seeded set of 3
+// statuses (the legacy values) plus whatever extras editors/admins add.
+// `legacyValue` ties a status to one of the original enum values so old
+// rows in file_meta.approval_status still resolve to a status row.
+export const fileStatuses = pgTable(
+  "file_statuses",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    studioSlug: text("studio_slug").notNull(),
+    label: text("label").notNull(),
+    color: text("color").notNull(),
+    position: integer("position").notNull().default(0),
+    // null = custom status added by an editor. Non-null = one of the
+    // three seeded defaults, used for back-compat with the old enum.
+    legacyValue: text("legacy_value"),
+    isDefault: boolean("is_default").notNull().default(false),
+    archivedAt: timestamp("archived_at", { withTimezone: true, mode: "date" }),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => ({
+    studioPosIdx: index("file_statuses_studio_pos_idx").on(t.studioSlug, t.position),
+  }),
+);
+export type FileStatusRow = typeof fileStatuses.$inferSelect;
+export type NewFileStatusRow = typeof fileStatuses.$inferInsert;
+
 // Per-file overrides (folder type + approval status) when the filename
 // alone can't carry the truth. Composite key on (owner_id, project_id,
 // file_key). `owner_id` is text, not a FK — for studio paths the owner
@@ -393,6 +420,9 @@ export const fileMeta = pgTable(
     fileKey: text("file_key").notNull(),
     type: fileType("type"),
     approvalStatus: approvalStatus("approval_status"),
+    // FK to file_statuses; nullable so old rows still work. When set,
+    // takes precedence over approval_status on the read path.
+    statusId: uuid("status_id"),
     updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   },
   (t) => ({ pk: primaryKey({ columns: [t.ownerId, t.projectId, t.fileKey] }) }),

@@ -78,6 +78,9 @@ export interface FileItem {
   backblazeKey: string;
   uploadedAt: string;
   approvalStatus: ApprovalStatus;
+  // Per-studio custom status. When null/undefined, the UI falls back to
+  // mapping approvalStatus to the matching legacy status row.
+  statusId?: string | null;
   publishStates: { platform: PublishPlatform; action: PublishAction; vidType?: VidType }[];
   downloadCount: number;
 }

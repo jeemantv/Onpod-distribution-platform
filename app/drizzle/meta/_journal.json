@@ -71,6 +71,13 @@
       "when": 1779851864756,
       "tag": "0009_buzzsprout_creds",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1779855496309,
+      "tag": "0010_file_statuses",
+      "breakpoints": true
     }
   ]
 }

@@ -125,6 +125,7 @@ export default async function SessionPage({
         backblazeKey: liveKey,
         uploadedAt: o.lastModified ?? new Date().toISOString(),
         approvalStatus: override?.approvalStatus ?? "none",
+        statusId: override?.statusId ?? null,
         publishStates,
         downloadCount: 0,
       };
@@ -187,6 +188,7 @@ export default async function SessionPage({
         aiReadyByFile={aiByFile}
         shareToken=""
         studioContext={{ studio, bucket, folder }}
+        studioSlug={studio}
         currentUserEmail={user.email}
         canMarkDone={user.role === "admin" || user.role === "editor"}
         userPlan={user.plan}

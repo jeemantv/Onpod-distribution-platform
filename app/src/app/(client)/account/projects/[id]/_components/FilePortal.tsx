@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import type { FileItem, FileType } from "@/lib/types";
 import { formatBytes } from "@/lib/format";
 import { FileActionButtons } from "./FileActionButtons";
-import { ApprovalToggle } from "./ApprovalToggle";
+import { StatusDropdown } from "./StatusDropdown";
 import { FileStatusBadges } from "./FileStatusBadges";
+import type { FileStatus } from "@/lib/file-statuses-store";
 import { VersionMenu } from "@/components/VersionMenu";
 import { AIStudioModal } from "./AIStudioModal";
 import { YouTubeModal, type PublishedInfo as YTPublishedInfo } from "./YouTubeModal";
@@ -34,6 +35,7 @@ export function FilePortal({
   aiReadyByFile,
   shareToken,
   studioContext,
+  studioSlug,
   currentUserEmail = "",
   canMarkDone = false,
   userPlan = "free",
@@ -49,6 +51,10 @@ export function FilePortal({
     bucket: string;
     folder: string;
   };
+  // Studio whose file_statuses list governs the dropdown options. For
+  // studio paths this is the path's studio; for client paths it's the
+  // user's homeStudio. Falls back to "_default" if not provided.
+  studioSlug?: string;
   // Passed down to PreviewModal so the embedded VideoReviewer knows
   // who's logged in and whether they can mark notes done.
   currentUserEmail?: string;
@@ -289,15 +295,79 @@ export function FilePortal({
     asset: files.filter((f) => f.type === "asset").length,
   };
 
-  const updateApproval = async (fileId: string, next: FileItem["approvalStatus"]) => {
+  // Per-studio status list (loaded once on mount). All dropdowns on this
+  // page share the same array so a rename/recolor/add reflects across
+  // every row immediately.
+  const [statuses, setStatuses] = useState<FileStatus[]>([]);
+  const effectiveStudio = studioSlug ?? studioContext?.studio ?? "_default";
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/file-statuses?studio=${encodeURIComponent(effectiveStudio)}`)
+      .then((r) => r.json())
+      .then((b: { statuses?: FileStatus[] }) => {
+        if (!cancelled && b.statuses) setStatuses(b.statuses);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveStudio]);
+
+  const canEditStatuses = userRole === "admin" || userRole === "editor";
+
+  const updateStatusId = async (fileId: string, statusId: string | null) => {
     setFiles((fs) =>
-      fs.map((f) => (f.id === fileId ? { ...f, approvalStatus: next } : f)),
+      fs.map((f) => (f.id === fileId ? { ...f, statusId } : f)),
     );
+    // Mirror picks of the 3 seeded statuses into approvalStatus so the
+    // legacy flows (revision badges, request-approval gating, etc.)
+    // keep working. Custom statuses leave approvalStatus untouched.
+    const picked = statuses.find((s) => s.id === statusId);
+    const legacy = picked?.legacyValue as FileItem["approvalStatus"] | undefined;
     await fetch(`/api/files/${fileId}/meta`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ approvalStatus: next }),
+      body: JSON.stringify({
+        statusId,
+        ...(legacy ? { approvalStatus: legacy } : {}),
+      }),
     }).catch(() => {});
+    if (legacy) {
+      setFiles((fs) =>
+        fs.map((f) => (f.id === fileId ? { ...f, approvalStatus: legacy } : f)),
+      );
+    }
+  };
+
+  const createStatus = async (label: string, color: string) => {
+    const res = await fetch("/api/file-statuses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ studio: effectiveStudio, label, color }),
+    });
+    const body = (await res.json().catch(() => ({}))) as { status?: FileStatus };
+    if (body.status) setStatuses((prev) => [...prev, body.status!]);
+  };
+
+  const patchStatus = async (id: string, patch: { label?: string; color?: string }) => {
+    const res = await fetch(`/api/file-statuses/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    const body = (await res.json().catch(() => ({}))) as { status?: FileStatus };
+    if (body.status) {
+      setStatuses((prev) => prev.map((s) => (s.id === id ? body.status! : s)));
+    }
+  };
+
+  const deleteStatus = async (id: string) => {
+    await fetch(`/api/file-statuses/${id}`, { method: "DELETE" });
+    setStatuses((prev) => prev.filter((s) => s.id !== id));
+    // Files that were on this status fall back to default (null status_id).
+    setFiles((fs) =>
+      fs.map((f) => (f.statusId === id ? { ...f, statusId: null } : f)),
+    );
   };
 
   const toggleSelect = (
@@ -758,12 +828,20 @@ export function FilePortal({
                   </div>
                 </div>
                 {needsApproval(f) ? (
-                  <ApprovalToggle
-                    value={f.approvalStatus}
-                    onChange={(next) => updateApproval(f.id, next)}
+                  <StatusDropdown
+                    statuses={statuses}
+                    currentId={f.statusId ?? null}
+                    legacyValue={f.approvalStatus !== "none" ? f.approvalStatus : null}
                     inRevision={!!revisionByFile[f.id]}
+                    canEdit={canEditStatuses}
+                    onChange={(id) => updateStatusId(f.id, id)}
+                    onCreate={createStatus}
+                    onUpdate={patchStatus}
+                    onDelete={deleteStatus}
                   />
-                ) : null}
+                ) : (
+                  <div className="hidden sm:block w-[170px] shrink-0" aria-hidden="true" />
+                )}
                 {/* Action buttons sit on their own row in gallery so they
                     don't overflow the narrow card width — overflow-x-auto
                     keeps them reachable even on small viewports. */}
@@ -833,10 +911,16 @@ export function FilePortal({
 
               <div className="flex items-center gap-2 justify-end sm:gap-3 -mx-1 sm:mx-0 overflow-x-auto sm:overflow-visible px-1 sm:px-0">
                 {needsApproval(f) ? (
-                  <ApprovalToggle
-                    value={f.approvalStatus}
-                    onChange={(next) => updateApproval(f.id, next)}
+                  <StatusDropdown
+                    statuses={statuses}
+                    currentId={f.statusId ?? null}
+                    legacyValue={f.approvalStatus !== "none" ? f.approvalStatus : null}
                     inRevision={!!revisionByFile[f.id]}
+                    canEdit={canEditStatuses}
+                    onChange={(id) => updateStatusId(f.id, id)}
+                    onCreate={createStatus}
+                    onUpdate={patchStatus}
+                    onDelete={deleteStatus}
                   />
                 ) : (
                   <div className="hidden sm:block w-[170px] shrink-0" aria-hidden="true" />

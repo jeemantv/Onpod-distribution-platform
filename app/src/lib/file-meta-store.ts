@@ -10,6 +10,10 @@ import type { ApprovalStatus, FileType } from "./types";
 export interface FileMetaEntry {
   type?: FileType;
   approvalStatus?: ApprovalStatus;
+  // FK to file_statuses. Takes precedence over approvalStatus on the
+  // read path. When set, indicates the user picked a specific custom
+  // (or seeded) status.
+  statusId?: string | null;
   updatedAt?: string;
 }
 
@@ -25,6 +29,7 @@ export async function getFileMeta(userId: string, projectId: string): Promise<Fi
     out[r.fileKey] = {
       type: r.type ?? undefined,
       approvalStatus: r.approvalStatus ?? undefined,
+      statusId: r.statusId ?? null,
       updatedAt: r.updatedAt.toISOString(),
     };
   }
@@ -37,6 +42,10 @@ export async function setFileMetaEntry(
   fileKey: string,
   entry: FileMetaEntry,
 ): Promise<FileMeta> {
+  const normApproval =
+    entry.approvalStatus && entry.approvalStatus !== "none"
+      ? entry.approvalStatus
+      : null;
   await db
     .insert(fileMeta)
     .values({
@@ -46,13 +55,16 @@ export async function setFileMetaEntry(
       type: entry.type ?? null,
       // ApprovalStatus has a "none" sentinel that means "no decision yet" —
       // store that as SQL NULL so the column only holds spec values.
-      approvalStatus: entry.approvalStatus && entry.approvalStatus !== "none" ? entry.approvalStatus : null,
+      approvalStatus: normApproval,
+      statusId: entry.statusId ?? null,
     })
     .onConflictDoUpdate({
       target: [fileMeta.ownerId, fileMeta.projectId, fileMeta.fileKey],
+      // Sparse update so a status-only change doesn't clobber type, etc.
       set: {
-        type: entry.type ?? null,
-        approvalStatus: entry.approvalStatus && entry.approvalStatus !== "none" ? entry.approvalStatus : null,
+        ...(entry.type !== undefined ? { type: entry.type ?? null } : {}),
+        ...(entry.approvalStatus !== undefined ? { approvalStatus: normApproval } : {}),
+        ...(entry.statusId !== undefined ? { statusId: entry.statusId } : {}),
         updatedAt: new Date(),
       },
     });

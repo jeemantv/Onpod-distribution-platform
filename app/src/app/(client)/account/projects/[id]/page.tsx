@@ -18,6 +18,7 @@ import {
 import { AI_SUFFIX, TRANSCRIPT_SUFFIX } from "@/lib/transcript-store";
 import { historyForUserGroupedByFile } from "@/lib/publish-history-store";
 import { getFileMeta } from "@/lib/file-meta-store";
+import { getUserByEmail } from "@/lib/auth-store";
 
 export const dynamic = "force-dynamic";
 
@@ -71,6 +72,7 @@ export default async function ProjectPage({ params }: { params: { id: string } }
       backblazeKey: o.key,
       uploadedAt: (o.lastModified ?? new Date()).toISOString(),
       approvalStatus: override?.approvalStatus ?? "none",
+      statusId: override?.statusId ?? null,
       publishStates,
       downloadCount: 0,
     };
@@ -115,6 +117,7 @@ export default async function ProjectPage({ params }: { params: { id: string } }
           files={files}
           aiReadyByFile={aiByFile}
           shareToken={project.shareToken}
+          studioSlug={(await getUserByEmail(user.email).catch(() => null))?.homeStudio ?? "_default"}
         />
       </main>
     </>

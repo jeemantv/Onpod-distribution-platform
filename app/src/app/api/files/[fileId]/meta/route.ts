@@ -46,7 +46,13 @@ export async function POST(
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  const body = (await req.json()) as { type?: FileType; approvalStatus?: ApprovalStatus };
+  const body = (await req.json()) as {
+    type?: FileType;
+    approvalStatus?: ApprovalStatus;
+    // `null` clears the status (fall back to studio default). `undefined`
+    // means "don't touch this field."
+    statusId?: string | null;
+  };
   if (body.type && !VALID_TYPES.includes(body.type)) {
     return NextResponse.json({ error: "invalid_type" }, { status: 400 });
   }
@@ -60,6 +66,7 @@ export async function POST(
     await setFileMetaEntry(ownerId, projectId, key, {
       type: body.type,
       approvalStatus: body.approvalStatus,
+      statusId: body.statusId,
     });
     return NextResponse.json({ ok: true });
   } catch (err) {
