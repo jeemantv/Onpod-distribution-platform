@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { PLAN_LIMITS, type Plan } from "@/lib/types";
 import { requireAdmin } from "@/lib/session";
 import { loadEditorScope } from "@/lib/editor-access";
+import { SendTestEmail } from "./_components/SendTestEmail";
 
 export const dynamic = "force-dynamic";
 
@@ -66,6 +67,7 @@ export default async function AdminSettingsPage() {
             );
           })}
         </ul>
+        <SendTestEmail />
       </section>
 
       <section className="p-6 rounded-[16px] bg-bg-elev border border-border">
