@@ -101,6 +101,38 @@ export const users = pgTable(
   }),
 );
 
+// ---------- Account delegates (multi-guest team access) ----------
+
+// A client can invite multiple team members (social media manager,
+// assistant, freelance editor that's not the dedicated external_editor
+// slot, etc). Each delegate gets a permanent guest URL signed against
+// the same client identity, scoped via canAccessKey to that client's
+// files only. They have editor-grade capabilities (notes, version
+// upload, publish) but no access to billing or notification settings.
+export const accountDelegates = pgTable(
+  "account_delegates",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    email: varchar("email", { length: 320 }).notNull(),
+    name: varchar("name", { length: 200 }).notNull(),
+    // Free-text role label shown in the UI (e.g. "Social media manager",
+    // "Assistant"). Optional. Doesn't change permissions.
+    label: varchar("label", { length: 80 }),
+    token: text("token").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true, mode: "date" }),
+  },
+  (t) => ({
+    ownerIdx: index("account_delegates_owner_idx").on(t.ownerUserId),
+    tokenUnique: uniqueIndex("account_delegates_token_unique").on(t.token),
+  }),
+);
+export type AccountDelegateRow = typeof accountDelegates.$inferSelect;
+export type NewAccountDelegateRow = typeof accountDelegates.$inferInsert;
+
 // ---------- Studios (Phase 3.1) ----------
 
 // Dynamic studio registry. Originally hardcoded as STUDIO_SLUGS in

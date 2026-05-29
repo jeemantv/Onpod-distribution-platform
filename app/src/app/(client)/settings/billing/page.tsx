@@ -27,6 +27,12 @@ export default async function BillingPage({
   searchParams: { status?: string; session_id?: string };
 }) {
   const user = requireSession();
+  // Guest sessions never see billing. The host client is the only one
+  // who can subscribe / cancel / manage payment methods.
+  if (user.guest) {
+    const { redirect } = await import("next/navigation");
+    redirect("/account");
+  }
   const stored = await getUserByEmail(user.email);
   const currentPlan = stored ? effectivePlan(stored) : user.plan;
   const successfulCheckout = searchParams.status === "success";

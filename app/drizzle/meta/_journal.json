@@ -99,6 +99,13 @@
       "when": 1779858881986,
       "tag": "0013_trial_ends_at",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1780059798722,
+      "tag": "0014_account_delegates",
+      "breakpoints": true
     }
   ]
 }

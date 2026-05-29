@@ -6,6 +6,7 @@
 import { redirect } from "next/navigation";
 import { notFound } from "next/navigation";
 import { findClientByGuestToken } from "@/lib/external-editor-store";
+import { findClientByDelegateToken } from "@/lib/delegates-store";
 import { setGuestSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +16,12 @@ export default async function GuestRedeemPage({
 }: {
   params: { token: string };
 }) {
-  const redemption = await findClientByGuestToken(params.token);
+  // Try the dedicated external_editor slot first, then the multi-
+  // delegate table. Both produce the same redemption shape so the rest
+  // of the page is provider-agnostic.
+  const redemption =
+    (await findClientByGuestToken(params.token)) ??
+    (await findClientByDelegateToken(params.token));
   if (!redemption) notFound();
 
   // Compose a SignInUserShape from the client's stored identity. Avatar

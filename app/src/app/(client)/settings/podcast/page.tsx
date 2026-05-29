@@ -8,6 +8,13 @@ export const dynamic = "force-dynamic";
 
 export default async function PodcastSettingsPage() {
   const user = requireSession();
+  // Guests never manage Buzzsprout creds / RSS feed config — that's a
+  // host-client-only surface (it touches the podcast distribution that
+  // billing pays for).
+  if (user.guest) {
+    const { redirect } = await import("next/navigation");
+    redirect("/account");
+  }
   const show = await getShowByUser(user.id);
   return (
     <>

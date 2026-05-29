@@ -5,6 +5,7 @@ import { getCreditsForUser } from "@/lib/mock-data";
 import { PLAN_LIMITS } from "@/lib/types";
 import { SignOutButton } from "./_components/SignOutButton";
 import { ExternalEditorCard } from "./_components/ExternalEditorCard";
+import { DelegatesCard } from "./_components/DelegatesCard";
 import { effectivePlan, getUserByEmail, trialStateFor } from "@/lib/auth-store";
 import { getConnection } from "@/lib/youtube-store";
 import { getBuzzsproutCreds } from "@/lib/buzzsprout-store";
@@ -16,8 +17,13 @@ export const dynamic = "force-dynamic";
 // review/edit notifications, admins are punted at the admin panel.
 export default async function SettingsPage() {
   const user = requireSession();
-  const isClient = user.role === "client";
-  const isEditor = user.role === "editor";
+  // Guest sessions are role="editor" but acting on a client's account.
+  // They see profile only — no billing, plan, notification, connection,
+  // or team-management cards. The guest banner already explains the
+  // mode at the top via TopNav.
+  const isGuest = !!user.guest;
+  const isClient = user.role === "client" && !isGuest;
+  const isEditor = user.role === "editor" && !isGuest;
   // Effective plan from DB so post-Stripe upgrades reflect immediately
   // (the session JWT lags one re-login behind otherwise).
   const stored = isClient ? await getUserByEmail(user.email).catch(() => null) : null;
@@ -164,6 +170,8 @@ export default async function SettingsPage() {
         ) : null}
 
         {isClient ? <ExternalEditorCard /> : null}
+
+        {isClient ? <DelegatesCard /> : null}
 
         {isClient ? (
           <Card title="Subscription" tone="danger">
