@@ -431,33 +431,80 @@ export function FilePortal({
       await downloadFile(targets[0].id, targets[0].name);
       return;
     }
+    // The server STORE-zips (no recompression), so the streamed archive is
+    // ~the sum of source sizes + small overhead. That lets us show a real %
+    // as bytes arrive instead of a silent wait while the whole zip builds.
+    const estTotal = targets.reduce((sum, f) => sum + (f.sizeBytes || 0), 0);
+    const zipName = `onpod-${targets.length}-files`;
+    setToast({
+      kind: "progress",
+      title: `Zipping ${targets.length} files…`,
+      detail: estTotal ? `0 / ${formatBytes(estTotal)}` : "Preparing…",
+      percent: 0,
+      sticky: true,
+    });
+
     try {
       const res = await fetch("/api/files/zip", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fileIds: targets.map((t) => t.id),
-          name: `onpod-${targets.length}-files`,
-        }),
+        body: JSON.stringify({ fileIds: targets.map((t) => t.id), name: zipName }),
       });
-      if (!res.ok) {
+      if (!res.ok || !res.body) {
         const text = await res.text().catch(() => "");
         throw new Error(`Zip failed (${res.status}) ${text.slice(0, 200)}`);
       }
-      const blob = await res.blob();
+
+      // Read the streamed response chunk-by-chunk so we can paint progress.
+      const reader = res.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let received = 0;
+      let lastPaint = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+        chunks.push(value);
+        received += value.length;
+        const now = Date.now();
+        // Throttle re-renders to ~10/s.
+        if (now - lastPaint > 100) {
+          lastPaint = now;
+          setToast({
+            kind: "progress",
+            title: `Zipping ${targets.length} files…`,
+            detail: estTotal
+              ? `${formatBytes(received)} / ${formatBytes(estTotal)}`
+              : formatBytes(received),
+            // Cap at 99% until the stream actually ends (overhead can push
+            // received slightly past the estimate).
+            percent: estTotal ? Math.min(99, Math.round((received / estTotal) * 100)) : undefined,
+            sticky: true,
+          });
+        }
+      }
+
+      const blob = new Blob(chunks as BlobPart[], { type: "application/zip" });
       const objectUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = objectUrl;
-      a.download = `onpod-${targets.length}-files.zip`;
+      a.download = `${zipName}.zip`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+
+      setToast({
+        kind: "success",
+        title: `Downloaded ${targets.length} files`,
+        detail: formatBytes(blob.size),
+      });
     } catch (err) {
-      alert(
-        "Bulk download failed: " +
-          (err instanceof Error ? err.message : String(err)),
-      );
+      setToast({
+        kind: "error",
+        title: "Bulk download failed",
+        detail: err instanceof Error ? err.message : String(err),
+      });
     }
   };
 
