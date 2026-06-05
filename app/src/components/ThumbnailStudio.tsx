@@ -164,7 +164,44 @@ export function ThumbnailStudio({
     setAiSuggested(false);
     setResult(null);
     setLayerCard({});
+    setSuggestions([]);
+    setSavedSuggestionUrl("");
+    setSuggestNote("");
   }, [focusFileId, videoFiles]);
+
+  // Restore previously-generated AI thumbnails on open, so closing and
+  // reopening the Thumbnails section doesn't lose them. They live as B2
+  // sidecars (.thumb-smart-*.jpg) listed by the thumbnails endpoint.
+  useEffect(() => {
+    if (!sourceFileId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/files/${sourceFileId}/thumbnails`);
+        if (!res.ok) return;
+        const body = (await res.json()) as {
+          thumbnails?: { label: string; name: string; url: string }[];
+        };
+        if (cancelled || !body.thumbnails) return;
+        const smart = body.thumbnails
+          .filter((t) => t.label.startsWith("smart-"))
+          .sort((a, b) => a.label.localeCompare(b.label))
+          .map((t) => ({
+            label: t.label,
+            url: t.url,
+            reason: "Saved earlier — hit Redo for fresh options.",
+            headline: "",
+          }));
+        // Don't clobber a set the user just generated in this session.
+        if (smart.length > 0) setSuggestions((cur) => (cur.length > 0 ? cur : smart));
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sourceFileId]);
 
   // Whenever a card's URL changes (in-place flip / bg removal / re-crop),
   // update only the layers that have that card assigned.
@@ -378,7 +415,8 @@ export function ThumbnailStudio({
   async function suggestThumbnails() {
     if (!sourceFileId || !sourceUrl) return;
     setError(null);
-    setSuggestions([]);
+    // Keep any existing suggestions visible (dimmed) while we regenerate, so
+    // "Redo" doesn't collapse the whole block and look like it did nothing.
     setSavedSuggestionUrl("");
     setSuggestNote("");
     setStage("suggesting");
@@ -906,10 +944,18 @@ export function ThumbnailStudio({
                 {stage === "suggesting" ? "Redoing…" : "🔄 Redo"}
               </button>
             </div>
-            {suggestNote ? (
+            {stage === "suggesting" ? (
+              <p className="text-[11px] text-accent-2 mb-2">
+                Designing fresh thumbnails… (~30s)
+              </p>
+            ) : suggestNote ? (
               <p className="text-[11px] text-text-muted mb-2">{suggestNote}</p>
             ) : null}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div
+              className={`grid grid-cols-1 md:grid-cols-3 gap-3 ${
+                stage === "suggesting" ? "opacity-50 pointer-events-none" : ""
+              }`}
+            >
               {suggestions.map((s, i) => {
                 const saved = savedSuggestionUrl === s.url;
                 return (

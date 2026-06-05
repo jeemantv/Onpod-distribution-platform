@@ -84,17 +84,21 @@ export function StatusDropdown({
     };
   }, [open]);
 
-  const current =
+  // An EXPLICIT status decision (a picked status id, or a legacy approval that
+  // maps to one). This must win over the revision override below.
+  const explicit =
     statuses.find((s) => s.id === currentId) ??
     (legacyValue
       ? statuses.find((s) => s.legacyValue === legacyValue) ?? null
-      : null) ??
-    statuses.find((s) => s.isDefault) ??
-    statuses[0] ??
-    null;
+      : null);
+  const current = explicit ?? statuses.find((s) => s.isDefault) ?? statuses[0] ?? null;
 
-  const displayColor = inRevision ? "#f59e0b" : current?.color ?? "#6b7280";
-  const displayLabel = inRevision ? "In revision" : current?.label ?? "Set status";
+  // Only fall back to the amber "In revision" label when the user has NOT made
+  // an explicit choice — otherwise picking e.g. "Approved" was invisible
+  // because open revision notes masked the real status.
+  const showRevision = inRevision && !explicit;
+  const displayColor = showRevision ? "#f59e0b" : current?.color ?? "#6b7280";
+  const displayLabel = showRevision ? "In revision" : current?.label ?? "Set status";
 
   return (
     <div ref={wrapRef} className="relative inline-block">
