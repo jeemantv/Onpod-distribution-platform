@@ -538,6 +538,48 @@ export function FilePortal({
     router.refresh();
   };
 
+  // Bulk-set a status on every selected file that supports approval. Reuses
+  // the per-file updateStatusId so the optimistic state + legacy-approval
+  // mirroring stay identical.
+  const setStatusForSelected = async (statusId: string | null) => {
+    const targets = files.filter((f) => selected.has(f.id) && needsApproval(f));
+    if (targets.length === 0) return;
+    const label = statuses.find((s) => s.id === statusId)?.label ?? "status";
+    await Promise.all(targets.map((f) => updateStatusId(f.id, statusId)));
+    setToast({
+      kind: "success",
+      title: `Set ${targets.length} file${targets.length === 1 ? "" : "s"} to “${label}”`,
+    });
+  };
+
+  // Bulk "Add AI": kick off transcription + AI generation on every selected
+  // video that doesn't already have AI. startAI shows the per-file progress
+  // ring and only opens the modal for already-ready files (which we skip).
+  const addAIToSelected = () => {
+    const targets = files.filter(
+      (f) =>
+        selected.has(f.id) &&
+        f.mimeType.startsWith("video/") &&
+        f.type !== "asset" &&
+        !aiReady[f.id] &&
+        aiProgress[f.id] === undefined,
+    );
+    if (targets.length === 0) {
+      setToast({
+        kind: "error",
+        title: "Nothing to do",
+        detail: "AI runs on videos that don't already have AI generated.",
+      });
+      return;
+    }
+    setToast({
+      kind: "success",
+      title: `Starting AI on ${targets.length} file${targets.length === 1 ? "" : "s"}…`,
+      detail: "Watch the AI ring on each file.",
+    });
+    for (const f of targets) void startAI(f.id);
+  };
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // Bail if a modal (AI Studio / YouTube / Spotify / etc.) is open.
@@ -1053,12 +1095,63 @@ export function FilePortal({
       ) : null}
 
       {selected.size > 0 ? (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 bg-bg-elev-2 border border-border-strong rounded-xl px-4 py-3 shadow-modal">
-          <span className="text-[13px] font-medium">{selected.size} selected</span>
-          <span className="text-[11px] text-text-muted hidden md:inline">
-            right-click for actions · ⌘A all · ⌫ delete · esc clear
-          </span>
-        </div>
+        (() => {
+          const sel = files.filter((f) => selected.has(f.id));
+          const approvable = sel.filter((f) => needsApproval(f)).length;
+          const aiEligible = sel.filter(
+            (f) =>
+              f.mimeType.startsWith("video/") &&
+              f.type !== "asset" &&
+              !aiReady[f.id] &&
+              aiProgress[f.id] === undefined,
+          ).length;
+          return (
+            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 bg-bg-elev-2 border border-border-strong rounded-xl px-4 py-3 shadow-modal flex-wrap max-w-[95vw] justify-center">
+              <span className="text-[13px] font-medium">{selected.size} selected</span>
+
+              {canEditStatuses && approvable > 0 && statuses.length > 0 ? (
+                <span className="flex items-center gap-1.5">
+                  <span className="text-[11px] text-text-muted">Set all:</span>
+                  <StatusDropdown
+                    statuses={statuses}
+                    currentId={null}
+                    legacyValue={null}
+                    canEdit={canEditStatuses}
+                    onChange={(id) => void setStatusForSelected(id)}
+                    onCreate={createStatus}
+                    onUpdate={patchStatus}
+                    onDelete={deleteStatus}
+                  />
+                </span>
+              ) : null}
+
+              {aiEligible > 0 ? (
+                <button
+                  onClick={addAIToSelected}
+                  className="px-3 py-1.5 rounded-[8px] bg-accent text-white text-[12px] font-medium"
+                >
+                  ✨ Add AI to all ({aiEligible})
+                </button>
+              ) : null}
+
+              <button
+                onClick={() => void downloadSelected()}
+                className="px-3 py-1.5 rounded-[8px] bg-bg-elev-3 border border-border text-[12px]"
+              >
+                Download
+              </button>
+              <button
+                onClick={clearSelection}
+                className="px-2.5 py-1.5 rounded-[8px] text-[12px] text-text-muted hover:text-text"
+              >
+                Clear
+              </button>
+              <span className="text-[11px] text-text-dim hidden md:inline">
+                right-click for more · ⌘A all · ⌫ delete
+              </span>
+            </div>
+          );
+        })()
       ) : null}
 
       {modal?.kind === "ai" ? (
