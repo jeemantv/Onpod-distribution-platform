@@ -10,6 +10,10 @@ import { getSession } from "@/lib/session";
 // while — give it room beyond the default function timeout.
 export const maxDuration = 300;
 
+// Convert between the model's placement words and the overlay's Side names.
+const WORD_TO_SIDE = { top: "top", bottom: "bottom", left: "leftMid", right: "rightMid" } as const;
+const SIDE_TO_WORD = { top: "top", bottom: "bottom", leftMid: "left", rightMid: "right" } as const;
+
 interface RequestBody {
   fileId: string;
   framesBase64: string[]; // each is a base64 JPEG (no data: prefix)
@@ -94,10 +98,22 @@ export async function POST(req: Request) {
         let contentType = "image/jpeg";
         let designed = false;
         const title = (p.headline || ai?.title || "").trim();
+
+        // Effective placement: an explicit user note wins; otherwise use the
+        // model's per-frame "empty space, no face" placement for this pick.
+        const placeWord =
+          (overlayOverride.placement ? SIDE_TO_WORD[overlayOverride.placement] : undefined) ??
+          p.placement;
+        const pickOverride = {
+          color: overlayOverride.color,
+          placement:
+            overlayOverride.placement ?? (p.placement ? WORD_TO_SIDE[p.placement] : undefined),
+        };
+
         if (title) {
           try {
             // Preferred: Gemini draws the stylized title into the image.
-            const out = await composeThumbnail(frame, title, style, notes);
+            const out = await composeThumbnail(frame, title, style, notes, placeWord);
             bodyBuf = Buffer.from(out.base64, "base64");
             contentType = out.mimeType || "image/png";
             designed = true;
@@ -106,7 +122,7 @@ export async function POST(req: Request) {
             // Fallback: composite a real-font title onto the raw frame so a
             // title is ALWAYS present (e.g. when Gemini image billing is off).
             try {
-              bodyBuf = await overlayTitle(Buffer.from(frame, "base64"), title, style, overlayOverride);
+              bodyBuf = await overlayTitle(Buffer.from(frame, "base64"), title, style, pickOverride);
               contentType = "image/jpeg";
               designed = true;
             } catch (overlayErr) {

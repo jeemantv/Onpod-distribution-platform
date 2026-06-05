@@ -120,6 +120,9 @@ export interface SmartThumbPick {
   rank: number; // 1 = best
   headline: string; // short punchy overlay idea drawn from the episode hook
   reason: string; // one-sentence why
+  // Where the title should sit in THIS frame — the area with the most empty
+  // space and no face, so the text never covers anyone.
+  placement?: "top" | "bottom" | "left" | "right";
 }
 
 const THUMB_PICK_PROMPT = `You are a YouTube thumbnail strategist for a podcast channel. You are given N candidate frames (numbered 0..N-1) extracted from the episode video, followed by the episode transcript.
@@ -133,9 +136,10 @@ For each pick provide:
 - "index": the 0-based frame index
 - "headline": the on-thumbnail TITLE text. Make it a high-CTR YouTube podcast title: SHORT (ideally 2-4 words, hard max 5), punchy, curiosity- or benefit-driven, ALL-CAPS friendly. Work in the episode's main topic/keyword for SEO. Lightly clickbait but credible — never cheesy, spammy, or all-caps shouting nonsense. Examples of the vibe: "AI CHANGES EVERYTHING", "THE NETWORKING TRAP", "SCALE FASTER NOW".
 - "reason": one sentence explaining the choice, referencing both the visual and the topic
+- "placement": where a big title can sit in THIS frame WITHOUT covering anyone's face — one of "top", "bottom", "left", or "right". Look at where the people are: if faces are low/centered choose "top"; if faces are high choose "bottom"; if everyone is on one side choose the OTHER side ("left" or "right"). Pick the area with the most empty/negative space.
 
 Return ONLY valid JSON, no markdown, no preamble:
-{"picks":[{"rank":1,"index":0,"headline":"...","reason":"..."}]}
+{"picks":[{"rank":1,"index":0,"headline":"...","reason":"...","placement":"top"}]}
 
 The 3 picks must have distinct frame indices.`;
 
@@ -239,6 +243,11 @@ export async function pickThumbnailsFromContext(
       rank: Number.isInteger(p.rank) ? p.rank : i + 1,
       headline: String(p.headline ?? "").slice(0, 80),
       reason: String(p.reason ?? ""),
+      placement: (["top", "bottom", "left", "right"] as const).includes(
+        p.placement as "top" | "bottom" | "left" | "right",
+      )
+        ? p.placement
+        : undefined,
     }))
     .sort((a, b) => a.rank - b.rank)
     .slice(0, 3);
@@ -268,8 +277,16 @@ const STYLE_DIRECTIONS = [
   `STYLE — "Punchy": High-energy and clicky. Put a BIG chunky ALL-CAPS title across the TOP in a punchy bright color (golden yellow OR bold red) with a thick black-and-white outline and a strong drop shadow so it screams off the image. Push saturation and contrast hard, add a subtle vignette and dramatic lighting that emphasises the subject's expression. Eye-catching but still clean.`,
 ];
 
-function styledThumbnailPrompt(title: string, style: number, notes?: string): string {
+function styledThumbnailPrompt(
+  title: string,
+  style: number,
+  notes?: string,
+  placement?: "top" | "bottom" | "left" | "right",
+): string {
   const direction = STYLE_DIRECTIONS[style] ?? STYLE_DIRECTIONS[0];
+  const place = placement
+    ? `\n\nPLACEMENT: position the title toward the ${placement.toUpperCase()} of the frame, in the empty space there. The title may sit BEHIND the people, but it must NEVER cover or cross anyone's FACE — every face stays fully visible.`
+    : `\n\nThe title must NEVER cover or cross anyone's face — keep every face fully visible.`;
   const extra = notes?.trim()
     ? `\n\nUSER DIRECTION (follow this, it overrides the style defaults where they conflict): ${notes.trim()}`
     : "";
@@ -279,21 +296,26 @@ ENHANCE the image so it looks cinematic and high quality: sharpen and add fine d
 
 The title must read EXACTLY: "${title}" — spell it exactly, ALL CAPS, and add no other text, logos, or watermarks.
 
-${direction}${extra}
+${direction}${place}${extra}
 
 Return only the finished, high-resolution 16:9 thumbnail image.`;
 }
 
 // Compose a finished thumbnail in one of the THUMBNAIL_STYLE_NAMES styles,
 // using the Gemini image model (same engine as enhanceImage). Optional `notes`
-// is free-text user direction to steer the design (e.g. "red text", "darker").
+// is free-text user direction; `placement` keeps the title off the faces.
 export async function composeThumbnail(
   frameBase64Jpeg: string,
   title: string,
   style = 0,
   notes?: string,
+  placement?: "top" | "bottom" | "left" | "right",
 ): Promise<EnhanceResult> {
-  return enhanceImage(frameBase64Jpeg, "image/jpeg", styledThumbnailPrompt(title, style, notes));
+  return enhanceImage(
+    frameBase64Jpeg,
+    "image/jpeg",
+    styledThumbnailPrompt(title, style, notes, placement),
+  );
 }
 
 export const ENHANCE_PROMPT_DEFAULT =

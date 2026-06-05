@@ -54,7 +54,7 @@ interface Paint {
   bright: string | null;
   softShadow: boolean;
 }
-type Side = "top" | "bottom" | "leftMid";
+type Side = "top" | "bottom" | "leftMid" | "rightMid";
 
 // Per-style visual config, mirroring the 3 AI-draw styles.
 //   0 Neon studio  — cyan glow, centered top
@@ -163,6 +163,7 @@ export function parseStyleNotes(notes?: string): StyleNotesOverride {
   if (/\bbottom\b/.test(n)) placement = "bottom";
   else if (/\btop\b/.test(n)) placement = "top";
   else if (/\bleft\b/.test(n)) placement = "leftMid";
+  else if (/\bright\b/.test(n)) placement = "rightMid";
   return { color: colorWord?.[1], placement };
 }
 
@@ -176,7 +177,8 @@ export async function overlayTitle(
   const cfg = STYLE_CFGS[style] ?? STYLE_CFGS[0];
   const side: Side = override?.placement ?? cfg.side;
   const paint = (override?.color && paintForColor(override.color)) || cfg.paint;
-  const align: "center" | "left" = side === "leftMid" ? "left" : cfg.align;
+  const align: "center" | "left" | "right" =
+    side === "leftMid" ? "left" : side === "rightMid" ? "right" : cfg.align;
   const text = title.trim().toUpperCase();
   if (!text) return baseImage;
 
@@ -196,6 +198,11 @@ export async function overlayTitle(
     g.addColorStop(0, "rgba(0,0,0,0.6)");
     g.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = g;
+  } else if (side === "rightMid") {
+    const g = ctx.createLinearGradient(W, 0, W * 0.4, 0);
+    g.addColorStop(0, "rgba(0,0,0,0.6)");
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g;
   } else if (side === "bottom") {
     const g = ctx.createLinearGradient(0, H * 0.45, 0, H);
     g.addColorStop(0, "rgba(0,0,0,0)");
@@ -210,7 +217,8 @@ export async function overlayTitle(
   ctx.fillRect(0, 0, W, H);
 
   // Auto-fit: shrink until the title wraps within the style's line budget.
-  const maxWidth = side === "leftMid" ? W * 0.5 : W * 0.92;
+  const sideStacked = side === "leftMid" || side === "rightMid";
+  const maxWidth = sideStacked ? W * 0.5 : W * 0.92;
   let fontSize = cfg.startFont;
   let lines: string[] | null = null;
   const words = text.split(/\s+/);
@@ -225,9 +233,9 @@ export async function overlayTitle(
   }
 
   const lineHeight = fontSize * 1.02;
-  const x = align === "left" ? 64 : W / 2;
+  const x = align === "left" ? 64 : align === "right" ? W - 64 : W / 2;
   let y: number;
-  if (side === "leftMid") y = (H - lineHeight * lines.length) / 2 + fontSize * 0.82;
+  if (sideStacked) y = (H - lineHeight * lines.length) / 2 + fontSize * 0.82;
   else if (side === "bottom") y = H - 56 - lineHeight * lines.length + fontSize * 0.82;
   else y = 64 + fontSize * 0.82;
 
