@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { b2, bucket, decodeFileId, publicUrl } from "@/lib/b2";
 import { THUMBNAIL_STYLE_NAMES, composeThumbnail, pickThumbnailsFromContext } from "@/lib/gemini";
-import { overlayTitle } from "@/lib/thumbnail-overlay";
+import { overlayTitle, parseStyleNotes } from "@/lib/thumbnail-overlay";
 import { getAI, getTranscript } from "@/lib/transcript-store";
 import { getSession } from "@/lib/session";
 
@@ -55,6 +55,8 @@ export async function POST(req: Request) {
   const ai = await getAI(key);
   const stamp = Date.now();
   const notes = (body.stylePrompt ?? "").trim().slice(0, 300);
+  // Same notes drive the font-overlay fallback's colour + placement.
+  const overlayOverride = parseStyleNotes(notes);
   const variationHint = body.redo
     ? "This is a RE-ROLL — deliberately pick DIFFERENT frames and write DIFFERENT, fresh titles than the most obvious choice. Explore new angles, expressions, and hooks."
     : undefined;
@@ -104,7 +106,7 @@ export async function POST(req: Request) {
             // Fallback: composite a real-font title onto the raw frame so a
             // title is ALWAYS present (e.g. when Gemini image billing is off).
             try {
-              bodyBuf = await overlayTitle(Buffer.from(frame, "base64"), title, style);
+              bodyBuf = await overlayTitle(Buffer.from(frame, "base64"), title, style, overlayOverride);
               contentType = "image/jpeg";
               designed = true;
             } catch (overlayErr) {

@@ -45,31 +45,138 @@ function wrapLines(
   return lines;
 }
 
-// Per-style visual config, mirroring the 3 AI-draw styles so the font-overlay
-// fallback also produces 3 distinct looks.
+// How the letters are painted. `glow` set → neon 3-pass (halo + edge + bright
+// core). `glow` null + `softShadow` → clean fill with a drop shadow.
+interface Paint {
+  fill: string;
+  stroke: string;
+  glow: string | null;
+  bright: string | null;
+  softShadow: boolean;
+}
+type Side = "top" | "bottom" | "leftMid";
+
+// Per-style visual config, mirroring the 3 AI-draw styles.
 //   0 Neon studio  — cyan glow, centered top
 //   1 Bold minimal — white, left-stacked, vertically centered
 //   2 Punchy       — yellow with thick black outline, centered top
 interface StyleCfg {
   align: "center" | "left";
-  side: "top" | "leftMid";
+  side: Side;
   maxLines: number;
   startFont: number;
   minFont: number;
+  paint: Paint;
 }
+const NEON_PAINT: Paint = {
+  fill: "#22d3ee",
+  stroke: "#053640",
+  glow: "rgba(34,211,238,0.95)",
+  bright: "#b8f4ff",
+  softShadow: false,
+};
 const STYLE_CFGS: StyleCfg[] = [
-  { align: "center", side: "top", maxLines: 2, startFont: 150, minFont: 52 },
-  { align: "left", side: "leftMid", maxLines: 3, startFont: 132, minFont: 48 },
-  { align: "center", side: "top", maxLines: 2, startFont: 156, minFont: 56 },
+  { align: "center", side: "top", maxLines: 2, startFont: 150, minFont: 52, paint: NEON_PAINT },
+  {
+    align: "left",
+    side: "leftMid",
+    maxLines: 3,
+    startFont: 132,
+    minFont: 48,
+    paint: { fill: "#ffffff", stroke: "transparent", glow: null, bright: null, softShadow: true },
+  },
+  {
+    align: "center",
+    side: "top",
+    maxLines: 2,
+    startFont: 156,
+    minFont: 56,
+    paint: { fill: "#ffd21e", stroke: "#0a0a0a", glow: null, bright: null, softShadow: true },
+  },
 ];
+
+// Named colours the user can type in "style notes" → a Paint. Vivid colours get
+// a matching neon glow; white/black get a clean drop-shadow treatment.
+function paintForColor(name: string): Paint | null {
+  const neon = (fill: string, glow: string, stroke: string, bright: string): Paint => ({
+    fill,
+    stroke,
+    glow,
+    bright,
+    softShadow: false,
+  });
+  switch (name) {
+    case "cyan":
+      return NEON_PAINT;
+    case "red":
+      return neon("#ff3b30", "rgba(255,59,48,0.9)", "#2a0606", "#ffd5d1");
+    case "blue":
+      return neon("#3b82f6", "rgba(59,130,246,0.9)", "#06182e", "#cfe0ff");
+    case "green":
+      return neon("#34d399", "rgba(52,211,153,0.9)", "#06281d", "#d3fff0");
+    case "purple":
+      return neon("#a855f7", "rgba(168,85,247,0.9)", "#1e0a33", "#ecd9ff");
+    case "pink":
+      return neon("#ec4899", "rgba(236,72,153,0.9)", "#320a22", "#ffd6ec");
+    case "orange":
+      return neon("#fb923c", "rgba(251,146,60,0.9)", "#2a1405", "#ffe2c6");
+    case "yellow":
+      return { fill: "#ffd21e", stroke: "#0a0a0a", glow: null, bright: null, softShadow: true };
+    case "white":
+      return { fill: "#ffffff", stroke: "transparent", glow: null, bright: null, softShadow: true };
+    case "black":
+      return { fill: "#111111", stroke: "#ffffff", glow: null, bright: null, softShadow: true };
+    default:
+      return null;
+  }
+}
+
+export interface StyleNotesOverride {
+  color?: string;
+  placement?: Side;
+}
+
+// Parse free-text user notes (e.g. "red title at the bottom") into a colour +
+// placement override for the font overlay.
+export function parseStyleNotes(notes?: string): StyleNotesOverride {
+  const n = (notes ?? "").toLowerCase();
+  if (!n.trim()) return {};
+  const colorWord = (
+    [
+      ["red", "red"],
+      ["blue", "blue"],
+      ["cyan", "cyan"],
+      ["teal", "cyan"],
+      ["yellow", "yellow"],
+      ["gold", "yellow"],
+      ["green", "green"],
+      ["purple", "purple"],
+      ["violet", "purple"],
+      ["pink", "pink"],
+      ["magenta", "pink"],
+      ["orange", "orange"],
+      ["white", "white"],
+      ["black", "black"],
+    ] as const
+  ).find(([word]) => n.includes(word));
+  let placement: Side | undefined;
+  if (/\bbottom\b/.test(n)) placement = "bottom";
+  else if (/\btop\b/.test(n)) placement = "top";
+  else if (/\bleft\b/.test(n)) placement = "leftMid";
+  return { color: colorWord?.[1], placement };
+}
 
 export async function overlayTitle(
   baseImage: Buffer,
   title: string,
   style = 0,
+  override?: StyleNotesOverride,
 ): Promise<Buffer> {
   ensureFont();
   const cfg = STYLE_CFGS[style] ?? STYLE_CFGS[0];
+  const side: Side = override?.placement ?? cfg.side;
+  const paint = (override?.color && paintForColor(override.color)) || cfg.paint;
+  const align: "center" | "left" = side === "leftMid" ? "left" : cfg.align;
   const text = title.trim().toUpperCase();
   if (!text) return baseImage;
 
@@ -83,12 +190,16 @@ export async function overlayTitle(
   const dh = img.height * scale;
   ctx.drawImage(img, (W - dw) / 2, (H - dh) / 2, dw, dh);
 
-  // Darkening scrim to keep the title legible — top band, or left band for
-  // the left-stacked minimal style.
-  if (cfg.side === "leftMid") {
+  // Darkening scrim near the title so it stays legible over any background.
+  if (side === "leftMid") {
     const g = ctx.createLinearGradient(0, 0, W * 0.6, 0);
     g.addColorStop(0, "rgba(0,0,0,0.6)");
     g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+  } else if (side === "bottom") {
+    const g = ctx.createLinearGradient(0, H * 0.45, 0, H);
+    g.addColorStop(0, "rgba(0,0,0,0)");
+    g.addColorStop(1, "rgba(0,0,0,0.72)");
     ctx.fillStyle = g;
   } else {
     const g = ctx.createLinearGradient(0, 0, 0, H * 0.55);
@@ -99,7 +210,7 @@ export async function overlayTitle(
   ctx.fillRect(0, 0, W, H);
 
   // Auto-fit: shrink until the title wraps within the style's line budget.
-  const maxWidth = cfg.side === "leftMid" ? W * 0.5 : W * 0.92;
+  const maxWidth = side === "leftMid" ? W * 0.5 : W * 0.92;
   let fontSize = cfg.startFont;
   let lines: string[] | null = null;
   const words = text.split(/\s+/);
@@ -114,52 +225,49 @@ export async function overlayTitle(
   }
 
   const lineHeight = fontSize * 1.02;
-  const x = cfg.align === "left" ? 64 : W / 2;
-  let y =
-    cfg.side === "leftMid"
-      ? (H - lineHeight * lines.length) / 2 + fontSize * 0.82
-      : 64 + fontSize * 0.82;
+  const x = align === "left" ? 64 : W / 2;
+  let y: number;
+  if (side === "leftMid") y = (H - lineHeight * lines.length) / 2 + fontSize * 0.82;
+  else if (side === "bottom") y = H - 56 - lineHeight * lines.length + fontSize * 0.82;
+  else y = 64 + fontSize * 0.82;
 
-  ctx.textAlign = cfg.align;
+  ctx.textAlign = align;
   ctx.textBaseline = "alphabetic";
   ctx.lineJoin = "round";
   ctx.miterLimit = 2;
 
   for (const line of lines) {
-    if (style === 1) {
-      // Bold minimal: clean white with a soft drop shadow, no outline.
-      ctx.shadowColor = "rgba(0,0,0,0.6)";
-      ctx.shadowBlur = fontSize * 0.14;
-      ctx.shadowOffsetY = fontSize * 0.05;
-      ctx.fillStyle = "#ffffff";
-      ctx.fillText(line, x, y);
-    } else if (style === 2) {
-      // Punchy: golden-yellow with a thick black outline + drop shadow.
-      ctx.shadowColor = "rgba(0,0,0,0.85)";
-      ctx.shadowBlur = fontSize * 0.16;
-      ctx.shadowOffsetY = fontSize * 0.06;
-      ctx.lineWidth = Math.max(8, fontSize * 0.2);
-      ctx.strokeStyle = "#0a0a0a";
-      ctx.strokeText(line, x, y);
-      ctx.shadowColor = "transparent";
-      ctx.shadowBlur = 0;
-      ctx.shadowOffsetY = 0;
-      ctx.fillStyle = "#ffd21e";
-      ctx.fillText(line, x, y);
-    } else {
-      // Neon studio: cyan glow + dark edge + bright inner fill.
-      ctx.shadowColor = "rgba(34,211,238,0.95)";
+    if (paint.glow) {
+      // Neon: coloured glow halo + dark edge + bright inner core.
+      ctx.shadowColor = paint.glow;
       ctx.shadowBlur = fontSize * 0.5;
       ctx.shadowOffsetX = 0;
       ctx.shadowOffsetY = 0;
       ctx.lineWidth = Math.max(5, fontSize * 0.1);
-      ctx.strokeStyle = "#053640";
+      ctx.strokeStyle = paint.stroke;
       ctx.strokeText(line, x, y);
-      ctx.fillStyle = "#22d3ee";
+      ctx.fillStyle = paint.fill;
       ctx.fillText(line, x, y);
       ctx.shadowColor = "transparent";
       ctx.shadowBlur = 0;
-      ctx.fillStyle = "#b8f4ff";
+      if (paint.bright) {
+        ctx.fillStyle = paint.bright;
+        ctx.fillText(line, x, y);
+      }
+    } else {
+      // Solid fill with a drop shadow, plus an outline when one is set.
+      ctx.shadowColor = "rgba(0,0,0,0.8)";
+      ctx.shadowBlur = fontSize * 0.16;
+      ctx.shadowOffsetY = fontSize * 0.06;
+      if (paint.stroke && paint.stroke !== "transparent") {
+        ctx.lineWidth = Math.max(8, fontSize * 0.2);
+        ctx.strokeStyle = paint.stroke;
+        ctx.strokeText(line, x, y);
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetY = 0;
+      }
+      ctx.fillStyle = paint.fill;
       ctx.fillText(line, x, y);
     }
     // Reset shadow between lines.
