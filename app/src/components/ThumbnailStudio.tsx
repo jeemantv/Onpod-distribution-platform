@@ -107,7 +107,7 @@ export function ThumbnailStudio({
   const [error, setError] = useState<string | null>(null);
   // AI thumbnail suggestions (video frames + episode transcript → Gemini).
   const [suggestions, setSuggestions] = useState<
-    { label: string; url: string; reason: string; headline?: string }[]
+    { label: string; url: string; reason: string; headline?: string; style?: string }[]
   >([]);
   // Which suggestion (if any) was just saved as the file's cover, so the UI
   // can confirm "this is now the YouTube thumbnail".
@@ -926,9 +926,16 @@ export function ThumbnailStudio({
                       className="w-full aspect-video object-cover block"
                     />
                     <div className="p-2">
-                      {s.headline ? (
-                        <div className="text-[12px] font-semibold mb-0.5">{s.headline}</div>
-                      ) : null}
+                      <div className="flex items-center justify-between gap-2 mb-0.5">
+                        {s.headline ? (
+                          <div className="text-[12px] font-semibold truncate">{s.headline}</div>
+                        ) : <span />}
+                        {s.style ? (
+                          <span className="shrink-0 text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-bg-elev-3 border border-border text-text-muted">
+                            {s.style}
+                          </span>
+                        ) : null}
+                      </div>
                       <div className="text-[11px] text-text-muted">{s.reason}</div>
                       <div className="flex items-center gap-2 mt-2">
                         <button

@@ -248,28 +248,40 @@ function extractJson(text: string): string {
   return trimmed;
 }
 
-// Compose a finished, high-CTR YouTube thumbnail: enhance the frame AND
-// render the title text designed into the image (like the best podcast
-// thumbnails), using the same Gemini image model as enhanceImage.
-export function thumbnailDesignPrompt(title: string): string {
+// Three distinct thumbnail design styles — so the 3 AI suggestions each come
+// back looking different (like the reference set), not 3 of the same look.
+export const THUMBNAIL_STYLE_NAMES = ["Neon studio", "Bold minimal", "Punchy"] as const;
+
+const STYLE_DIRECTIONS = [
+  // 0 — Neon studio: glowing cyan title behind the subjects.
+  `STYLE — "Neon studio": Add a HUGE bold condensed ALL-CAPS title in vivid electric cyan/blue with a bright NEON GLOW and a thin dark edge, spanning most of the width across the UPPER frame. Place the title BEHIND the people — the speakers, mics and desk overlap in FRONT of it like a glowing sign on the studio's back wall, while every face stays fully visible. Add a faint cyan rim light on the subjects and set.`,
+  // 1 — Bold minimal: clean white stacked title, lots of negative space.
+  `STYLE — "Bold minimal": Clean, premium, cinematic. Put a HUGE heavy ALL-CAPS sans-serif title in crisp WHITE, stacked on 2–3 short lines, along the EMPTIER side of the frame (away from the person). Use only a soft drop shadow for legibility — no busy outlines. Keep lots of negative space and warm, magazine-quality lighting; the subject stays sharp on the opposite side.`,
+  // 2 — Punchy: high-energy MrBeast-style colored title.
+  `STYLE — "Punchy": High-energy and clicky. Put a BIG chunky ALL-CAPS title across the TOP in a punchy bright color (golden yellow OR bold red) with a thick black-and-white outline and a strong drop shadow so it screams off the image. Push saturation and contrast hard, add a subtle vignette and dramatic lighting that emphasises the subject's expression. Eye-catching but still clean.`,
+];
+
+function styledThumbnailPrompt(title: string, style: number): string {
+  const direction = STYLE_DIRECTIONS[style] ?? STYLE_DIRECTIONS[0];
   return `You are designing a premium, high-CTR YouTube podcast thumbnail from this video still.
 
-1) ENHANCE the image so it looks cinematic and high quality: sharpen and add fine detail, boost contrast and color to vivid-but-natural, brighten the subjects, add a subtle key-light pop, clean up noise and compression. Keep the SAME people, faces, expressions, and framing — do not redraw, distort, add, or remove anyone.
+ENHANCE the image so it looks cinematic and high quality: sharpen and add fine detail, boost contrast and color to vivid-but-natural, brighten the subjects, clean up noise and compression. Keep the SAME people, faces, expressions, and framing — do not redraw, distort, add, or remove anyone.
 
-2) ADD a big, bold title that reads EXACTLY: "${title}". Style it like a top podcast channel: HUGE heavy condensed sans-serif, ALL CAPS, spanning most of the width across the UPPER part of the frame. Color it vivid electric cyan / blue with a bright NEON GLOW and a thin dark edge so it stays crisp. Spell the title EXACTLY — add no other text, logos, or watermarks.
+The title must read EXACTLY: "${title}" — spell it exactly, ALL CAPS, and add no other text, logos, or watermarks.
 
-3) DEPTH (important): place the title BEHIND the people — the speakers, microphones and desk should overlap in FRONT of the text, so the title reads like a glowing sign on the back wall of the studio, while every face stays fully visible and unblocked. Add a faint matching cyan rim/neon light around the subjects and the set.
-
-4) Keep it premium and high-contrast — eye-catching and lightly clickbait, never cluttered or spammy.
+${direction}
 
 Return only the finished, high-resolution 16:9 thumbnail image.`;
 }
 
+// Compose a finished thumbnail in one of the THUMBNAIL_STYLE_NAMES styles,
+// using the Gemini image model (same engine as enhanceImage).
 export async function composeThumbnail(
   frameBase64Jpeg: string,
   title: string,
+  style = 0,
 ): Promise<EnhanceResult> {
-  return enhanceImage(frameBase64Jpeg, "image/jpeg", thumbnailDesignPrompt(title));
+  return enhanceImage(frameBase64Jpeg, "image/jpeg", styledThumbnailPrompt(title, style));
 }
 
 export const ENHANCE_PROMPT_DEFAULT =

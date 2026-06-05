@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { b2, bucket, decodeFileId, publicUrl } from "@/lib/b2";
-import { composeThumbnail, pickThumbnailsFromContext } from "@/lib/gemini";
+import { THUMBNAIL_STYLE_NAMES, composeThumbnail, pickThumbnailsFromContext } from "@/lib/gemini";
 import { overlayTitle } from "@/lib/thumbnail-overlay";
 import { getAI, getTranscript } from "@/lib/transcript-store";
 import { getSession } from "@/lib/session";
@@ -68,9 +68,12 @@ export async function POST(req: Request) {
     // failure (e.g. billing off) when EVERY design fails.
     const designErrors: string[] = [];
     const results = await Promise.all(
-      picks.map(async (p) => {
+      picks.map(async (p, i) => {
         const frame = body.framesBase64[p.index];
         if (!frame) return null;
+        // Give each of the 3 picks a DIFFERENT design style.
+        const style = i % THUMBNAIL_STYLE_NAMES.length;
+        const styleName = THUMBNAIL_STYLE_NAMES[style];
         const label = `smart-${p.rank}`;
         const thumbKey = `${key}.thumb-${label}.jpg`;
 
@@ -81,7 +84,7 @@ export async function POST(req: Request) {
         if (title) {
           try {
             // Preferred: Gemini draws the stylized title into the image.
-            const out = await composeThumbnail(frame, title);
+            const out = await composeThumbnail(frame, title, style);
             bodyBuf = Buffer.from(out.base64, "base64");
             contentType = out.mimeType || "image/png";
             designed = true;
@@ -90,7 +93,7 @@ export async function POST(req: Request) {
             // Fallback: composite a real-font title onto the raw frame so a
             // title is ALWAYS present (e.g. when Gemini image billing is off).
             try {
-              bodyBuf = await overlayTitle(Buffer.from(frame, "base64"), title);
+              bodyBuf = await overlayTitle(Buffer.from(frame, "base64"), title, style);
               contentType = "image/jpeg";
               designed = true;
             } catch (overlayErr) {
@@ -113,6 +116,7 @@ export async function POST(req: Request) {
           url: publicUrl(thumbKey),
           reason: p.reason,
           headline: p.headline,
+          style: styleName,
           designed,
           key: thumbKey,
         };

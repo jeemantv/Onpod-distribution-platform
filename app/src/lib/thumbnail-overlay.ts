@@ -45,11 +45,31 @@ function wrapLines(
   return lines;
 }
 
+// Per-style visual config, mirroring the 3 AI-draw styles so the font-overlay
+// fallback also produces 3 distinct looks.
+//   0 Neon studio  — cyan glow, centered top
+//   1 Bold minimal — white, left-stacked, vertically centered
+//   2 Punchy       — yellow with thick black outline, centered top
+interface StyleCfg {
+  align: "center" | "left";
+  side: "top" | "leftMid";
+  maxLines: number;
+  startFont: number;
+  minFont: number;
+}
+const STYLE_CFGS: StyleCfg[] = [
+  { align: "center", side: "top", maxLines: 2, startFont: 150, minFont: 52 },
+  { align: "left", side: "leftMid", maxLines: 3, startFont: 132, minFont: 48 },
+  { align: "center", side: "top", maxLines: 2, startFont: 156, minFont: 56 },
+];
+
 export async function overlayTitle(
   baseImage: Buffer,
   title: string,
+  style = 0,
 ): Promise<Buffer> {
   ensureFont();
+  const cfg = STYLE_CFGS[style] ?? STYLE_CFGS[0];
   const text = title.trim().toUpperCase();
   if (!text) return baseImage;
 
@@ -63,62 +83,89 @@ export async function overlayTitle(
   const dh = img.height * scale;
   ctx.drawImage(img, (W - dw) / 2, (H - dh) / 2, dw, dh);
 
-  // Darkening gradient across the TOP so the title stays legible over any
-  // background (the title sits in the upper band, like the reference).
-  const grad = ctx.createLinearGradient(0, 0, 0, H * 0.55);
-  grad.addColorStop(0, "rgba(0,0,0,0.55)");
-  grad.addColorStop(1, "rgba(0,0,0,0)");
-  ctx.fillStyle = grad;
+  // Darkening scrim to keep the title legible — top band, or left band for
+  // the left-stacked minimal style.
+  if (cfg.side === "leftMid") {
+    const g = ctx.createLinearGradient(0, 0, W * 0.6, 0);
+    g.addColorStop(0, "rgba(0,0,0,0.6)");
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+  } else {
+    const g = ctx.createLinearGradient(0, 0, 0, H * 0.55);
+    g.addColorStop(0, "rgba(0,0,0,0.55)");
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+  }
   ctx.fillRect(0, 0, W, H);
 
-  // Auto-fit the title: shrink the font until it wraps into <= 2 lines within
-  // the safe width.
-  const maxWidth = W * 0.92;
-  let fontSize = 150;
+  // Auto-fit: shrink until the title wraps within the style's line budget.
+  const maxWidth = cfg.side === "leftMid" ? W * 0.5 : W * 0.92;
+  let fontSize = cfg.startFont;
   let lines: string[] | null = null;
   const words = text.split(/\s+/);
-  for (; fontSize >= 52; fontSize -= 4) {
+  for (; fontSize >= cfg.minFont; fontSize -= 4) {
     ctx.font = `${fontSize}px "${FONT_FAMILY}"`;
-    lines = wrapLines(ctx, words, maxWidth, 2);
+    lines = wrapLines(ctx, words, maxWidth, cfg.maxLines);
     if (lines) break;
   }
   if (!lines) {
-    ctx.font = `52px "${FONT_FAMILY}"`;
+    ctx.font = `${cfg.minFont}px "${FONT_FAMILY}"`;
     lines = [text];
   }
 
   const lineHeight = fontSize * 1.02;
-  // Centered across the top, like a glowing studio sign.
-  let y = 64 + fontSize * 0.82;
-  const x = W / 2;
+  const x = cfg.align === "left" ? 64 : W / 2;
+  let y =
+    cfg.side === "leftMid"
+      ? (H - lineHeight * lines.length) / 2 + fontSize * 0.82
+      : 64 + fontSize * 0.82;
 
-  ctx.textAlign = "center";
+  ctx.textAlign = cfg.align;
   ctx.textBaseline = "alphabetic";
   ctx.lineJoin = "round";
   ctx.miterLimit = 2;
 
   for (const line of lines) {
-    // Neon glow halo (electric cyan), drawn under the outline + fill.
-    ctx.shadowColor = "rgba(34,211,238,0.95)";
-    ctx.shadowBlur = fontSize * 0.5;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 0;
-
-    // Thin dark edge to keep the letters crisp over bright areas.
-    ctx.lineWidth = Math.max(5, fontSize * 0.1);
-    ctx.strokeStyle = "#053640";
-    ctx.strokeText(line, x, y);
-
-    // Cyan fill, glow still on, for a saturated neon core.
-    ctx.fillStyle = "#22d3ee";
-    ctx.fillText(line, x, y);
-
-    // Bright inner fill with no shadow for a crisp, lit highlight.
+    if (style === 1) {
+      // Bold minimal: clean white with a soft drop shadow, no outline.
+      ctx.shadowColor = "rgba(0,0,0,0.6)";
+      ctx.shadowBlur = fontSize * 0.14;
+      ctx.shadowOffsetY = fontSize * 0.05;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(line, x, y);
+    } else if (style === 2) {
+      // Punchy: golden-yellow with a thick black outline + drop shadow.
+      ctx.shadowColor = "rgba(0,0,0,0.85)";
+      ctx.shadowBlur = fontSize * 0.16;
+      ctx.shadowOffsetY = fontSize * 0.06;
+      ctx.lineWidth = Math.max(8, fontSize * 0.2);
+      ctx.strokeStyle = "#0a0a0a";
+      ctx.strokeText(line, x, y);
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetY = 0;
+      ctx.fillStyle = "#ffd21e";
+      ctx.fillText(line, x, y);
+    } else {
+      // Neon studio: cyan glow + dark edge + bright inner fill.
+      ctx.shadowColor = "rgba(34,211,238,0.95)";
+      ctx.shadowBlur = fontSize * 0.5;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
+      ctx.lineWidth = Math.max(5, fontSize * 0.1);
+      ctx.strokeStyle = "#053640";
+      ctx.strokeText(line, x, y);
+      ctx.fillStyle = "#22d3ee";
+      ctx.fillText(line, x, y);
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#b8f4ff";
+      ctx.fillText(line, x, y);
+    }
+    // Reset shadow between lines.
     ctx.shadowColor = "transparent";
     ctx.shadowBlur = 0;
-    ctx.fillStyle = "#b8f4ff";
-    ctx.fillText(line, x, y);
-
+    ctx.shadowOffsetY = 0;
     y += lineHeight;
   }
 
