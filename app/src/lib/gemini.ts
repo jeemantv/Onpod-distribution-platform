@@ -112,7 +112,7 @@ export async function enhanceImage(
 // thumbnail for this specific episode — not just "has a clear face".
 // ---------------------------------------------------------------------------
 
-const THUMB_PICK_MODELS = ["gemini-2.5-flash", "gemini-2.5-pro"] as const;
+const THUMB_PICK_MODELS = ["gemini-2.5-flash"] as const;
 const TRANSCRIPT_CHAR_CAP = 24000;
 
 export interface SmartThumbPick {
@@ -163,14 +163,19 @@ export async function pickThumbnailsFromContext(
     generationConfig: {
       responseMimeType: "application/json",
       temperature: 0.4,
-      maxOutputTokens: 1024,
+      // Headroom so the JSON is never truncated. Gemini 2.5 "thinking"
+      // tokens count against this budget, so we also turn thinking OFF —
+      // otherwise the model can spend the whole budget reasoning and emit
+      // a half-finished string ("Unterminated string in JSON…").
+      maxOutputTokens: 2048,
+      thinkingConfig: { thinkingBudget: 0 },
     },
   };
 
   const attempts: { model: string; delayMs: number }[] = [
     { model: THUMB_PICK_MODELS[0], delayMs: 0 },
     { model: THUMB_PICK_MODELS[0], delayMs: 1500 },
-    { model: THUMB_PICK_MODELS[1], delayMs: 1000 },
+    { model: THUMB_PICK_MODELS[0], delayMs: 1500 },
   ];
 
   let lastStatus = 0;
@@ -192,7 +197,7 @@ export async function pickThumbnailsFromContext(
     }
     if (lastStatus === 503) {
       throw new Error(
-        "Gemini is overloaded right now (tried 3 times across two models). Wait a couple minutes and try again.",
+        "Gemini is overloaded right now (tried 3 times). Wait a couple minutes and try again.",
       );
     }
     throw new Error(`Gemini ${lastStatus}: ${lastBody.slice(0, 400)}`);
@@ -202,7 +207,14 @@ export async function pickThumbnailsFromContext(
     candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
   };
   const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
-  const parsed = JSON.parse(extractJson(text)) as { picks?: SmartThumbPick[] };
+  let parsed: { picks?: SmartThumbPick[] };
+  try {
+    parsed = JSON.parse(extractJson(text)) as { picks?: SmartThumbPick[] };
+  } catch {
+    throw new Error(
+      `Gemini returned a response we couldn't read. Try again. (${text.slice(0, 120)}…)`,
+    );
+  }
   const picks = Array.isArray(parsed.picks) ? parsed.picks : [];
 
   const seen = new Set<number>();

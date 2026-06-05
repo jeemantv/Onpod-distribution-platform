@@ -109,6 +109,13 @@ export function ThumbnailStudio({
   const [suggestions, setSuggestions] = useState<
     { label: string; url: string; reason: string; headline?: string }[]
   >([]);
+  // Which suggestion (if any) was just saved as the file's cover, so the UI
+  // can confirm "this is now the YouTube thumbnail".
+  const [savedSuggestionUrl, setSavedSuggestionUrl] = useState<string>("");
+  // The Bannerbear template builder (steps 2 & 3) is collapsible — the AI
+  // suggestions often replace it. Kept visible by default for now; may be
+  // removed entirely later if the AI flow proves sufficient.
+  const [showTemplates, setShowTemplates] = useState(true);
   const uploadRef = useRef<HTMLInputElement | null>(null);
   // When enabled, "Pick from podcast" removes the background on each
   // detected person. Turn off when the template already has its own
@@ -370,6 +377,7 @@ export function ThumbnailStudio({
     if (!sourceFileId || !sourceUrl) return;
     setError(null);
     setSuggestions([]);
+    setSavedSuggestionUrl("");
     setStage("suggesting");
     try {
       const raw = await extractFrames(sourceUrl, FRAME_COUNT);
@@ -423,6 +431,7 @@ export function ThumbnailStudio({
         return;
       }
       setSavedAt(Date.now());
+      setSavedSuggestionUrl(url);
       window.dispatchEvent(new CustomEvent("onpod:thumbnail-saved"));
       setStage("idle");
     } catch (err) {
@@ -884,43 +893,58 @@ export function ThumbnailStudio({
               ✨ AI suggestions · from video + transcript
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {suggestions.map((s, i) => (
-                <div
-                  key={s.label || i}
-                  className="rounded-[10px] border border-border overflow-hidden bg-bg-elev-2"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={s.url}
-                    alt={s.headline || s.label}
-                    className="w-full aspect-video object-cover block"
-                  />
-                  <div className="p-2">
-                    {s.headline ? (
-                      <div className="text-[12px] font-semibold mb-0.5">{s.headline}</div>
-                    ) : null}
-                    <div className="text-[11px] text-text-muted">{s.reason}</div>
-                    <div className="flex items-center gap-2 mt-2">
-                      <button
-                        onClick={() => void useSuggestionAsCover(s.url)}
-                        disabled={busy}
-                        className="px-2.5 py-1 rounded-[8px] bg-accent text-white text-[11px] disabled:opacity-50"
-                      >
-                        Use as cover
-                      </button>
-                      <a
-                        href={s.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-[11px] text-accent-2 underline"
-                      >
-                        Open full
-                      </a>
+              {suggestions.map((s, i) => {
+                const saved = savedSuggestionUrl === s.url;
+                return (
+                  <div
+                    key={s.label || i}
+                    className={`rounded-[10px] border overflow-hidden bg-bg-elev-2 ${
+                      saved ? "border-accent" : "border-border"
+                    }`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={s.url}
+                      alt={s.headline || s.label}
+                      className="w-full aspect-video object-cover block"
+                    />
+                    <div className="p-2">
+                      {s.headline ? (
+                        <div className="text-[12px] font-semibold mb-0.5">{s.headline}</div>
+                      ) : null}
+                      <div className="text-[11px] text-text-muted">{s.reason}</div>
+                      <div className="flex items-center gap-2 mt-2">
+                        <button
+                          onClick={() => void useSuggestionAsCover(s.url)}
+                          disabled={busy}
+                          className={`px-2.5 py-1 rounded-[8px] text-[11px] disabled:opacity-50 ${
+                            saved
+                              ? "bg-bg-elev-3 border border-accent text-accent"
+                              : "bg-accent text-white"
+                          }`}
+                        >
+                          {saved ? "✓ Saved for YouTube" : "Use as YouTube thumbnail"}
+                        </button>
+                        <a
+                          href={s.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[11px] text-accent-2 underline"
+                        >
+                          Open full
+                        </a>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
+            {savedSuggestionUrl ? (
+              <p className="text-[11px] text-accent mt-2">
+                ✓ Saved as this episode&apos;s cover — it&apos;ll be used as the thumbnail
+                when you publish to YouTube.
+              </p>
+            ) : null}
           </div>
         ) : null}
 
@@ -986,6 +1010,21 @@ export function ThumbnailStudio({
         ) : null}
       </div>
 
+      {/* Toggle for the optional Bannerbear template builder. */}
+      <div className="flex items-center gap-2 mt-1 mb-4 flex-wrap">
+        <button
+          onClick={() => setShowTemplates((v) => !v)}
+          className="px-3 py-1.5 rounded-[8px] bg-bg-elev-2 border border-border text-[12px]"
+        >
+          {showTemplates ? "▾ Hide template builder" : "▸ Show template builder"}
+        </button>
+        <span className="text-[11px] text-text-dim">
+          Optional — the ✨ AI suggestions above are often enough.
+        </span>
+      </div>
+
+      {showTemplates ? (
+      <>
       {/* Step 2 — template + layers */}
       <div>
         <div className="flex items-baseline justify-between gap-3 mb-2 flex-wrap">
@@ -1307,6 +1346,8 @@ export function ThumbnailStudio({
             </p>
           ) : null}
         </div>
+      ) : null}
+      </>
       ) : null}
 
       <CropZoom
