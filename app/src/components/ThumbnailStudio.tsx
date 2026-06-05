@@ -866,10 +866,10 @@ export function ThumbnailStudio({
           <button
             onClick={suggestThumbnails}
             disabled={busy}
-            title="Reads the episode transcript + video frames and picks the 3 best thumbnail moments (Gemini). Requires a transcript."
+            title="Reads the episode transcript + video frames, picks the 3 best moments, then designs a titled, enhanced YouTube thumbnail for each (Gemini). Requires a transcript."
             className="px-3 py-2 rounded-[10px] bg-bg-elev-2 border border-accent-2 text-accent-2 text-[12px] disabled:opacity-50"
           >
-            {stage === "suggesting" ? "Analyzing…" : "✨ Suggest with AI"}
+            {stage === "suggesting" ? "Designing… (~30s)" : "✨ Suggest with AI"}
           </button>
           <input
             ref={uploadRef}
@@ -883,8 +883,8 @@ export function ThumbnailStudio({
         <p className="text-[11px] text-text-dim mt-2">
           After picking or uploading, use the &quot;Remove BG&quot; button on
           the selected person to cut out the background. Or hit{" "}
-          <b>✨ Suggest with AI</b> to get the 3 best thumbnail frames straight
-          from the episode (video + transcript).
+          <b>✨ Suggest with AI</b> to get 3 finished, titled thumbnails —
+          designed and enhanced straight from the episode (video + transcript).
         </p>
 
         {suggestions.length > 0 ? (

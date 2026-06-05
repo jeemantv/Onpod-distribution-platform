@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { b2, bucket, decodeFileId, publicUrl } from "@/lib/b2";
-import { pickThumbnailsFromContext } from "@/lib/gemini";
+import { composeThumbnail, pickThumbnailsFromContext } from "@/lib/gemini";
 import { getAI, getTranscript } from "@/lib/transcript-store";
 import { getSession } from "@/lib/session";
+
+// Designing 3 thumbnails (each an image-model call with retries) can take a
+// while — give it room beyond the default function timeout.
+export const maxDuration = 300;
 
 interface RequestBody {
   fileId: string;
@@ -57,35 +61,61 @@ export async function POST(req: Request) {
       );
     }
 
-    const thumbnails: {
-      label: string;
-      url: string;
-      reason: string;
-      headline: string;
-      key: string;
-    }[] = [];
-    for (const p of picks) {
-      const frame = body.framesBase64[p.index];
-      if (!frame) continue;
-      const buf = Buffer.from(frame, "base64");
-      const label = `smart-${p.rank}`;
-      const thumbKey = `${key}.thumb-${label}.jpg`;
-      await b2.send(
-        new PutObjectCommand({
-          Bucket: bucket,
-          Key: thumbKey,
-          Body: buf,
-          ContentType: "image/jpeg",
-          CacheControl: "public, max-age=3600",
-        }),
+    // Design all 3 in parallel: enhance the frame + render the title into a
+    // finished thumbnail. If one design fails, fall back to the raw frame so
+    // we always return the pick; track errors so we can surface a real
+    // failure (e.g. billing off) when EVERY design fails.
+    const designErrors: string[] = [];
+    const results = await Promise.all(
+      picks.map(async (p) => {
+        const frame = body.framesBase64[p.index];
+        if (!frame) return null;
+        const label = `smart-${p.rank}`;
+        const thumbKey = `${key}.thumb-${label}.jpg`;
+
+        let bodyBuf = Buffer.from(frame, "base64");
+        let contentType = "image/jpeg";
+        let designed = false;
+        const title = (p.headline || ai?.title || "").trim();
+        if (title) {
+          try {
+            const out = await composeThumbnail(frame, title);
+            bodyBuf = Buffer.from(out.base64, "base64");
+            contentType = out.mimeType || "image/png";
+            designed = true;
+          } catch (err) {
+            designErrors.push((err as Error).message);
+          }
+        }
+
+        await b2.send(
+          new PutObjectCommand({
+            Bucket: bucket,
+            Key: thumbKey,
+            Body: bodyBuf,
+            ContentType: contentType,
+            CacheControl: "public, max-age=3600",
+          }),
+        );
+        return {
+          label,
+          url: publicUrl(thumbKey),
+          reason: p.reason,
+          headline: p.headline,
+          designed,
+          key: thumbKey,
+        };
+      }),
+    );
+
+    const thumbnails = results.filter((r): r is NonNullable<typeof r> => r !== null);
+    // Every pick failed to design (and a title existed) → real problem worth
+    // surfacing rather than silently handing back plain frames.
+    if (thumbnails.length > 0 && thumbnails.every((t) => !t.designed) && designErrors.length > 0) {
+      return NextResponse.json(
+        { error: "design_failed", message: designErrors[0], thumbnails },
+        { status: 502 },
       );
-      thumbnails.push({
-        label,
-        url: publicUrl(thumbKey),
-        reason: p.reason,
-        headline: p.headline,
-        key: thumbKey,
-      });
     }
     return NextResponse.json({ thumbnails });
   } catch (err) {

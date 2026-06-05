@@ -131,7 +131,7 @@ Pick the 3 BEST frames to use as YouTube thumbnails. Judge each frame on BOTH:
 For each pick provide:
 - "rank": 1 (best) to 3
 - "index": the 0-based frame index
-- "headline": a punchy thumbnail text overlay idea, max 6 words, drawn from the episode's actual hook
+- "headline": the on-thumbnail TITLE text. Make it a high-CTR YouTube podcast title: SHORT (ideally 2-4 words, hard max 5), punchy, curiosity- or benefit-driven, ALL-CAPS friendly. Work in the episode's main topic/keyword for SEO. Lightly clickbait but credible — never cheesy, spammy, or all-caps shouting nonsense. Examples of the vibe: "AI CHANGES EVERYTHING", "THE NETWORKING TRAP", "SCALE FASTER NOW".
 - "reason": one sentence explaining the choice, referencing both the visual and the topic
 
 Return ONLY valid JSON, no markdown, no preamble:
@@ -246,6 +246,28 @@ function extractJson(text: string): string {
   const end = trimmed.lastIndexOf("}");
   if (start !== -1 && end > start) return trimmed.slice(start, end + 1);
   return trimmed;
+}
+
+// Compose a finished, high-CTR YouTube thumbnail: enhance the frame AND
+// render the title text designed into the image (like the best podcast
+// thumbnails), using the same Gemini image model as enhanceImage.
+export function thumbnailDesignPrompt(title: string): string {
+  return `You are designing a professional, high-CTR YouTube thumbnail from this podcast video still.
+
+1) ENHANCE the image so it looks premium and high quality: sharpen and add fine detail, boost contrast and color to vivid-but-natural, brighten the subjects, add a subtle key-light pop, clean up noise and compression. Keep the SAME people, faces, expressions, and framing — do not redraw, distort, add, or remove anyone.
+
+2) ADD a bold title that reads EXACTLY: "${title}". Style it like top YouTube thumbnails: large, heavy sans-serif, ALL CAPS, extremely legible even at small sizes, with a thick outline and drop shadow plus a subtle glow so it pops off the background. Use one or two punchy accent colors. Spell the title exactly and do not add any other text or watermarks.
+
+3) PLACE the title in empty/negative space so it NEVER covers the speakers' faces. Keep the design tasteful and premium — eye-catching and lightly clickbait, but not spammy or cluttered.
+
+Return only the finished, high-resolution 16:9 thumbnail image.`;
+}
+
+export async function composeThumbnail(
+  frameBase64Jpeg: string,
+  title: string,
+): Promise<EnhanceResult> {
+  return enhanceImage(frameBase64Jpeg, "image/jpeg", thumbnailDesignPrompt(title));
 }
 
 export const ENHANCE_PROMPT_DEFAULT =
