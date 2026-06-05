@@ -112,6 +112,8 @@ export function ThumbnailStudio({
   // Which suggestion (if any) was just saved as the file's cover, so the UI
   // can confirm "this is now the YouTube thumbnail".
   const [savedSuggestionUrl, setSavedSuggestionUrl] = useState<string>("");
+  // Soft note from the suggest endpoint (e.g. fell back to font-overlay titles).
+  const [suggestNote, setSuggestNote] = useState<string>("");
   // The Bannerbear template builder (steps 2 & 3) is collapsible — the AI
   // suggestions often replace it. Kept visible by default for now; may be
   // removed entirely later if the AI flow proves sufficient.
@@ -378,6 +380,7 @@ export function ThumbnailStudio({
     setError(null);
     setSuggestions([]);
     setSavedSuggestionUrl("");
+    setSuggestNote("");
     setStage("suggesting");
     try {
       const raw = await extractFrames(sourceUrl, FRAME_COUNT);
@@ -405,6 +408,7 @@ export function ThumbnailStudio({
         return;
       }
       setSuggestions(thumbs);
+      if (typeof json?.note === "string") setSuggestNote(json.note);
       setStage("idle");
     } catch (err) {
       setError((err as Error).message);
@@ -892,6 +896,9 @@ export function ThumbnailStudio({
             <div className="text-[11px] uppercase tracking-wider text-text-dim mb-2">
               ✨ AI suggestions · from video + transcript
             </div>
+            {suggestNote ? (
+              <p className="text-[11px] text-text-muted mb-2">{suggestNote}</p>
+            ) : null}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {suggestions.map((s, i) => {
                 const saved = savedSuggestionUrl === s.url;

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { b2, bucket, decodeFileId, publicUrl } from "@/lib/b2";
 import { composeThumbnail, pickThumbnailsFromContext } from "@/lib/gemini";
+import { overlayTitle } from "@/lib/thumbnail-overlay";
 import { getAI, getTranscript } from "@/lib/transcript-store";
 import { getSession } from "@/lib/session";
 
@@ -73,18 +74,28 @@ export async function POST(req: Request) {
         const label = `smart-${p.rank}`;
         const thumbKey = `${key}.thumb-${label}.jpg`;
 
-        let bodyBuf = Buffer.from(frame, "base64");
+        let bodyBuf: Uint8Array = Buffer.from(frame, "base64");
         let contentType = "image/jpeg";
         let designed = false;
         const title = (p.headline || ai?.title || "").trim();
         if (title) {
           try {
+            // Preferred: Gemini draws the stylized title into the image.
             const out = await composeThumbnail(frame, title);
             bodyBuf = Buffer.from(out.base64, "base64");
             contentType = out.mimeType || "image/png";
             designed = true;
           } catch (err) {
             designErrors.push((err as Error).message);
+            // Fallback: composite a real-font title onto the raw frame so a
+            // title is ALWAYS present (e.g. when Gemini image billing is off).
+            try {
+              bodyBuf = await overlayTitle(Buffer.from(frame, "base64"), title);
+              contentType = "image/jpeg";
+              designed = true;
+            } catch (overlayErr) {
+              designErrors.push(`overlay: ${(overlayErr as Error).message}`);
+            }
           }
         }
 
@@ -117,7 +128,14 @@ export async function POST(req: Request) {
         { status: 502 },
       );
     }
-    return NextResponse.json({ thumbnails });
+    // Recovered via the font-overlay fallback — let the UI mention it.
+    const usedFallback = designErrors.length > 0 && thumbnails.some((t) => t.designed);
+    return NextResponse.json({
+      thumbnails,
+      ...(usedFallback
+        ? { note: "AI image styling was unavailable, so titles were added with a clean font overlay." }
+        : {}),
+    });
   } catch (err) {
     return NextResponse.json(
       { error: "gemini_error", message: (err as Error).message },
