@@ -15,6 +15,9 @@ const FIXED_SUFFIXES = [
   { suffix: ".thumb-group.jpg", label: "group", name: "All speakers" },
   { suffix: ".thumb-primary.jpg", label: "primary", name: "Speaker A" },
   { suffix: ".thumb-secondary.jpg", label: "secondary", name: "Speaker B" },
+  { suffix: ".thumb-smart-1.jpg", label: "smart-1", name: "Smart pick — top" },
+  { suffix: ".thumb-smart-2.jpg", label: "smart-2", name: "Smart pick — 2" },
+  { suffix: ".thumb-smart-3.jpg", label: "smart-3", name: "Smart pick — 3" },
 ];
 
 async function exists(key: string): Promise<boolean> {
