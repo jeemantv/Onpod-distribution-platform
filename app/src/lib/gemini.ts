@@ -252,13 +252,15 @@ function extractJson(text: string): string {
 // render the title text designed into the image (like the best podcast
 // thumbnails), using the same Gemini image model as enhanceImage.
 export function thumbnailDesignPrompt(title: string): string {
-  return `You are designing a professional, high-CTR YouTube thumbnail from this podcast video still.
+  return `You are designing a premium, high-CTR YouTube podcast thumbnail from this video still.
 
-1) ENHANCE the image so it looks premium and high quality: sharpen and add fine detail, boost contrast and color to vivid-but-natural, brighten the subjects, add a subtle key-light pop, clean up noise and compression. Keep the SAME people, faces, expressions, and framing — do not redraw, distort, add, or remove anyone.
+1) ENHANCE the image so it looks cinematic and high quality: sharpen and add fine detail, boost contrast and color to vivid-but-natural, brighten the subjects, add a subtle key-light pop, clean up noise and compression. Keep the SAME people, faces, expressions, and framing — do not redraw, distort, add, or remove anyone.
 
-2) ADD a bold title that reads EXACTLY: "${title}". Style it like top YouTube thumbnails: large, heavy sans-serif, ALL CAPS, extremely legible even at small sizes, with a thick outline and drop shadow plus a subtle glow so it pops off the background. Use one or two punchy accent colors. Spell the title exactly and do not add any other text or watermarks.
+2) ADD a big, bold title that reads EXACTLY: "${title}". Style it like a top podcast channel: HUGE heavy condensed sans-serif, ALL CAPS, spanning most of the width across the UPPER part of the frame. Color it vivid electric cyan / blue with a bright NEON GLOW and a thin dark edge so it stays crisp. Spell the title EXACTLY — add no other text, logos, or watermarks.
 
-3) PLACE the title in empty/negative space so it NEVER covers the speakers' faces. Keep the design tasteful and premium — eye-catching and lightly clickbait, but not spammy or cluttered.
+3) DEPTH (important): place the title BEHIND the people — the speakers, microphones and desk should overlap in FRONT of the text, so the title reads like a glowing sign on the back wall of the studio, while every face stays fully visible and unblocked. Add a faint matching cyan rim/neon light around the subjects and the set.
+
+4) Keep it premium and high-contrast — eye-catching and lightly clickbait, never cluttered or spammy.
 
 Return only the finished, high-resolution 16:9 thumbnail image.`;
 }

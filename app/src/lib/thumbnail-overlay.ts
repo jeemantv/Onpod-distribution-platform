@@ -63,58 +63,60 @@ export async function overlayTitle(
   const dh = img.height * scale;
   ctx.drawImage(img, (W - dw) / 2, (H - dh) / 2, dw, dh);
 
-  // Darkening gradient at the bottom so the title stays legible over any
-  // background.
-  const grad = ctx.createLinearGradient(0, H * 0.45, 0, H);
-  grad.addColorStop(0, "rgba(0,0,0,0)");
-  grad.addColorStop(1, "rgba(0,0,0,0.72)");
+  // Darkening gradient across the TOP so the title stays legible over any
+  // background (the title sits in the upper band, like the reference).
+  const grad = ctx.createLinearGradient(0, 0, 0, H * 0.55);
+  grad.addColorStop(0, "rgba(0,0,0,0.55)");
+  grad.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
 
   // Auto-fit the title: shrink the font until it wraps into <= 2 lines within
   // the safe width.
-  const maxWidth = W * 0.9;
-  let fontSize = 132;
+  const maxWidth = W * 0.92;
+  let fontSize = 150;
   let lines: string[] | null = null;
   const words = text.split(/\s+/);
-  for (; fontSize >= 48; fontSize -= 4) {
+  for (; fontSize >= 52; fontSize -= 4) {
     ctx.font = `${fontSize}px "${FONT_FAMILY}"`;
     lines = wrapLines(ctx, words, maxWidth, 2);
     if (lines) break;
   }
   if (!lines) {
-    ctx.font = `48px "${FONT_FAMILY}"`;
+    ctx.font = `52px "${FONT_FAMILY}"`;
     lines = [text];
   }
 
-  const lineHeight = fontSize * 1.04;
-  const blockHeight = lineHeight * lines.length;
-  // Sit the block in the lower third with a comfortable bottom margin.
-  let y = H - 56 - blockHeight + lineHeight * 0.8;
-  const x = 56;
+  const lineHeight = fontSize * 1.02;
+  // Centered across the top, like a glowing studio sign.
+  let y = 64 + fontSize * 0.82;
+  const x = W / 2;
 
-  ctx.textAlign = "left";
+  ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
   ctx.lineJoin = "round";
   ctx.miterLimit = 2;
 
   for (const line of lines) {
-    // Drop shadow for depth.
-    ctx.shadowColor = "rgba(0,0,0,0.85)";
-    ctx.shadowBlur = fontSize * 0.18;
+    // Neon glow halo (electric cyan), drawn under the outline + fill.
+    ctx.shadowColor = "rgba(34,211,238,0.95)";
+    ctx.shadowBlur = fontSize * 0.5;
     ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = fontSize * 0.06;
+    ctx.shadowOffsetY = 0;
 
-    // Thick dark outline so the text pops off any background.
-    ctx.lineWidth = Math.max(6, fontSize * 0.16);
-    ctx.strokeStyle = "#0a0a0a";
+    // Thin dark edge to keep the letters crisp over bright areas.
+    ctx.lineWidth = Math.max(5, fontSize * 0.1);
+    ctx.strokeStyle = "#053640";
     ctx.strokeText(line, x, y);
 
-    // Reset shadow before the fill so it doesn't muddy the bright face.
+    // Cyan fill, glow still on, for a saturated neon core.
+    ctx.fillStyle = "#22d3ee";
+    ctx.fillText(line, x, y);
+
+    // Bright inner fill with no shadow for a crisp, lit highlight.
     ctx.shadowColor = "transparent";
     ctx.shadowBlur = 0;
-    ctx.shadowOffsetY = 0;
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = "#b8f4ff";
     ctx.fillText(line, x, y);
 
     y += lineHeight;

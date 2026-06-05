@@ -893,8 +893,18 @@ export function ThumbnailStudio({
 
         {suggestions.length > 0 ? (
           <div className="mt-4">
-            <div className="text-[11px] uppercase tracking-wider text-text-dim mb-2">
-              ✨ AI suggestions · from video + transcript
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="text-[11px] uppercase tracking-wider text-text-dim">
+                ✨ AI suggestions · from video + transcript
+              </div>
+              <button
+                onClick={suggestThumbnails}
+                disabled={busy}
+                title="Generate a fresh set of AI thumbnails"
+                className="px-2.5 py-1 rounded-[8px] border border-accent-2 text-accent-2 text-[11px] disabled:opacity-50"
+              >
+                {stage === "suggesting" ? "Redoing…" : "🔄 Redo"}
+              </button>
             </div>
             {suggestNote ? (
               <p className="text-[11px] text-text-muted mb-2">{suggestNote}</p>
