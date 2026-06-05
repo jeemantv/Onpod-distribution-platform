@@ -102,8 +102,13 @@ export function ThumbnailStudio({
     | "rendering"
     | "re-cropping"
     | "enhancing-final"
+    | "suggesting"
   >("idle");
   const [error, setError] = useState<string | null>(null);
+  // AI thumbnail suggestions (video frames + episode transcript → Gemini).
+  const [suggestions, setSuggestions] = useState<
+    { label: string; url: string; reason: string; headline?: string }[]
+  >([]);
   const uploadRef = useRef<HTMLInputElement | null>(null);
   // When enabled, "Pick from podcast" removes the background on each
   // detected person. Turn off when the template already has its own
@@ -352,6 +357,73 @@ export function ThumbnailStudio({
       }
       setCards(next);
       setActiveCardId(next[0].id);
+      setStage("idle");
+    } catch (err) {
+      setError((err as Error).message);
+      setStage("idle");
+    }
+  }
+
+  // AI suggestions: send the podcast frames + transcript to Gemini and get
+  // back the 3 best ready-to-use thumbnail frames, each with a headline idea.
+  async function suggestThumbnails() {
+    if (!sourceFileId || !sourceUrl) return;
+    setError(null);
+    setSuggestions([]);
+    setStage("suggesting");
+    try {
+      const raw = await extractFrames(sourceUrl, FRAME_COUNT);
+      const res = await fetch("/api/ai/thumbnails-smart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileId: sourceFileId, framesBase64: raw }),
+      });
+      const { json, text } = await readJsonOrText(res);
+      if (!res.ok) {
+        setError(
+          ((json?.message as string | undefined) ||
+            (res.status === 413
+              ? "Frames are too large for upload. The video resolution is too high — try a shorter clip."
+              : text.slice(0, 200))) ||
+            `Suggest failed (${res.status})`,
+        );
+        setStage("idle");
+        return;
+      }
+      const thumbs = ((json?.thumbnails ?? []) as typeof suggestions);
+      if (thumbs.length === 0) {
+        setError("Gemini returned no suggestions. Try again.");
+        setStage("idle");
+        return;
+      }
+      setSuggestions(thumbs);
+      setStage("idle");
+    } catch (err) {
+      setError((err as Error).message);
+      setStage("idle");
+    }
+  }
+
+  // Save one suggested frame straight to the file's cover (.cover.jpg) so the
+  // YouTube modal picks it up — same endpoint the rendered flow uses.
+  async function useSuggestionAsCover(url: string) {
+    if (!sourceFileId) return;
+    setError(null);
+    setStage("suggesting");
+    try {
+      const up = await fetch("/api/ai/save-cover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileId: sourceFileId, sourceUrl: url, label: "cover" }),
+      });
+      if (!up.ok) {
+        const d = (await up.json().catch(() => ({}))) as { message?: string };
+        setError(d.message || `Save failed (${up.status})`);
+        setStage("idle");
+        return;
+      }
+      setSavedAt(Date.now());
+      window.dispatchEvent(new CustomEvent("onpod:thumbnail-saved"));
       setStage("idle");
     } catch (err) {
       setError((err as Error).message);
@@ -782,6 +854,14 @@ export function ThumbnailStudio({
           >
             {stage === "uploading" ? "Uploading…" : "⬆︎ Upload image"}
           </button>
+          <button
+            onClick={suggestThumbnails}
+            disabled={busy}
+            title="Reads the episode transcript + video frames and picks the 3 best thumbnail moments (Gemini). Requires a transcript."
+            className="px-3 py-2 rounded-[10px] bg-bg-elev-2 border border-accent-2 text-accent-2 text-[12px] disabled:opacity-50"
+          >
+            {stage === "suggesting" ? "Analyzing…" : "✨ Suggest with AI"}
+          </button>
           <input
             ref={uploadRef}
             type="file"
@@ -793,8 +873,56 @@ export function ThumbnailStudio({
         </div>
         <p className="text-[11px] text-text-dim mt-2">
           After picking or uploading, use the &quot;Remove BG&quot; button on
-          the selected person to cut out the background.
+          the selected person to cut out the background. Or hit{" "}
+          <b>✨ Suggest with AI</b> to get the 3 best thumbnail frames straight
+          from the episode (video + transcript).
         </p>
+
+        {suggestions.length > 0 ? (
+          <div className="mt-4">
+            <div className="text-[11px] uppercase tracking-wider text-text-dim mb-2">
+              ✨ AI suggestions · from video + transcript
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {suggestions.map((s, i) => (
+                <div
+                  key={s.label || i}
+                  className="rounded-[10px] border border-border overflow-hidden bg-bg-elev-2"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={s.url}
+                    alt={s.headline || s.label}
+                    className="w-full aspect-video object-cover block"
+                  />
+                  <div className="p-2">
+                    {s.headline ? (
+                      <div className="text-[12px] font-semibold mb-0.5">{s.headline}</div>
+                    ) : null}
+                    <div className="text-[11px] text-text-muted">{s.reason}</div>
+                    <div className="flex items-center gap-2 mt-2">
+                      <button
+                        onClick={() => void useSuggestionAsCover(s.url)}
+                        disabled={busy}
+                        className="px-2.5 py-1 rounded-[8px] bg-accent text-white text-[11px] disabled:opacity-50"
+                      >
+                        Use as cover
+                      </button>
+                      <a
+                        href={s.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[11px] text-accent-2 underline"
+                      >
+                        Open full
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {cards.length > 0 ? (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">

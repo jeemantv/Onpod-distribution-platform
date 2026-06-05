@@ -82,7 +82,7 @@ export async function POST(req: Request) {
       thumbnails.push({
         label,
         url: publicUrl(thumbKey),
-        reason: p.headline ? `“${p.headline}” — ${p.reason}` : p.reason,
+        reason: p.reason,
         headline: p.headline,
         key: thumbKey,
       });

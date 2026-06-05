@@ -18,9 +18,6 @@ const LABEL_TEXT: Record<string, string> = {
   group: "All speakers",
   primary: "Speaker A",
   secondary: "Speaker B",
-  "smart-1": "Top pick",
-  "smart-2": "Option 2",
-  "smart-3": "Option 3",
 };
 
 export function ThumbnailGenerator({
@@ -70,8 +67,7 @@ export function ThumbnailGenerator({
     };
   }, [fileId]);
 
-  // Shared flow: grab a signed URL, extract frames, POST to the given route.
-  const runPick = async (endpoint: string, pickStage: string) => {
+  const generate = async () => {
     setBusy(true);
     setError(null);
     setThumbnails([]);
@@ -84,8 +80,8 @@ export function ThumbnailGenerator({
       setStage("Loading video…");
       const frames = await extractFrames(signedUrl, FRAME_COUNT);
 
-      setStage(pickStage);
-      const apiRes = await fetch(endpoint, {
+      setStage("Asking Claude to pick the best 3…");
+      const apiRes = await fetch("/api/ai/thumbnails", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fileId, framesBase64: frames }),
@@ -104,28 +100,15 @@ export function ThumbnailGenerator({
     }
   };
 
-  const generate = () => runPick("/api/ai/thumbnails", "Asking Claude to pick the best 3…");
-
-  const generateSmart = () =>
-    runPick("/api/ai/thumbnails-smart", "Analyzing video + transcript with Gemini…");
-
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-2 mb-4">
+      <div className="flex items-center gap-2 mb-4">
         <button
           onClick={generate}
           disabled={busy}
           className="px-4 py-2 rounded-[8px] bg-accent text-white text-[13px] font-medium disabled:opacity-60"
         >
           {busy ? "Generating…" : thumbnails.length > 0 ? "Regenerate" : "Generate thumbnails"}
-        </button>
-        <button
-          onClick={generateSmart}
-          disabled={busy}
-          title="Reads the episode transcript so the picks match what the episode is actually about"
-          className="px-4 py-2 rounded-[8px] border border-accent-2 text-accent-2 text-[13px] font-medium disabled:opacity-60"
-        >
-          ✨ Smart picks (uses transcript)
         </button>
         {busy && stage ? (
           <span className="text-[12px] text-text-muted">{stage}</span>
@@ -178,11 +161,8 @@ export function ThumbnailGenerator({
       )}
 
       <p className="mt-4 text-[11px] text-text-dim">
-        Extracts {FRAME_COUNT} frames at evenly-spaced timestamps. <strong>Generate thumbnails</strong>{" "}
-        uses Claude to pick 3 by faces (all speakers + a close-up of each).{" "}
-        <strong>Smart picks</strong> sends the frames <em>and the episode transcript</em> to Gemini, so
-        the 3 picks match the episode&apos;s most clickable moment and each comes with a headline idea.
-        Requires a transcript. Stored in B2 alongside the video.
+        Extracts {FRAME_COUNT} frames at evenly-spaced timestamps. Claude Sonnet 4.5 picks
+        the 3 best — one with all speakers and a close-up of each. Stored in B2 alongside the video.
       </p>
 
       {thumbnails.length > 0 ? (
