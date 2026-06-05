@@ -143,6 +143,9 @@ export async function pickThumbnailsFromContext(
   framesBase64Jpeg: string[],
   transcript: string,
   episodeTitle?: string,
+  // Free-text nudge for re-rolls: encourages different frames/titles than the
+  // obvious first choice so "Redo" actually changes things.
+  variationHint?: string,
 ): Promise<SmartThumbPick[]> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY not set");
@@ -155,14 +158,18 @@ export async function pickThumbnailsFromContext(
     parts.push({ inline_data: { mime_type: "image/jpeg", data: b64 } });
   });
   parts.push({
-    text: `Episode title: ${episodeTitle?.trim() || "(untitled)"}\n\nTranscript:\n${trimmedTranscript || "(transcript unavailable)"}\n\nTotal frames: ${framesBase64Jpeg.length}. Return the JSON now.`,
+    text: `Episode title: ${episodeTitle?.trim() || "(untitled)"}\n\nTranscript:\n${trimmedTranscript || "(transcript unavailable)"}\n\nTotal frames: ${framesBase64Jpeg.length}.${
+      variationHint ? `\n\n${variationHint}` : ""
+    } Return the JSON now.`,
   });
 
   const body = {
     contents: [{ parts }],
     generationConfig: {
       responseMimeType: "application/json",
-      temperature: 0.4,
+      // Higher temperature so re-rolls genuinely explore different frames and
+      // titles instead of converging on the same obvious pick.
+      temperature: 0.9,
       // Headroom so the JSON is never truncated. Gemini 2.5 "thinking"
       // tokens count against this budget, so we also turn thinking OFF —
       // otherwise the model can spend the whole budget reasoning and emit
@@ -261,27 +268,32 @@ const STYLE_DIRECTIONS = [
   `STYLE — "Punchy": High-energy and clicky. Put a BIG chunky ALL-CAPS title across the TOP in a punchy bright color (golden yellow OR bold red) with a thick black-and-white outline and a strong drop shadow so it screams off the image. Push saturation and contrast hard, add a subtle vignette and dramatic lighting that emphasises the subject's expression. Eye-catching but still clean.`,
 ];
 
-function styledThumbnailPrompt(title: string, style: number): string {
+function styledThumbnailPrompt(title: string, style: number, notes?: string): string {
   const direction = STYLE_DIRECTIONS[style] ?? STYLE_DIRECTIONS[0];
+  const extra = notes?.trim()
+    ? `\n\nUSER DIRECTION (follow this, it overrides the style defaults where they conflict): ${notes.trim()}`
+    : "";
   return `You are designing a premium, high-CTR YouTube podcast thumbnail from this video still.
 
 ENHANCE the image so it looks cinematic and high quality: sharpen and add fine detail, boost contrast and color to vivid-but-natural, brighten the subjects, clean up noise and compression. Keep the SAME people, faces, expressions, and framing — do not redraw, distort, add, or remove anyone.
 
 The title must read EXACTLY: "${title}" — spell it exactly, ALL CAPS, and add no other text, logos, or watermarks.
 
-${direction}
+${direction}${extra}
 
 Return only the finished, high-resolution 16:9 thumbnail image.`;
 }
 
 // Compose a finished thumbnail in one of the THUMBNAIL_STYLE_NAMES styles,
-// using the Gemini image model (same engine as enhanceImage).
+// using the Gemini image model (same engine as enhanceImage). Optional `notes`
+// is free-text user direction to steer the design (e.g. "red text", "darker").
 export async function composeThumbnail(
   frameBase64Jpeg: string,
   title: string,
   style = 0,
+  notes?: string,
 ): Promise<EnhanceResult> {
-  return enhanceImage(frameBase64Jpeg, "image/jpeg", styledThumbnailPrompt(title, style));
+  return enhanceImage(frameBase64Jpeg, "image/jpeg", styledThumbnailPrompt(title, style, notes));
 }
 
 export const ENHANCE_PROMPT_DEFAULT =

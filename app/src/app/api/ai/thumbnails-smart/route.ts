@@ -13,6 +13,11 @@ export const maxDuration = 300;
 interface RequestBody {
   fileId: string;
   framesBase64: string[]; // each is a base64 JPEG (no data: prefix)
+  // Optional free-text design direction from the user (e.g. "red text",
+  // "darker background", "title at the bottom").
+  stylePrompt?: string;
+  // True when this is a "Redo" — pushes the picker to vary frames/titles.
+  redo?: boolean;
 }
 
 export async function POST(req: Request) {
@@ -48,12 +53,18 @@ export async function POST(req: Request) {
     );
   }
   const ai = await getAI(key);
+  const stamp = Date.now();
+  const notes = (body.stylePrompt ?? "").trim().slice(0, 300);
+  const variationHint = body.redo
+    ? "This is a RE-ROLL — deliberately pick DIFFERENT frames and write DIFFERENT, fresh titles than the most obvious choice. Explore new angles, expressions, and hooks."
+    : undefined;
 
   try {
     const picks = await pickThumbnailsFromContext(
       body.framesBase64,
       transcript.transcript,
       ai?.title,
+      variationHint,
     );
     if (picks.length === 0) {
       return NextResponse.json(
@@ -84,7 +95,7 @@ export async function POST(req: Request) {
         if (title) {
           try {
             // Preferred: Gemini draws the stylized title into the image.
-            const out = await composeThumbnail(frame, title, style);
+            const out = await composeThumbnail(frame, title, style, notes);
             bodyBuf = Buffer.from(out.base64, "base64");
             contentType = out.mimeType || "image/png";
             designed = true;
@@ -113,7 +124,10 @@ export async function POST(req: Request) {
         );
         return {
           label,
-          url: publicUrl(thumbKey),
+          // Cache-bust: the key is overwritten in place, so without a unique
+          // query the browser/CDN would keep showing the previous image and
+          // "Redo" would look like it did nothing.
+          url: `${publicUrl(thumbKey)}?v=${stamp}`,
           reason: p.reason,
           headline: p.headline,
           style: styleName,

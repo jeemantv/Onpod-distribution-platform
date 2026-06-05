@@ -114,6 +114,8 @@ export function ThumbnailStudio({
   const [savedSuggestionUrl, setSavedSuggestionUrl] = useState<string>("");
   // Soft note from the suggest endpoint (e.g. fell back to font-overlay titles).
   const [suggestNote, setSuggestNote] = useState<string>("");
+  // Optional free-text design direction sent with Suggest/Redo.
+  const [stylePrompt, setStylePrompt] = useState<string>("");
   // The Bannerbear template builder (steps 2 & 3) is collapsible — the AI
   // suggestions often replace it. Kept visible by default for now; may be
   // removed entirely later if the AI flow proves sufficient.
@@ -412,7 +414,7 @@ export function ThumbnailStudio({
 
   // AI suggestions: send the podcast frames + transcript to Gemini and get
   // back the 3 best ready-to-use thumbnail frames, each with a headline idea.
-  async function suggestThumbnails() {
+  async function suggestThumbnails(opts?: { redo?: boolean }) {
     if (!sourceFileId || !sourceUrl) return;
     setError(null);
     // Keep any existing suggestions visible (dimmed) while we regenerate, so
@@ -425,7 +427,12 @@ export function ThumbnailStudio({
       const res = await fetch("/api/ai/thumbnails-smart", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileId: sourceFileId, framesBase64: raw }),
+        body: JSON.stringify({
+          fileId: sourceFileId,
+          framesBase64: raw,
+          stylePrompt: stylePrompt.trim() || undefined,
+          redo: !!opts?.redo,
+        }),
       });
       const { json, text } = await readJsonOrText(res);
       if (!res.ok) {
@@ -906,7 +913,7 @@ export function ThumbnailStudio({
             {stage === "uploading" ? "Uploading…" : "⬆︎ Upload image"}
           </button>
           <button
-            onClick={suggestThumbnails}
+            onClick={() => void suggestThumbnails()}
             disabled={busy}
             title="Reads the episode transcript + video frames, picks the 3 best moments, then designs a titled, enhanced YouTube thumbnail for each (Gemini). Requires a transcript."
             className="px-3 py-2 rounded-[10px] bg-bg-elev-2 border border-accent-2 text-accent-2 text-[12px] disabled:opacity-50"
@@ -922,6 +929,13 @@ export function ThumbnailStudio({
             onChange={(e) => void uploadFiles(e.target.files)}
           />
         </div>
+        <input
+          value={stylePrompt}
+          onChange={(e) => setStylePrompt(e.target.value)}
+          disabled={busy}
+          placeholder="Optional style notes for AI thumbnails — e.g. “red title”, “darker mood”, “title at the bottom”"
+          className="mt-2 w-full px-3 py-2 rounded-[10px] bg-bg-elev-2 border border-border text-[12px] placeholder:text-text-dim disabled:opacity-50"
+        />
         <p className="text-[11px] text-text-dim mt-2">
           After picking or uploading, use the &quot;Remove BG&quot; button on
           the selected person to cut out the background. Or hit{" "}
@@ -936,9 +950,9 @@ export function ThumbnailStudio({
                 ✨ AI suggestions · from video + transcript
               </div>
               <button
-                onClick={suggestThumbnails}
+                onClick={() => void suggestThumbnails({ redo: true })}
                 disabled={busy}
-                title="Generate a fresh set of AI thumbnails"
+                title="Generate a fresh, different set of AI thumbnails (uses your style notes above)"
                 className="px-2.5 py-1 rounded-[8px] border border-accent-2 text-accent-2 text-[11px] disabled:opacity-50"
               >
                 {stage === "suggesting" ? "Redoing…" : "🔄 Redo"}
