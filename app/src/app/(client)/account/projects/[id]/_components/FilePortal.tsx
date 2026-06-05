@@ -1117,6 +1117,7 @@ export function FilePortal({
                     currentId={null}
                     legacyValue={null}
                     canEdit={canEditStatuses}
+                    dropUp
                     onChange={(id) => void setStatusForSelected(id)}
                     onCreate={createStatus}
                     onUpdate={patchStatus}

@@ -35,6 +35,7 @@ export function StatusDropdown({
   legacyValue,
   inRevision,
   canEdit,
+  dropUp,
   onChange,
   onCreate,
   onUpdate,
@@ -47,6 +48,9 @@ export function StatusDropdown({
   // "In revision" (amber). Editor still selects via the dropdown.
   inRevision?: boolean;
   canEdit: boolean;
+  // Open the popover ABOVE the trigger (used in the bottom bulk bar, where a
+  // downward menu would render off the bottom of the viewport).
+  dropUp?: boolean;
   onChange: (statusId: string | null) => void;
   onCreate: (label: string, color: string) => Promise<void>;
   onUpdate: (id: string, patch: { label?: string; color?: string }) => Promise<void>;
@@ -113,7 +117,11 @@ export function StatusDropdown({
       </button>
 
       {open ? (
-        <div className="absolute right-0 top-[calc(100%+4px)] z-40 w-[260px] rounded-[10px] bg-bg-elev border border-border shadow-xl overflow-hidden">
+        <div
+          className={`absolute right-0 ${
+            dropUp ? "bottom-[calc(100%+4px)]" : "top-[calc(100%+4px)]"
+          } z-50 w-[260px] rounded-[10px] bg-bg-elev border border-border shadow-xl overflow-hidden`}
+        >
           <ul className="max-h-[280px] overflow-y-auto p-1">
             {statuses.map((s) => (
               <li key={s.id}>
