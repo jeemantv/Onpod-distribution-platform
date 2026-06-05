@@ -118,7 +118,6 @@ export type ArticleFormat =
   | "linkedin"
   | "wordpress"
   | "newsletter"
-  | "medium"
   | "seoBlog";
 
 export interface PublishHistoryEntry {

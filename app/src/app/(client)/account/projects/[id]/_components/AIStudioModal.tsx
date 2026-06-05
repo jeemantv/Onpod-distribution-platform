@@ -34,7 +34,6 @@ type TabKey = (typeof TABS)[number];
 const ARTICLE_FORMATS: { key: ArticleFormat; label: string }[] = [
   { key: "linkedin", label: "LinkedIn" },
   { key: "wordpress", label: "WordPress" },
-  { key: "medium", label: "Medium" },
   { key: "newsletter", label: "Newsletter" },
   { key: "seoBlog", label: "SEO Blog" },
 ];
@@ -58,6 +57,7 @@ export function AIStudioModal({
   const [activeArticle, setActiveArticle] = useState<ArticleFormat>("linkedin");
   const [generatingArticle, setGeneratingArticle] = useState(false);
   const [articleError, setArticleError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const [regeneratingField, setRegeneratingField] = useState<string | null>(null);
 
   useEffect(() => {
@@ -294,7 +294,10 @@ export function AIStudioModal({
             {ARTICLE_FORMATS.map((f) => (
               <button
                 key={f.key}
-                onClick={() => setActiveArticle(f.key)}
+                onClick={() => {
+                  setActiveArticle(f.key);
+                  setCopied(false);
+                }}
                 className={`px-3 py-1.5 rounded-[8px] border text-[12px] transition ${
                   activeArticle === f.key
                     ? "bg-bg-elev-3 border-border-strong text-text"
@@ -326,14 +329,29 @@ export function AIStudioModal({
               {generatingArticle ? "Writing…" : articleByFormat[activeArticle] ? `Regenerate ${activeArticle}` : `Generate ${activeArticle}`}
             </button>
             <button
-              onClick={() => {
+              onClick={async () => {
                 const txt = articleByFormat[activeArticle] ?? "";
-                if (txt) navigator.clipboard.writeText(txt);
+                if (!txt) return;
+                try {
+                  await navigator.clipboard.writeText(txt);
+                } catch {
+                  // Older/insecure contexts: fall back to a temp textarea.
+                  const ta = document.createElement("textarea");
+                  ta.value = txt;
+                  document.body.appendChild(ta);
+                  ta.select();
+                  document.execCommand("copy");
+                  ta.remove();
+                }
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1800);
               }}
-              className="btn-secondary"
+              className={`btn-secondary transition-colors ${
+                copied ? "!bg-[rgba(16,185,129,0.15)] !border-[rgba(16,185,129,0.5)] !text-[#34d399]" : ""
+              }`}
               disabled={!articleByFormat[activeArticle]}
             >
-              Copy
+              {copied ? "✓ Copied!" : "Copy"}
             </button>
             <button
               onClick={() => {

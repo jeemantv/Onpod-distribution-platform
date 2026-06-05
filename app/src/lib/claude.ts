@@ -117,25 +117,20 @@ function extractJson(text: string): string {
 export type ArticleFormat =
   | "linkedin"
   | "wordpress"
-  | "medium"
   | "newsletter"
   | "seoBlog";
 
 const ARTICLE_GUIDES: Record<ArticleFormat, { length: string; tone: string; structure: string }> = {
   linkedin: {
-    length: "200-300 words",
+    length: "150-250 words, and keep it under 1,300 characters so it fits before LinkedIn's 'see more' cut",
     tone: "professional, opinion-led, first person, contrarian hook, ends with a question to drive comments",
-    structure: "punchy first line, 3 to 5 short paragraphs separated by blank lines, 4 to 6 hashtags at the end",
+    structure:
+      "Format it as a native LinkedIn post that pastes in clean (LinkedIn has NO bold, italics, or markdown). Line 1: a punchy hook of 5 to 9 words that works as the preview line. Then a blank line. Then write in SHORT standalone lines: one or at most two sentences per line, with a BLANK LINE between every line so the post is airy and scannable on mobile. No paragraph should be more than two sentences. End with a single question on its own line to drive comments, then a blank line, then 4 to 6 relevant hashtags on one line.",
   },
   wordpress: {
     length: "800-1500 words",
     tone: "informative, SEO-friendly, scannable, mid-funnel",
     structure: "Title on its own line in plain Title Case (no # symbol). Intro paragraph. 3 to 5 sections, each starting with the section name on its own line in Title Case, then body paragraphs. Conclusion. After the conclusion, leave one blank line and add 'Meta description:' followed by 1 sentence.",
-  },
-  medium: {
-    length: "1000-2000 words",
-    tone: "narrative, personal, insightful, voice of an experienced operator telling a story with lessons",
-    structure: "Memorable opening line. 4 to 6 long-form sections, each beginning with the section name in Title Case on its own line. Reflective closing.",
   },
   newsletter: {
     length: "500-800 words",
@@ -152,7 +147,6 @@ const ARTICLE_GUIDES: Record<ArticleFormat, { length: string; tone: string; stru
 const ARTICLE_LABEL: Record<ArticleFormat, string> = {
   linkedin: "LinkedIn post",
   wordpress: "WordPress article",
-  medium: "Medium essay",
   newsletter: "Email newsletter",
   seoBlog: "SEO blog post",
 };

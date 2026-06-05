@@ -9,7 +9,6 @@ import { activeVideoKey } from "@/lib/versions-store";
 const VALID: ReadonlyArray<ArticleFormat> = [
   "linkedin",
   "wordpress",
-  "medium",
   "newsletter",
   "seoBlog",
 ];
