@@ -15,9 +15,8 @@ const INTEGRATIONS = [
   { key: "STRIPE_WEBHOOK_SECRET", label: "Stripe webhook signature" },
   { key: "RESEND_API_KEY", label: "Resend (email)" },
   { key: "B2_KEY_ID", label: "Backblaze B2 (storage)" },
-  { key: "BANNERBEAR_API_KEY", label: "Bannerbear (thumbnails)" },
   { key: "REMOVE_BG_API_KEY", label: "remove.bg (background cutout)" },
-  { key: "GEMINI_API_KEY", label: "Gemini (image enhancement)" },
+  { key: "GEMINI_API_KEY", label: "Gemini (thumbnail design)" },
 ];
 
 const PRICING_PLANS: Plan[] = [

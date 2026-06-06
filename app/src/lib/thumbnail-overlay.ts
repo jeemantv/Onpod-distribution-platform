@@ -172,6 +172,9 @@ export async function overlayTitle(
   title: string,
   style = 0,
   override?: StyleNotesOverride,
+  // Transparent PNG of the foreground people. When provided it's drawn ON TOP
+  // of the title so the text reads as sitting BEHIND their heads.
+  foreground?: Buffer,
 ): Promise<Buffer> {
   ensureFont();
   const cfg = STYLE_CFGS[style] ?? STYLE_CFGS[0];
@@ -283,6 +286,20 @@ export async function overlayTitle(
     ctx.shadowBlur = 0;
     ctx.shadowOffsetY = 0;
     y += lineHeight;
+  }
+
+  // Layer the cut-out people back on top so the title sits behind their heads.
+  // Cover-fit identically to the base (same source frame) so they line up.
+  if (foreground) {
+    try {
+      const fg = await loadImage(foreground);
+      const fscale = Math.max(W / fg.width, H / fg.height);
+      const fdw = fg.width * fscale;
+      const fdh = fg.height * fscale;
+      ctx.drawImage(fg, (W - fdw) / 2, (H - fdh) / 2, fdw, fdh);
+    } catch {
+      /* if the cutout can't be loaded, leave the title on top */
+    }
   }
 
   return canvas.toBuffer("image/jpeg", 0.92);

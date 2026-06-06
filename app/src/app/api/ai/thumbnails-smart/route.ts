@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { b2, bucket, decodeFileId, publicUrl } from "@/lib/b2";
-import { THUMBNAIL_STYLE_NAMES, composeThumbnail, pickThumbnailsFromContext } from "@/lib/gemini";
+import {
+  ENHANCE_PROMPT_DEFAULT,
+  THUMBNAIL_STYLE_NAMES,
+  enhanceImage,
+  pickThumbnailsFromContext,
+} from "@/lib/gemini";
 import { overlayTitle, parseStyleNotes } from "@/lib/thumbnail-overlay";
+import { removeBackgroundBuffer } from "@/lib/remove-bg";
 import { getAI, getTranscript } from "@/lib/transcript-store";
 import { getSession } from "@/lib/session";
 
@@ -10,9 +16,8 @@ import { getSession } from "@/lib/session";
 // while — give it room beyond the default function timeout.
 export const maxDuration = 300;
 
-// Convert between the model's placement words and the overlay's Side names.
+// Map the model's placement words to the overlay's Side names.
 const WORD_TO_SIDE = { top: "top", bottom: "bottom", left: "leftMid", right: "rightMid" } as const;
-const SIDE_TO_WORD = { top: "top", bottom: "bottom", leftMid: "left", rightMid: "right" } as const;
 
 interface RequestBody {
   fileId: string;
@@ -79,98 +84,82 @@ export async function POST(req: Request) {
       );
     }
 
-    // Design all 3 in parallel: enhance the frame + render the title into a
-    // finished thumbnail. If one design fails, fall back to the raw frame so
-    // we always return the pick; track errors so we can surface a real
-    // failure (e.g. billing off) when EVERY design fails.
-    const designErrors: string[] = [];
+    // Pipeline per pick (all 3 in parallel):
+    //   1. Enhance the frame for quality (Gemini, best-effort).
+    //   2. Cut the people out (remove.bg, best-effort).
+    //   3. Draw the title with a real font in the empty area, then layer the
+    //      people back on top → the title sits BEHIND their heads.
+    // Steps 1 & 2 degrade gracefully; the font title (step 3) always runs.
+    let enhanceFailed = false;
+    let cutoutFailed = false;
     const results = await Promise.all(
       picks.map(async (p, i) => {
         const frame = body.framesBase64[p.index];
         if (!frame) return null;
-        // Give each of the 3 picks a DIFFERENT design style.
-        const style = i % THUMBNAIL_STYLE_NAMES.length;
+        const style = i % THUMBNAIL_STYLE_NAMES.length; // distinct look per pick
         const styleName = THUMBNAIL_STYLE_NAMES[style];
         const label = `smart-${p.rank}`;
         const thumbKey = `${key}.thumb-${label}.jpg`;
-
-        let bodyBuf: Uint8Array = Buffer.from(frame, "base64");
-        let contentType = "image/jpeg";
-        let designed = false;
         const title = (p.headline || ai?.title || "").trim();
 
-        // Effective placement: an explicit user note wins; otherwise use the
-        // model's per-frame "empty space, no face" placement for this pick.
-        const placeWord =
-          (overlayOverride.placement ? SIDE_TO_WORD[overlayOverride.placement] : undefined) ??
-          p.placement;
+        // Effective placement: explicit user note wins; else the model's
+        // per-frame "empty space, no face" placement.
         const pickOverride = {
           color: overlayOverride.color,
           placement:
             overlayOverride.placement ?? (p.placement ? WORD_TO_SIDE[p.placement] : undefined),
         };
 
-        if (title) {
-          try {
-            // Preferred: Gemini draws the stylized title into the image.
-            const out = await composeThumbnail(frame, title, style, notes, placeWord);
-            bodyBuf = Buffer.from(out.base64, "base64");
-            contentType = out.mimeType || "image/png";
-            designed = true;
-          } catch (err) {
-            designErrors.push((err as Error).message);
-            // Fallback: composite a real-font title onto the raw frame so a
-            // title is ALWAYS present (e.g. when Gemini image billing is off).
-            try {
-              bodyBuf = await overlayTitle(Buffer.from(frame, "base64"), title, style, pickOverride);
-              contentType = "image/jpeg";
-              designed = true;
-            } catch (overlayErr) {
-              designErrors.push(`overlay: ${(overlayErr as Error).message}`);
-            }
-          }
+        // 1. Enhance (quality). Falls back to the raw frame.
+        let baseBuf = Buffer.from(frame, "base64");
+        try {
+          const enh = await enhanceImage(frame, "image/jpeg", ENHANCE_PROMPT_DEFAULT);
+          baseBuf = Buffer.from(enh.base64, "base64");
+        } catch {
+          enhanceFailed = true;
         }
+
+        // 2. Cut out the people so the title can go behind them.
+        let foreground: Buffer | undefined;
+        try {
+          foreground = await removeBackgroundBuffer(baseBuf);
+        } catch {
+          cutoutFailed = true;
+        }
+
+        // 3. Deterministic font title behind the heads.
+        const bodyBuf = await overlayTitle(baseBuf, title, style, pickOverride, foreground);
 
         await b2.send(
           new PutObjectCommand({
             Bucket: bucket,
             Key: thumbKey,
             Body: bodyBuf,
-            ContentType: contentType,
+            ContentType: "image/jpeg",
             CacheControl: "public, max-age=3600",
           }),
         );
         return {
           label,
           // Cache-bust: the key is overwritten in place, so without a unique
-          // query the browser/CDN would keep showing the previous image and
-          // "Redo" would look like it did nothing.
+          // query the browser/CDN would keep showing the previous image.
           url: `${publicUrl(thumbKey)}?v=${stamp}`,
           reason: p.reason,
           headline: p.headline,
           style: styleName,
-          designed,
           key: thumbKey,
         };
       }),
     );
 
     const thumbnails = results.filter((r): r is NonNullable<typeof r> => r !== null);
-    // Every pick failed to design (and a title existed) → real problem worth
-    // surfacing rather than silently handing back plain frames.
-    if (thumbnails.length > 0 && thumbnails.every((t) => !t.designed) && designErrors.length > 0) {
-      return NextResponse.json(
-        { error: "design_failed", message: designErrors[0], thumbnails },
-        { status: 502 },
-      );
-    }
-    // Recovered via the font-overlay fallback — let the UI mention it.
-    const usedFallback = designErrors.length > 0 && thumbnails.some((t) => t.designed);
+    const notesOut: string[] = [];
+    if (cutoutFailed)
+      notesOut.push("couldn't cut out the people, so the title sits beside them");
+    if (enhanceFailed) notesOut.push("AI quality enhance was unavailable");
     return NextResponse.json({
       thumbnails,
-      ...(usedFallback
-        ? { note: "AI image styling was unavailable, so titles were added with a clean font overlay." }
-        : {}),
+      ...(notesOut.length ? { note: `Heads up: ${notesOut.join("; ")}.` } : {}),
     });
   } catch (err) {
     return NextResponse.json(
