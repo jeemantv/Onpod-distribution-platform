@@ -27,6 +27,7 @@ interface ConnectionState {
   connected: boolean;
   channel: YouTubeChannel | null;
   channels: YouTubeChannel[];
+  activeChannelId?: string;
   configured: boolean;
 }
 
@@ -67,6 +68,8 @@ export function YouTubeModal({
   onPublished?: (info: PublishedInfo) => void;
 }) {
   const [connection, setConnection] = useState<ConnectionState | null>(null);
+  // Which connected channel to publish to (defaults to the active one).
+  const [selectedChannelId, setSelectedChannelId] = useState<string>("");
   const [playlists, setPlaylists] = useState<YouTubePlaylist[]>([]);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -113,7 +116,10 @@ export function YouTubeModal({
         fetch(`/api/files/${fileId}/thumbnails`, { cache: "no-store" }),
       ]);
       const meBody = (await meRes.json()) as ConnectionState;
-      if (!cancelled) setConnection(meBody);
+      if (!cancelled) {
+        setConnection(meBody);
+        setSelectedChannelId(meBody.activeChannelId ?? meBody.channel?.id ?? "");
+      }
       const plBody = (await plRes.json()) as { playlists?: YouTubePlaylist[] };
       if (!cancelled) setPlaylists(plBody.playlists ?? []);
       const tbBody = (await tbRes.json()) as {
@@ -256,6 +262,7 @@ export function YouTubeModal({
           publishMode,
           scheduledAt: publishMode === "schedule" ? scheduledAt : null,
           language,
+          channelId: selectedChannelId || undefined,
         }),
       });
       if (!res.ok) {
@@ -334,6 +341,18 @@ export function YouTubeModal({
   }
 
   const channel = connection?.channel;
+  const channels = connection?.channels ?? [];
+  const displayChannel = channels.find((c) => c.id === selectedChannelId) ?? channel;
+
+  const selectChannel = (id: string) => {
+    setSelectedChannelId(id);
+    // Persist the choice so it sticks across sessions (uploads also pass the id).
+    fetch("/api/youtube/active-channel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ channelId: id }),
+    }).catch(() => {});
+  };
 
   return (
     <Modal
@@ -367,33 +386,51 @@ export function YouTubeModal({
         </>
       }
     >
-      {channel ? (
-        <div className="flex items-center gap-3 mb-5 p-3 bg-bg-elev-2 border border-border rounded-[12px]">
-          {channel.thumbnailUrl ? (
-            <img
-              src={channel.thumbnailUrl}
-              alt={channel.title}
-              className="w-10 h-10 rounded-full"
-            />
-          ) : (
-            <div className="w-10 h-10 rounded-full bg-[linear-gradient(135deg,#ff3b30,#ff8a00)] flex items-center justify-center font-semibold text-[13px]">
-              {channel.title.slice(0, 2).toUpperCase()}
-            </div>
-          )}
-          <div className="flex-1">
-            <div className="text-[13px] font-medium">{channel.title}</div>
-            {channel.subscriberCount ? (
-              <div className="text-[11px] text-text-muted">
-                {channel.subscriberCount} subscribers
+      {displayChannel ? (
+        <div className="mb-5 p-3 bg-bg-elev-2 border border-border rounded-[12px]">
+          <div className="flex items-center gap-3">
+            {displayChannel.thumbnailUrl ? (
+              <img
+                src={displayChannel.thumbnailUrl}
+                alt={displayChannel.title}
+                className="w-10 h-10 rounded-full"
+              />
+            ) : (
+              <div className="w-10 h-10 rounded-full bg-[linear-gradient(135deg,#ff3b30,#ff8a00)] flex items-center justify-center font-semibold text-[13px]">
+                {displayChannel.title.slice(0, 2).toUpperCase()}
               </div>
-            ) : null}
+            )}
+            <div className="flex-1">
+              <div className="text-[13px] font-medium">{displayChannel.title}</div>
+              {displayChannel.subscriberCount ? (
+                <div className="text-[11px] text-text-muted">
+                  {displayChannel.subscriberCount} subscribers
+                </div>
+              ) : null}
+            </div>
+            <button
+              onClick={startConnect}
+              className="text-[12px] text-accent-2 hover:underline whitespace-nowrap"
+            >
+              + Connect another
+            </button>
           </div>
-          <button
-            onClick={startConnect}
-            className="text-[12px] text-text-muted hover:text-text"
-          >
-            Switch account
-          </button>
+          {channels.length > 1 ? (
+            <div className="mt-3 flex items-center gap-2">
+              <span className="text-[11px] text-text-muted shrink-0">Publish to</span>
+              <select
+                value={selectedChannelId}
+                onChange={(e) => selectChannel(e.target.value)}
+                className="flex-1 px-2 py-1.5 rounded-[8px] bg-bg-elev-3 border border-border text-[12px]"
+              >
+                {channels.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

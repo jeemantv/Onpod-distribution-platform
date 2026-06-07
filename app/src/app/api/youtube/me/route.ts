@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { getConnection } from "@/lib/youtube-store";
+import { getConnection, publicChannels } from "@/lib/youtube-store";
 import { isConfigured } from "@/lib/youtube";
 
 export async function GET() {
@@ -26,15 +26,15 @@ export async function GET() {
     });
   }
 
+  const channels = publicChannels(conn.channels);
   const active =
-    conn.channels.find((c) => c.id === conn.activeChannelId) ??
-    conn.channels[0] ??
-    null;
+    channels.find((c) => c.id === conn.activeChannelId) ?? channels[0] ?? null;
 
   return NextResponse.json({
     configured: true,
     connected: true,
     channel: active,
-    channels: conn.channels,
+    activeChannelId: conn.activeChannelId,
+    channels,
   });
 }

@@ -18,7 +18,9 @@ export function buildAuthUrl(state: string): string {
     response_type: "code",
     scope: YT_SCOPES.join(" "),
     access_type: "offline",
-    prompt: "consent",
+    // select_account + consent so the user can pick a DIFFERENT account/brand
+    // channel each time (needed to connect more than one channel).
+    prompt: "select_account consent",
     include_granted_scopes: "true",
     state,
   });

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { decodeFileId } from "@/lib/b2";
 import { addToPlaylist, setThumbnail } from "@/lib/youtube";
-import { getFreshAccessToken, getConnection } from "@/lib/youtube-store";
+import { getFreshAccessToken, getConnection, setActiveChannel } from "@/lib/youtube-store";
 import { getSession } from "@/lib/session";
 import { canAccessKey } from "@/lib/access";
 import { recordPublish } from "@/lib/publish-history-store";
@@ -20,6 +20,7 @@ interface RequestBody {
   playlistId?: string | null;
   thumbnailUrl?: string | null;
   thumbnailBase64?: string | null;
+  channelId?: string;
 }
 
 export async function POST(req: Request) {
@@ -41,6 +42,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
+  if (body.channelId) {
+    await setActiveChannel(user.id, body.channelId);
+  }
   const conn = await getConnection(user.id);
   const accessToken = await getFreshAccessToken(user.id);
 

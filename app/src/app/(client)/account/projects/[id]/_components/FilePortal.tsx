@@ -222,6 +222,7 @@ export function FilePortal({
             playlistId: info.playlistId,
             thumbnailUrl: info.thumbnailUrl,
             thumbnailBase64: info.thumbnailBase64,
+            channelId: info.init.channelId,
           }),
         });
         if (!finRes.ok) {

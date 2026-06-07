@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { exchangeCodeForTokens, listMyChannels } from "@/lib/youtube";
-import { saveConnection } from "@/lib/youtube-store";
+import { addChannelConnection } from "@/lib/youtube-store";
 import { getSession } from "@/lib/session";
 
 export async function GET(req: Request) {
@@ -45,13 +45,9 @@ export async function GET(req: Request) {
         new URL("/account?youtube_error=no_channels", req.url),
       );
     }
-    await saveConnection({
-      userId: user.id,
-      channels,
-      activeChannelId: channels[0].id,
-      tokens,
-      connectedAt: Date.now(),
-    });
+    // Merge into any already-connected channels (don't drop them); the channel
+    // just authorized becomes the active one.
+    await addChannelConnection(user.id, channels, tokens, Date.now());
   } catch (err) {
     console.error("[youtube callback]", err);
     return NextResponse.redirect(

@@ -508,11 +508,20 @@ export const youtubeCredentials = pgTable("youtube_credentials", {
   expiresAt: timestamp("expires_at", { withTimezone: true, mode: "date" }).notNull(),
   scope: text("scope").notNull().default(""),
   tokenType: text("token_type").notNull().default("Bearer"),
+  // Each connected channel carries its OWN OAuth tokens so we can publish to
+  // any of them (brand accounts each require a separate authorization). The
+  // token columns above mirror the currently-active channel's tokens. Token
+  // fields are optional for rows written before multi-channel support.
   channels: jsonb("channels").$type<Array<{
     id: string;
     title: string;
     thumbnailUrl: string | null;
     subscriberCount: string | null;
+    accessToken?: string;
+    refreshToken?: string;
+    expiresAt?: number; // epoch ms
+    scope?: string;
+    tokenType?: string;
   }>>().notNull(),
   activeChannelId: text("active_channel_id").notNull(),
   connectedAt: timestamp("connected_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),

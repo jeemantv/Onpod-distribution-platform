@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { decodeFileId, getDownloadUrl, b2, bucket } from "@/lib/b2";
 import { HeadObjectCommand } from "@aws-sdk/client-s3";
-import { getFreshAccessToken, getConnection } from "@/lib/youtube-store";
+import { getFreshAccessToken, getConnection, setActiveChannel } from "@/lib/youtube-store";
 import { startResumableUpload } from "@/lib/youtube";
 import { getSession } from "@/lib/session";
 import { canAccessKey } from "@/lib/access";
@@ -18,6 +18,8 @@ interface RequestBody {
   publishMode?: "now" | "schedule";
   scheduledAt?: string | null;
   language?: string;
+  // Which connected channel to publish to. Defaults to the active one.
+  channelId?: string;
 }
 
 export async function POST(req: Request) {
@@ -40,12 +42,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  const conn = await getConnection(user.id);
+  let conn = await getConnection(user.id);
   if (!conn) {
     return NextResponse.json(
       { error: "not_connected", message: "Connect YouTube first." },
       { status: 412 },
     );
+  }
+  // Publish to the requested channel: make it active so the token columns hold
+  // its credentials, then read the fresh token.
+  if (body.channelId && body.channelId !== conn.activeChannelId) {
+    await setActiveChannel(user.id, body.channelId);
+    conn = (await getConnection(user.id)) ?? conn;
   }
   const accessToken = await getFreshAccessToken(user.id);
   if (!accessToken) {
