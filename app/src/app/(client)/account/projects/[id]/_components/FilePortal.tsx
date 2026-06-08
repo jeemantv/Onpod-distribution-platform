@@ -581,6 +581,45 @@ export function FilePortal({
     for (const f of targets) void startAI(f.id);
   };
 
+  // ---- Add selected clips to an auto-post bucket ----
+  const [bucketPickerOpen, setBucketPickerOpen] = useState(false);
+  const [bucketList, setBucketList] = useState<{ id: string; name: string }[]>([]);
+
+  const openBucketPicker = async () => {
+    try {
+      const res = await fetch("/api/buckets");
+      const body = (await res.json()) as { buckets?: { id: string; name: string }[] };
+      setBucketList(body.buckets ?? []);
+    } catch {
+      setBucketList([]);
+    }
+    setBucketPickerOpen(true);
+  };
+
+  const addSelectedToBucket = async (bucketId: string) => {
+    setBucketPickerOpen(false);
+    const targets = files.filter(
+      (f) => selected.has(f.id) && f.mimeType.startsWith("video/"),
+    );
+    if (targets.length === 0) {
+      setToast({ kind: "error", title: "No video clips selected" });
+      return;
+    }
+    const res = await fetch(`/api/buckets/${bucketId}/items`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        items: targets.map((f) => ({ fileKey: f.backblazeKey, fileName: f.name })),
+      }),
+    });
+    const body = (await res.json().catch(() => ({}))) as { added?: number };
+    setToast({
+      kind: "success",
+      title: `Added ${body.added ?? 0} clip${body.added === 1 ? "" : "s"} to the bucket`,
+      detail: "Manage rotation & schedule in Auto-post.",
+    });
+  };
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // Bail if a modal (AI Studio / YouTube / Spotify / etc.) is open.
@@ -1136,6 +1175,42 @@ export function FilePortal({
                 </button>
               ) : null}
 
+              <div className="relative">
+                <button
+                  onClick={() => void openBucketPicker()}
+                  className="px-3 py-1.5 rounded-[8px] bg-bg-elev-3 border border-border text-[12px]"
+                >
+                  🔁 Add to bucket
+                </button>
+                {bucketPickerOpen ? (
+                  <div className="absolute bottom-[calc(100%+6px)] left-0 z-50 w-[240px] rounded-[10px] bg-bg-elev border border-border shadow-xl p-1">
+                    {bucketList.length === 0 ? (
+                      <a
+                        href="/account/buckets"
+                        className="block px-3 py-2 text-[12px] text-accent-2 hover:bg-bg-elev-2 rounded-[6px]"
+                      >
+                        No buckets yet — create one in Auto-post →
+                      </a>
+                    ) : (
+                      bucketList.map((b) => (
+                        <button
+                          key={b.id}
+                          onClick={() => void addSelectedToBucket(b.id)}
+                          className="w-full text-left px-3 py-2 text-[12px] hover:bg-bg-elev-2 rounded-[6px] truncate"
+                        >
+                          {b.name}
+                        </button>
+                      ))
+                    )}
+                    <button
+                      onClick={() => setBucketPickerOpen(false)}
+                      className="w-full text-left px-3 py-1.5 text-[11px] text-text-muted hover:bg-bg-elev-2 rounded-[6px]"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : null}
+              </div>
               <button
                 onClick={() => void downloadSelected()}
                 className="px-3 py-1.5 rounded-[8px] bg-bg-elev-3 border border-border text-[12px]"

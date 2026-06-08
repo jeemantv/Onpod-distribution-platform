@@ -59,6 +59,14 @@ export async function TopNav({
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        {user.role === "client" && !user.guest ? (
+          <Link
+            href="/account/buckets"
+            className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-bg-elev border border-border hover:border-border-strong text-text-muted hover:text-text text-[12px]"
+          >
+            🔁 Auto-post
+          </Link>
+        ) : null}
         <FeedbackButton />
         <button
           aria-label="Notifications"

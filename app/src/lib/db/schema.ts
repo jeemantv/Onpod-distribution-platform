@@ -698,6 +698,63 @@ export const podcastEpisodes = pgTable(
   }),
 );
 
+// ---------- Rotating post buckets (SocialBee-style auto-poster) ----------
+
+// A bucket auto-posts its clips to one YouTube channel on a repeating daily
+// schedule, rotating through the items (wraps around → unlimited).
+export const postBuckets = pgTable(
+  "post_buckets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    // Target YouTube channel (from youtube_credentials.channels).
+    channelId: text("channel_id").notNull(),
+    channelTitle: text("channel_title"),
+    visibility: text("visibility").notNull().default("public"), // public|unlisted|private
+    // Post times as "HH:MM" (24h) in the bucket timezone, e.g. ["09:00","17:00"].
+    times: jsonb("times").$type<string[]>().notNull().default([]),
+    // Days of week to post (0=Sun..6=Sat). Empty = every day.
+    days: jsonb("days").$type<number[]>().notNull().default([]),
+    timezone: text("timezone").notNull().default("America/New_York"),
+    // Optional title template; {n} = post number. Empty → derive from filename.
+    titleTemplate: text("title_template"),
+    active: boolean("active").notNull().default(true),
+    // Rotation position (advances each post; index = cursor % itemCount).
+    cursor: integer("cursor").notNull().default(0),
+    // Idempotency: the last slot we posted ("YYYY-MM-DDTHH:MM" in tz).
+    lastSlotKey: text("last_slot_key"),
+    lastPostedAt: timestamp("last_posted_at", { withTimezone: true, mode: "date" }),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => ({
+    userIdx: index("post_buckets_user_idx").on(t.userId),
+    activeIdx: index("post_buckets_active_idx").on(t.active),
+  }),
+);
+
+export const postBucketItems = pgTable(
+  "post_bucket_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    bucketId: uuid("bucket_id")
+      .notNull()
+      .references(() => postBuckets.id, { onDelete: "cascade" }),
+    fileKey: text("file_key").notNull(), // B2 key of the clip
+    fileName: text("file_name").notNull(),
+    position: integer("position").notNull().default(0),
+    postCount: integer("post_count").notNull().default(0),
+    lastPostedAt: timestamp("last_posted_at", { withTimezone: true, mode: "date" }),
+    addedAt: timestamp("added_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => ({
+    bucketIdx: index("post_bucket_items_bucket_idx").on(t.bucketId),
+    bucketFileUnique: uniqueIndex("post_bucket_items_bucket_file_unique").on(t.bucketId, t.fileKey),
+  }),
+);
+
 // ---------- Inferred type exports ----------
 // Pattern: `User` = select shape, `NewUser` = insert shape. Stores import these
 // instead of redefining interfaces by hand.
