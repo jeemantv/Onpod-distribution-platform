@@ -34,6 +34,32 @@ function bucketVisibility(v: string): "public" | "unlisted" | "private" {
     : "public";
 }
 
+// YouTube disallows < and > in titles/descriptions.
+function stripBrackets(s: string): string {
+  return s.replace(/[<>]/g, "");
+}
+
+// Only a valid BCP-47-ish code (e.g. "en", "en-US") is accepted for
+// defaultLanguage; anything else triggers INVALID_REQUEST_METADATA.
+function isLangCode(v: string | undefined | null): v is string {
+  return !!v && /^[a-zA-Z]{2,3}(-[A-Za-z0-9]{2,8})?$/.test(v);
+}
+
+// Drop empty/over-long tags and keep the total under YouTube's ~500-char cap.
+function sanitizeTags(tags: string[]): string[] {
+  const out: string[] = [];
+  let total = 0;
+  for (const raw of tags) {
+    if (typeof raw !== "string") continue;
+    const t = stripBrackets(raw).trim();
+    if (!t || t.length > 100) continue;
+    if (total + t.length + 1 > 450) break;
+    out.push(t);
+    total += t.length + 1;
+  }
+  return out;
+}
+
 export interface PostResult {
   posted: boolean;
   videoId?: string;
@@ -69,10 +95,18 @@ export async function postNextFromBucket(bucket: Bucket): Promise<PostResult> {
 
   // 3. Pull the clip's AI YouTube metadata (title/description/tags), same as
   // the manual publish flow. Falls back to a cleaned filename if none.
+  // Sanitize everything — YouTube rejects (INVALID_REQUEST_METADATA) titles/
+  // descriptions with angle brackets, overly long tag sets, or a non-BCP-47
+  // defaultLanguage (the AI language is sometimes a name like "English").
   const ai = await getAI(item.fileKey).catch(() => null);
-  const title = buildTitle(bucket, item.fileName, ai?.title, item.postCount + 1);
-  const description = (ai?.description ?? "").slice(0, 5000);
-  const tags = ai?.tags ?? [];
+  // Cap at 90 so the " #Shorts" suffix (added for Shorts) stays under YouTube's
+  // 100-char title limit.
+  const title =
+    stripBrackets(buildTitle(bucket, item.fileName, ai?.title, item.postCount + 1)).trim().slice(0, 90) ||
+    "Clip";
+  const description = stripBrackets(ai?.description ?? "").slice(0, 5000);
+  const tags = sanitizeTags(ai?.tags ?? []);
+  const language = isLangCode(ai?.language) ? ai!.language : undefined;
   const visibility = bucketVisibility(bucket.visibility);
 
   // 4. Upload as a Short with the bucket's visibility (public/unlisted/private).
@@ -88,8 +122,8 @@ export async function postNextFromBucket(bucket: Bucket): Promise<PostResult> {
       isShort: true,
       privacyStatus: visibility,
       publishAt: null,
-      defaultLanguage: ai?.language || undefined,
-      defaultAudioLanguage: ai?.language || undefined,
+      defaultLanguage: language,
+      defaultAudioLanguage: language,
     });
     videoId = out.videoId;
   } catch (err) {
