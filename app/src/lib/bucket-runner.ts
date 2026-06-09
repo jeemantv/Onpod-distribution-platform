@@ -6,6 +6,7 @@ import { getDownloadUrl } from "./b2";
 import { uploadVideo, setThumbnail } from "./youtube";
 import { getFreshAccessToken, setActiveChannel } from "./youtube-store";
 import { recordPublish } from "./publish-history-store";
+import { getAI } from "./transcript-store";
 import {
   advanceRotation,
   dueSlotKey,
@@ -16,13 +17,21 @@ import {
   type Bucket,
 } from "./bucket-store";
 
-function deriveTitle(bucket: Bucket, fileName: string, n: number): string {
-  const base = fileName.replace(/\.[^.]+$/, "").replace(/[_]+/g, " ").trim();
+// Title precedence: the clip's AI YouTube title → else a cleaned filename.
+// A bucket titleTemplate (with {title}/{n}) can wrap whichever base is used.
+function buildTitle(bucket: Bucket, fileName: string, aiTitle: string | undefined, n: number): string {
+  const fileBase = fileName.replace(/\.[^.]+$/, "").replace(/[_]+/g, " ").trim();
+  const base = aiTitle?.trim() || fileBase;
   const tmpl = bucket.titleTemplate?.trim();
-  const raw = tmpl
-    ? tmpl.replace(/\{title\}/gi, base).replace(/\{n\}/gi, String(n))
-    : base;
+  const raw = tmpl ? tmpl.replace(/\{title\}/gi, base).replace(/\{n\}/gi, String(n)) : base;
   return raw.slice(0, 100) || "Clip";
+}
+
+const VALID_VISIBILITY = ["public", "unlisted", "private"] as const;
+function bucketVisibility(v: string): "public" | "unlisted" | "private" {
+  return (VALID_VISIBILITY as readonly string[]).includes(v)
+    ? (v as "public" | "unlisted" | "private")
+    : "public";
 }
 
 export interface PostResult {
@@ -58,8 +67,15 @@ export async function postNextFromBucket(bucket: Bucket): Promise<PostResult> {
     return { posted: false, fileName: item.fileName, error: "YouTube not connected / token refresh failed." };
   }
 
-  // 3. Upload as a Short.
-  const title = deriveTitle(bucket, item.fileName, item.postCount + 1);
+  // 3. Pull the clip's AI YouTube metadata (title/description/tags), same as
+  // the manual publish flow. Falls back to a cleaned filename if none.
+  const ai = await getAI(item.fileKey).catch(() => null);
+  const title = buildTitle(bucket, item.fileName, ai?.title, item.postCount + 1);
+  const description = (ai?.description ?? "").slice(0, 5000);
+  const tags = ai?.tags ?? [];
+  const visibility = bucketVisibility(bucket.visibility);
+
+  // 4. Upload as a Short with the bucket's visibility (public/unlisted/private).
   let videoId: string;
   try {
     const out = await uploadVideo({
@@ -67,18 +83,20 @@ export async function postNextFromBucket(bucket: Bucket): Promise<PostResult> {
       videoBytes,
       contentType: "video/mp4",
       title,
-      description: "",
-      tags: [],
+      description,
+      tags,
       isShort: true,
-      privacyStatus: (bucket.visibility as "public" | "unlisted" | "private") ?? "public",
+      privacyStatus: visibility,
       publishAt: null,
+      defaultLanguage: ai?.language || undefined,
+      defaultAudioLanguage: ai?.language || undefined,
     });
     videoId = out.videoId;
   } catch (err) {
     return { posted: false, fileName: item.fileName, error: `upload: ${(err as Error).message}` };
   }
 
-  // 4. Best-effort cover thumbnail (.cover.jpg sidecar).
+  // 5. Best-effort cover thumbnail (.cover.jpg sidecar).
   try {
     const coverUrl = await getDownloadUrl(`${item.fileKey}.cover.jpg`, 60 * 60);
     const cr = await fetch(coverUrl);
@@ -90,7 +108,7 @@ export async function postNextFromBucket(bucket: Bucket): Promise<PostResult> {
     /* no cover — YouTube auto-generates */
   }
 
-  // 5. Record + advance rotation.
+  // 6. Record + advance rotation.
   await recordPublish({
     userId: bucket.userId,
     fileId: item.fileKey,
