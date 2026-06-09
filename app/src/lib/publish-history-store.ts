@@ -1,6 +1,6 @@
 // Postgres-backed publish history.
 
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "./db";
 import { publishHistory } from "./db/schema";
 import type { PublishAction, PublishPlatform, VidType } from "./types";
@@ -70,6 +70,28 @@ export async function historyForUser(userId: string): Promise<PublishHistoryRow[
     .where(eq(publishHistory.userId, userId))
     .orderBy(desc(publishHistory.createdAt));
   return rows.map(toRow);
+}
+
+// The most recent video an auto-post bucket published (for the "Last posted"
+// line). Matches on the bucketId we stamp into publish metadata.
+export async function latestBucketPost(
+  userId: string,
+  bucketId: string,
+): Promise<{ at: string; url: string | null; fileName: string } | null> {
+  const [r] = await db
+    .select()
+    .from(publishHistory)
+    .where(
+      and(
+        eq(publishHistory.userId, userId),
+        sql`${publishHistory.metadata}->>'bucketId' = ${bucketId}`,
+      ),
+    )
+    .orderBy(desc(publishHistory.createdAt))
+    .limit(1);
+  return r
+    ? { at: r.createdAt.toISOString(), url: r.externalUrl, fileName: r.fileName }
+    : null;
 }
 
 export async function historyForFile(fileKey: string): Promise<PublishHistoryRow[]> {

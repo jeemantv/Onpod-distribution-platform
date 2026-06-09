@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { createBucket, listBuckets, listItems, upcomingQueue, upcomingSlots } from "@/lib/bucket-store";
 import { getAI } from "@/lib/transcript-store";
+import { latestBucketPost } from "@/lib/publish-history-store";
 import { publicUrl } from "@/lib/b2";
 
 export async function GET() {
@@ -30,7 +31,8 @@ export async function GET() {
           };
         }),
       );
-      return { ...b, items: enriched };
+      const lastPost = await latestBucketPost(user.id, b.id);
+      return { ...b, items: enriched, lastPost };
     }),
   );
   return NextResponse.json({ buckets: withItems });

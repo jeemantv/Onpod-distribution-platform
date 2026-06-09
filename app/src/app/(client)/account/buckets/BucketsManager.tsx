@@ -52,6 +52,7 @@ interface Bucket {
   cursor: number;
   lastPostedAt: string | null;
   items: Item[];
+  lastPost: { at: string; url: string | null; fileName: string } | null;
 }
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -261,6 +262,26 @@ function BucketCard({
             → {bucket.channelTitle || bucket.channelId} · {bucket.visibility}
           </div>
           <div className="text-[11px] text-text-dim mt-0.5">{scheduleSummary(bucket)}</div>
+          {bucket.lastPost ? (
+            <div className="text-[11px] text-[#34d399] mt-1">
+              ✓ Last posted {formatWhen(bucket.lastPost.at, bucket.timezone)}
+              {bucket.lastPost.url ? (
+                <>
+                  {" — "}
+                  <a
+                    href={bucket.lastPost.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline hover:text-text"
+                  >
+                    view on YouTube
+                  </a>
+                </>
+              ) : null}
+            </div>
+          ) : (
+            <div className="text-[11px] text-text-dim mt-1">Not posted yet</div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button
