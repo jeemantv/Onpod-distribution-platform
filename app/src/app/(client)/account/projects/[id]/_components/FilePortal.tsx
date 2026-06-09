@@ -907,12 +907,12 @@ export function FilePortal({
                 if (!selected.has(f.id)) setSelected(new Set([f.id]));
                 setContextMenu({ x: e.clientX, y: e.clientY });
               }}
-              className={`flex flex-col border rounded-lg overflow-hidden transition ${rowStyle(f, selected.has(f.id))}`}
+              className={`flex flex-col border rounded-lg transition ${rowStyle(f, selected.has(f.id))}`}
             >
               <button
                 onClick={() => setModal({ kind: "preview", fileId: f.id })}
                 title="Open preview"
-                className="block w-full"
+                className="block w-full rounded-t-lg overflow-hidden"
               >
                 <FilePreview file={f} size="lg" />
               </button>

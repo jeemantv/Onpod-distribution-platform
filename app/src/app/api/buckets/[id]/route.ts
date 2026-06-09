@@ -12,6 +12,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     "channelId",
     "channelTitle",
     "visibility",
+    "language",
     "times",
     "days",
     "timezone",

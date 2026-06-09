@@ -42,6 +42,7 @@ interface Bucket {
   channelId: string;
   channelTitle: string | null;
   visibility: string;
+  language: string;
   times: string[];
   days: number[];
   timezone: string;
@@ -61,6 +62,19 @@ const COMMON_TZ = [
   "Europe/London",
   "Europe/Paris",
   "UTC",
+];
+const LANGUAGES: { code: string; label: string }[] = [
+  { code: "en", label: "English" },
+  { code: "es", label: "Spanish" },
+  { code: "fr", label: "French" },
+  { code: "de", label: "German" },
+  { code: "pt", label: "Portuguese" },
+  { code: "it", label: "Italian" },
+  { code: "nl", label: "Dutch" },
+  { code: "hi", label: "Hindi" },
+  { code: "ja", label: "Japanese" },
+  { code: "ko", label: "Korean" },
+  { code: "zh", label: "Chinese" },
 ];
 
 export function BucketsManager() {
@@ -387,6 +401,7 @@ function BucketForm({
   const [name, setName] = useState(initial?.name ?? "");
   const [channelId, setChannelId] = useState(initial?.channelId ?? channels[0]?.id ?? "");
   const [visibility, setVisibility] = useState(initial?.visibility ?? "public");
+  const [language, setLanguage] = useState(initial?.language ?? "en");
   const [timesText, setTimesText] = useState((initial?.times ?? ["09:00"]).join(", "));
   const [days, setDays] = useState<number[]>(initial?.days ?? []);
   const [timezone, setTimezone] = useState(
@@ -411,6 +426,7 @@ function BucketForm({
       channelId,
       channelTitle: channels.find((c) => c.id === channelId)?.title ?? null,
       visibility,
+      language,
       times,
       days,
       timezone,
@@ -466,6 +482,20 @@ function BucketForm({
             <option value="public">Public</option>
             <option value="unlisted">Unlisted</option>
             <option value="private">Private</option>
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-[11px] text-text-muted">Language (set on YouTube)</span>
+          <select
+            value={language}
+            onChange={(e) => setLanguage(e.target.value)}
+            className="mt-1 w-full px-2 py-2 rounded-[8px] bg-bg-elev-2 border border-border text-[13px]"
+          >
+            {LANGUAGES.map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.label}
+              </option>
+            ))}
           </select>
         </label>
         <label className="block">

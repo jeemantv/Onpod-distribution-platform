@@ -43,6 +43,7 @@ export async function POST(req: Request) {
     channelId?: string;
     channelTitle?: string;
     visibility?: string;
+    language?: string;
     times?: string[];
     days?: number[];
     timezone?: string;
@@ -59,6 +60,7 @@ export async function POST(req: Request) {
     channelId: body.channelId,
     channelTitle: body.channelTitle ?? null,
     visibility: body.visibility,
+    language: body.language,
     times: body.times,
     days: body.days,
     timezone: body.timezone,

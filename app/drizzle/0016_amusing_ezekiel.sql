@@ -1,0 +1,1 @@
+ALTER TABLE "post_buckets" ADD COLUMN "language" text DEFAULT 'en' NOT NULL;

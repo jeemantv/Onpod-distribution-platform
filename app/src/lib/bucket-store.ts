@@ -33,6 +33,7 @@ export async function createBucket(
     channelId: string;
     channelTitle?: string | null;
     visibility?: string;
+    language?: string;
     times?: string[];
     days?: number[];
     timezone?: string;
@@ -47,6 +48,7 @@ export async function createBucket(
       channelId: data.channelId,
       channelTitle: data.channelTitle ?? null,
       visibility: data.visibility ?? "public",
+      language: data.language ?? "en",
       times: data.times ?? [],
       days: data.days ?? [],
       timezone: data.timezone ?? "America/New_York",
@@ -64,6 +66,7 @@ export async function updateBucket(
     channelId: string;
     channelTitle: string | null;
     visibility: string;
+    language: string;
     times: string[];
     days: number[];
     timezone: string;

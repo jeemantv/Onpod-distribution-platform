@@ -106,7 +106,13 @@ export async function postNextFromBucket(bucket: Bucket): Promise<PostResult> {
     "Clip";
   const description = stripBrackets(ai?.description ?? "").slice(0, 5000);
   const tags = sanitizeTags(ai?.tags ?? []);
-  const language = isLangCode(ai?.language) ? ai!.language : undefined;
+  // Always set a language on the upload: the clip's AI language if valid, else
+  // the bucket's configured language (defaults to "en").
+  const language = isLangCode(ai?.language)
+    ? ai!.language
+    : isLangCode(bucket.language)
+      ? bucket.language
+      : "en";
   const visibility = bucketVisibility(bucket.visibility);
 
   // 4. Upload as a Short with the bucket's visibility (public/unlisted/private).

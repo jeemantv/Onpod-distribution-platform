@@ -714,6 +714,8 @@ export const postBuckets = pgTable(
     channelId: text("channel_id").notNull(),
     channelTitle: text("channel_title"),
     visibility: text("visibility").notNull().default("public"), // public|unlisted|private
+    // BCP-47 language for the YouTube upload (defaultLanguage/defaultAudioLanguage).
+    language: text("language").notNull().default("en"),
     // Post times as "HH:MM" (24h) in the bucket timezone, e.g. ["09:00","17:00"].
     times: jsonb("times").$type<string[]>().notNull().default([]),
     // Days of week to post (0=Sun..6=Sat). Empty = every day.
