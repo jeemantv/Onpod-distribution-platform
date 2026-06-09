@@ -11,6 +11,30 @@ interface Item {
   fileKey: string;
   fileName: string;
   postCount: number;
+  aiTitle: string | null;
+  aiDescription: string | null;
+  thumbnailUrl: string | null;
+  nextPostAt: string | null;
+}
+
+function cleanName(name: string): string {
+  return name.replace(/\.[^.]+$/, "").replace(/_+/g, " ").trim();
+}
+
+function formatWhen(iso: string | null, tz: string): string {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleString("en-US", {
+      timeZone: tz,
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch {
+    return new Date(iso).toLocaleString();
+  }
 }
 interface Bucket {
   id: string;
@@ -277,26 +301,69 @@ function BucketCard({
             No clips yet. Add some from a project&apos;s Clips tab.
           </div>
         ) : (
-          <ul className="space-y-1">
+          <ul className="space-y-2">
             {bucket.items.map((it, i) => (
               <li
                 key={it.id}
-                className={`flex items-center gap-2 text-[12px] px-2 py-1.5 rounded-[8px] ${
-                  nextItem?.id === it.id ? "bg-bg-elev-2 border border-accent-2/40" : ""
+                className={`flex items-start gap-3 p-2 rounded-[10px] ${
+                  nextItem?.id === it.id ? "bg-bg-elev-2 border border-accent-2/40" : "border border-transparent"
                 }`}
               >
-                <span className="text-text-dim w-5 shrink-0">{i + 1}.</span>
-                <span className="flex-1 truncate">{it.fileName}</span>
-                {it.postCount > 0 ? (
-                  <span className="text-[10px] text-text-dim shrink-0">×{it.postCount}</span>
-                ) : null}
-                <button
-                  onClick={() => void removeItem(it.id)}
-                  className="text-text-dim hover:text-danger shrink-0"
-                  aria-label="Remove"
-                >
-                  ×
-                </button>
+                <span className="text-text-dim text-[12px] w-4 shrink-0 pt-0.5">{i + 1}</span>
+                <div className="w-[88px] aspect-video rounded-[6px] overflow-hidden bg-bg-elev-3 shrink-0 flex items-center justify-center">
+                  {it.thumbnailUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={it.thumbnailUrl}
+                      alt=""
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none";
+                      }}
+                    />
+                  ) : (
+                    <span className="text-[9px] text-text-dim">clip</span>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[12px] font-medium truncate">
+                    {it.aiTitle?.trim() || cleanName(it.fileName)}
+                  </div>
+                  {it.aiDescription?.trim() ? (
+                    <div className="text-[11px] text-text-muted line-clamp-2 mt-0.5">
+                      {it.aiDescription}
+                    </div>
+                  ) : (
+                    <div className="text-[11px] text-text-dim mt-0.5">
+                      No AI metadata yet — add AI to this clip for a real title &amp; description.
+                    </div>
+                  )}
+                  <div className="text-[11px] mt-1">
+                    {it.nextPostAt ? (
+                      <span className="text-accent-2">
+                        🗓 Posts {formatWhen(it.nextPostAt, bucket.timezone)}
+                      </span>
+                    ) : !bucket.active ? (
+                      <span className="text-text-dim">Paused</span>
+                    ) : bucket.times.length === 0 ? (
+                      <span className="text-text-dim">Set post times to schedule</span>
+                    ) : (
+                      <span className="text-text-dim">Queued</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                  {it.postCount > 0 ? (
+                    <span className="text-[10px] text-text-dim">posted ×{it.postCount}</span>
+                  ) : null}
+                  <button
+                    onClick={() => void removeItem(it.id)}
+                    className="text-text-dim hover:text-danger text-[16px] leading-none"
+                    aria-label="Remove"
+                  >
+                    ×
+                  </button>
+                </div>
               </li>
             ))}
           </ul>

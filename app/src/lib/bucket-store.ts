@@ -174,6 +174,54 @@ function localParts(now: Date, tz: string): { date: string; minutes: number; wee
   return { date, minutes, weekday: wd[get("weekday")] ?? 0 };
 }
 
+// Offset (ms) of `tz` from UTC at a given instant — used to convert a wall
+// time in `tz` to an absolute UTC instant (DST-aware).
+function tzOffsetMs(instant: Date, tz: string): number {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const p: Record<string, string> = {};
+  for (const part of dtf.formatToParts(instant)) p[part.type] = part.value;
+  let hh = parseInt(p.hour, 10);
+  if (hh === 24) hh = 0;
+  const asUTC = Date.UTC(+p.year, +p.month - 1, +p.day, hh, +p.minute, +(p.second ?? 0));
+  return asUTC - instant.getTime();
+}
+
+function zonedToUtc(y: number, mo: number, d: number, h: number, min: number, tz: string): Date {
+  const guess = Date.UTC(y, mo - 1, d, h, min);
+  return new Date(guess - tzOffsetMs(new Date(guess), tz));
+}
+
+// The next `count` post times for this bucket's schedule, after `from`.
+export function upcomingSlots(bucket: Bucket, from: Date, count: number): Date[] {
+  const times = (bucket.times ?? []).filter((t) => /^\d{1,2}:\d{2}$/.test(t)).sort();
+  if (times.length === 0 || count <= 0) return [];
+  const allowed = (bucket.days ?? []).length ? bucket.days : [0, 1, 2, 3, 4, 5, 6];
+  const [by, bm, bd] = localParts(from, bucket.timezone).date.split("-").map(Number);
+  const slots: Date[] = [];
+  for (let off = 0; off < 120 && slots.length < count; off++) {
+    const cal = new Date(Date.UTC(by, bm - 1, bd + off));
+    if (!allowed.includes(cal.getUTCDay())) continue;
+    for (const t of times) {
+      const [h, min] = t.split(":").map(Number);
+      const dt = zonedToUtc(cal.getUTCFullYear(), cal.getUTCMonth() + 1, cal.getUTCDate(), h, min, bucket.timezone);
+      if (dt.getTime() > from.getTime()) {
+        slots.push(dt);
+        if (slots.length >= count) break;
+      }
+    }
+  }
+  return slots;
+}
+
 // Returns the slot key (e.g. "2026-06-08T17:00") that is currently due and not
 // yet handled, or null if nothing is due. DST-safe (works on local wall time).
 export function dueSlotKey(bucket: Bucket, now: Date): string | null {

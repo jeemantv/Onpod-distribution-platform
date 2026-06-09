@@ -1,13 +1,36 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { createBucket, listBuckets, listItems } from "@/lib/bucket-store";
+import { createBucket, listBuckets, listItems, upcomingSlots } from "@/lib/bucket-store";
+import { getAI } from "@/lib/transcript-store";
+import { publicUrl } from "@/lib/b2";
 
 export async function GET() {
   const user = getSession();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const buckets = await listBuckets(user.id);
+  const now = new Date();
   const withItems = await Promise.all(
-    buckets.map(async (b) => ({ ...b, items: await listItems(b.id) })),
+    buckets.map(async (b) => {
+      const items = await listItems(b.id);
+      const len = items.length;
+      // Map each item to its place in the upcoming queue (rotation order from
+      // the cursor) so we can show when it will actually post.
+      const slots = b.active ? upcomingSlots(b, now, Math.min(len, 60)) : [];
+      const enriched = await Promise.all(
+        items.map(async (it, idx) => {
+          const ai = await getAI(it.fileKey).catch(() => null);
+          const queuePos = len ? (((idx - b.cursor) % len) + len) % len : 0;
+          return {
+            ...it,
+            aiTitle: ai?.title ?? null,
+            aiDescription: ai?.description ?? null,
+            thumbnailUrl: publicUrl(`${it.fileKey}.cover.jpg`),
+            nextPostAt: slots[queuePos] ? slots[queuePos].toISOString() : null,
+          };
+        }),
+      );
+      return { ...b, items: enriched };
+    }),
   );
   return NextResponse.json({ buckets: withItems });
 }
