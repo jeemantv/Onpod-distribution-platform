@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { createBucket, listBuckets, listItems, upcomingSlots } from "@/lib/bucket-store";
+import { createBucket, listBuckets, listItems, upcomingQueue, upcomingSlots } from "@/lib/bucket-store";
 import { getAI } from "@/lib/transcript-store";
 import { publicUrl } from "@/lib/b2";
 
@@ -13,19 +13,20 @@ export async function GET() {
     buckets.map(async (b) => {
       const items = await listItems(b.id);
       const len = items.length;
-      // Map each item to its place in the upcoming queue (rotation order from
-      // the cursor) so we can show when it will actually post.
+      // Project each item to its real post time via the upcoming play queue
+      // (handles both fixed rotation and shuffle).
       const slots = b.active ? upcomingSlots(b, now, Math.min(len, 60)) : [];
+      const queue = b.active ? upcomingQueue(b, items, Math.min(len, 60)) : [];
       const enriched = await Promise.all(
-        items.map(async (it, idx) => {
+        items.map(async (it) => {
           const ai = await getAI(it.fileKey).catch(() => null);
-          const queuePos = len ? (((idx - b.cursor) % len) + len) % len : 0;
+          const queuePos = queue.indexOf(it.id);
           return {
             ...it,
             aiTitle: ai?.title ?? null,
             aiDescription: ai?.description ?? null,
             thumbnailUrl: publicUrl(`${it.fileKey}.cover.jpg`),
-            nextPostAt: slots[queuePos] ? slots[queuePos].toISOString() : null,
+            nextPostAt: queuePos >= 0 && slots[queuePos] ? slots[queuePos].toISOString() : null,
           };
         }),
       );
@@ -47,6 +48,7 @@ export async function POST(req: Request) {
     times?: string[];
     days?: number[];
     timezone?: string;
+    shuffle?: boolean;
     titleTemplate?: string;
   };
   if (!body.name?.trim() || !body.channelId) {
@@ -64,6 +66,7 @@ export async function POST(req: Request) {
     times: body.times,
     days: body.days,
     timezone: body.timezone,
+    shuffle: body.shuffle,
     titleTemplate: body.titleTemplate ?? null,
   });
   return NextResponse.json({ bucket: { ...bucket, items: [] } });

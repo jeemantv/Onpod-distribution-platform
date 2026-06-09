@@ -37,6 +37,7 @@ export async function createBucket(
     times?: string[];
     days?: number[];
     timezone?: string;
+    shuffle?: boolean;
     titleTemplate?: string | null;
   },
 ): Promise<Bucket> {
@@ -52,6 +53,7 @@ export async function createBucket(
       times: data.times ?? [],
       days: data.days ?? [],
       timezone: data.timezone ?? "America/New_York",
+      shuffle: data.shuffle ?? false,
       titleTemplate: data.titleTemplate ?? null,
     })
     .returning();
@@ -70,6 +72,7 @@ export async function updateBucket(
     times: string[];
     days: number[];
     timezone: string;
+    shuffle: boolean;
     titleTemplate: string | null;
     active: boolean;
   }>,
@@ -121,6 +124,62 @@ export async function removeItem(bucketId: string, itemId: string): Promise<void
   await db
     .delete(postBucketItems)
     .where(and(eq(postBucketItems.id, itemId), eq(postBucketItems.bucketId, bucketId)));
+}
+
+// ---------- Play order (sequential or shuffled) ----------
+
+function hashStr(str: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h >>> 0;
+}
+
+function seededShuffle<T>(arr: T[], seed: number): T[] {
+  const a = [...arr];
+  let s = seed >>> 0 || 1;
+  const rand = () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// The order items post in for the cycle containing `cursor`. Sequential =
+// position order; shuffle = a per-cycle random permutation (each clip once),
+// re-randomised every cycle. Deterministic so the UI and runner agree.
+function cycleOrder(bucket: Bucket, items: BucketItem[], cursor: number): BucketItem[] {
+  if (!bucket.shuffle || items.length <= 1) return items;
+  const cycle = Math.floor(cursor / items.length);
+  return seededShuffle(items, hashStr(`${bucket.id}:${cycle}`));
+}
+
+// The single item that posts at the bucket's current cursor.
+export function itemAtCursor(bucket: Bucket, items: BucketItem[]): BucketItem | null {
+  if (items.length === 0) return null;
+  const order = cycleOrder(bucket, items, bucket.cursor);
+  return order[bucket.cursor % items.length] ?? null;
+}
+
+// The next `count` items (by id) in the order they'll post, starting now.
+export function upcomingQueue(bucket: Bucket, items: BucketItem[], count: number): string[] {
+  const len = items.length;
+  if (len === 0) return [];
+  const ids: string[] = [];
+  let cursor = bucket.cursor;
+  while (ids.length < count) {
+    const order = cycleOrder(bucket, items, cursor);
+    const it = order[cursor % len];
+    if (it) ids.push(it.id);
+    cursor += 1;
+  }
+  return ids;
 }
 
 // ---------- Rotation + post bookkeeping ----------

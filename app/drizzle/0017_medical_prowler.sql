@@ -1,0 +1,1 @@
+ALTER TABLE "post_buckets" ADD COLUMN "shuffle" boolean DEFAULT false NOT NULL;

@@ -12,6 +12,7 @@ import {
   dueSlotKey,
   getActiveBuckets,
   getBucket,
+  itemAtCursor,
   listItems,
   markSlotHandled,
   type Bucket,
@@ -73,7 +74,9 @@ export async function postNextFromBucket(bucket: Bucket): Promise<PostResult> {
   const items = await listItems(bucket.id);
   if (items.length === 0) return { posted: false, error: "Bucket has no clips." };
 
-  const item = items[bucket.cursor % items.length];
+  // Sequential or shuffled, depending on the bucket.
+  const item = itemAtCursor(bucket, items);
+  if (!item) return { posted: false, error: "Bucket has no clips." };
 
   // 1. Fetch the clip bytes from B2.
   let videoBytes: Uint8Array;

@@ -721,6 +721,9 @@ export const postBuckets = pgTable(
     // Days of week to post (0=Sun..6=Sat). Empty = every day.
     days: jsonb("days").$type<number[]>().notNull().default([]),
     timezone: text("timezone").notNull().default("America/New_York"),
+    // Shuffle mode: each cycle posts every clip once in a random order
+    // (re-randomised each cycle) instead of fixed rotation order.
+    shuffle: boolean("shuffle").notNull().default(false),
     // Optional title template; {n} = post number. Empty → derive from filename.
     titleTemplate: text("title_template"),
     active: boolean("active").notNull().default(true),

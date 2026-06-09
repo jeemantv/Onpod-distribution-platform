@@ -16,6 +16,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     "times",
     "days",
     "timezone",
+    "shuffle",
     "titleTemplate",
     "active",
   ];

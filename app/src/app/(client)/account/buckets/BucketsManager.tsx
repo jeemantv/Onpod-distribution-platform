@@ -46,6 +46,7 @@ interface Bucket {
   times: string[];
   days: number[];
   timezone: string;
+  shuffle: boolean;
   titleTemplate: string | null;
   active: boolean;
   cursor: number;
@@ -226,9 +227,14 @@ function BucketCard({
     }
   };
 
-  const nextItem = bucket.items.length
-    ? bucket.items[bucket.cursor % bucket.items.length]
-    : null;
+  // "Next up" = the item with the earliest projected post time (correct for
+  // both fixed rotation and shuffle); fall back to cursor order if unscheduled.
+  const scheduledNext = [...bucket.items]
+    .filter((it) => it.nextPostAt)
+    .sort((a, b) => (a.nextPostAt! < b.nextPostAt! ? -1 : 1))[0];
+  const nextItem =
+    scheduledNext ??
+    (bucket.items.length ? bucket.items[bucket.cursor % bucket.items.length] : null);
 
   return (
     <div className="rounded-[14px] border border-border bg-bg-elev p-4">
@@ -245,6 +251,11 @@ function BucketCard({
             >
               {bucket.active ? "Active" : "Paused"}
             </span>
+            {bucket.shuffle ? (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-bg-elev-3 text-accent-2">
+                🔀 Shuffle
+              </span>
+            ) : null}
           </div>
           <div className="text-[12px] text-text-muted mt-0.5">
             → {bucket.channelTitle || bucket.channelId} · {bucket.visibility}
@@ -409,6 +420,7 @@ function BucketForm({
       (typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "America/New_York"),
   );
   const [titleTemplate, setTitleTemplate] = useState(initial?.titleTemplate ?? "");
+  const [shuffle, setShuffle] = useState(initial?.shuffle ?? false);
   const [busy, setBusy] = useState(false);
 
   const toggleDay = (d: number) =>
@@ -430,6 +442,7 @@ function BucketForm({
       times,
       days,
       timezone,
+      shuffle,
       titleTemplate: titleTemplate.trim() || null,
     });
     setBusy(false);
@@ -542,6 +555,18 @@ function BucketForm({
           ))}
         </div>
       </div>
+
+      <label className="flex items-center gap-2 cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={shuffle}
+          onChange={(e) => setShuffle(e.target.checked)}
+          className="accent-accent w-4 h-4"
+        />
+        <span className="text-[12px]">
+          🔀 Shuffle — mix all clips into a random order each cycle (every clip still posts once before repeating)
+        </span>
+      </label>
 
       <div className="flex items-center gap-2">
         <button
