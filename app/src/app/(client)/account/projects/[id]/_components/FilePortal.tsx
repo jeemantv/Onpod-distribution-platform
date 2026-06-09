@@ -598,11 +598,16 @@ export function FilePortal({
 
   const addSelectedToBucket = async (bucketId: string) => {
     setBucketPickerOpen(false);
+    // Buckets are clip-only — long-form episodes can't be added.
     const targets = files.filter(
-      (f) => selected.has(f.id) && f.mimeType.startsWith("video/"),
+      (f) => selected.has(f.id) && f.type === "clip" && f.mimeType.startsWith("video/"),
     );
     if (targets.length === 0) {
-      setToast({ kind: "error", title: "No video clips selected" });
+      setToast({
+        kind: "error",
+        title: "Only clips can go in a bucket",
+        detail: "Select clips (not full episodes) and try again.",
+      });
       return;
     }
     const res = await fetch(`/api/buckets/${bucketId}/items`, {
@@ -1175,6 +1180,7 @@ export function FilePortal({
                 </button>
               ) : null}
 
+              {activeTab === "clip" ? (
               <div className="relative">
                 <button
                   onClick={() => void openBucketPicker()}
@@ -1211,6 +1217,7 @@ export function FilePortal({
                   </div>
                 ) : null}
               </div>
+              ) : null}
               <button
                 onClick={() => void downloadSelected()}
                 className="px-3 py-1.5 rounded-[8px] bg-bg-elev-3 border border-border text-[12px]"

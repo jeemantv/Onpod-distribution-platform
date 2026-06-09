@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { addItems, getBucket, removeItem } from "@/lib/bucket-store";
+import { classifyByFilename } from "@/lib/b2";
 
 async function ownBucket(id: string, userId: string) {
   const b = await getBucket(id);
@@ -17,7 +18,17 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const body = (await req.json().catch(() => ({}))) as {
     items?: { fileKey: string; fileName: string }[];
   };
-  const items = (body.items ?? []).filter((i) => i.fileKey && i.fileName);
+  // Buckets are clip-only — drop anything that classifies as a full episode
+  // (edited) or source (raw) file.
+  const items = (body.items ?? []).filter(
+    (i) => i.fileKey && i.fileName && !["edited", "raw"].includes(classifyByFilename(i.fileName)),
+  );
+  if (items.length === 0) {
+    return NextResponse.json(
+      { error: "no_clips", message: "Only clips can be added to a bucket — not full episodes." },
+      { status: 400 },
+    );
+  }
   const added = await addItems(params.id, items);
   return NextResponse.json({ ok: true, added });
 }
