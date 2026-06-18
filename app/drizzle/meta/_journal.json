@@ -127,6 +127,13 @@
       "when": 1781045676560,
       "tag": "0017_medical_prowler",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1781811124286,
+      "tag": "0018_typical_gateway",
+      "breakpoints": true
     }
   ]
 }

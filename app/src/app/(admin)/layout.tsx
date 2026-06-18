@@ -10,6 +10,7 @@ const ADMIN_NAV = [
   { href: "/admin/clients", label: "Clients" },
   { href: "/admin/team", label: "Team" },
   { href: "/admin/projects", label: "All projects" },
+  { href: "/admin/archive", label: "Archive" },
   // Integrations is the super-admin hub for third-party tooling
   // (Vizard templates, Stripe billing links, future OpusClip + AI
   // provider config). Lives above Revenue/Settings since you'll
@@ -32,8 +33,8 @@ const SCOPED_ADMIN_NAV = [
 const EDITOR_NAV = [
   { href: "/admin/edits", label: "Edits" },
   { href: "/admin/studios", label: "Studios" },
-  { href: "/admin/clients", label: "Clients" },
   { href: "/admin/projects", label: "All projects" },
+  { href: "/admin/archive", label: "Archive" },
 ];
 
 export default async function AdminLayout({

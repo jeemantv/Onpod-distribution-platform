@@ -25,6 +25,8 @@ import {
   isVersionedKey,
   resolveActive,
 } from "@/lib/versions-store";
+import { getSessionState } from "@/lib/session-state-store";
+import { SessionStateControls } from "@/app/(admin)/admin/studios/_components/SessionStateControls";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +45,8 @@ export default async function SessionPage({
   const bucket = params.bucket as Bucket;
   const folder = decodeURIComponent(params.folder);
   const parsed = parseSessionFolder(folder);
+
+  const sessionState = await getSessionState(studio, bucket, folder);
 
   const allObjects = await listSessionFiles(studio, bucket, folder);
   // Filter sidecars so they don't appear as user-visible files
@@ -178,10 +182,19 @@ export default async function SessionPage({
               <span>{parsed.email}</span>
             </>
           ) : null}
-          <span className="sm:ml-auto inline-flex items-center gap-1.5 px-3 py-1 bg-[rgba(20,184,166,0.1)] text-accent-2 rounded-full text-[12px] font-medium">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-[rgba(20,184,166,0.1)] text-accent-2 rounded-full text-[12px] font-medium">
             <span className="w-[6px] h-[6px] rounded-full bg-current" />
             {user.role === "admin" ? "Admin" : "Editor"}
           </span>
+          <div className="sm:ml-auto">
+            <SessionStateControls
+              studio={studio}
+              bucket={bucket}
+              folder={folder}
+              done={sessionState?.done ?? false}
+              archived={sessionState?.archived ?? false}
+            />
+          </div>
         </div>
       </div>
 

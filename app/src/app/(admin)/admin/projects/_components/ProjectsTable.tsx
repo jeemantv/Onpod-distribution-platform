@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { SearchBar } from "@/components/SearchBar";
 
@@ -16,6 +17,8 @@ interface Row {
   fileCount: number;
   sizeBytes: number;
   lastModified: string | null;
+  done: boolean;
+  archived: boolean;
 }
 
 function fmtBytes(n: number): string {
@@ -24,7 +27,80 @@ function fmtBytes(n: number): string {
   return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
-export function ProjectsTable({ rows }: { rows: Row[] }) {
+// Shared row-action buttons. Posts the new state, then refreshes the
+// server component so the row moves in/out of the archive view.
+function RowActions({ row, variant }: { row: Row; variant: "active" | "archive" }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState<string | null>(null);
+
+  async function update(patch: { done?: boolean; archived?: boolean }, key: string) {
+    setBusy(key);
+    try {
+      const res = await fetch("/api/admin/sessions/state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          studio: row.studio,
+          bucket: row.bucket,
+          folder: row.folder,
+          ...patch,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      router.refresh();
+    } catch (err) {
+      console.error("session state update failed", err);
+      alert("Couldn't update the project. Please try again.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const btn =
+    "px-2.5 py-1.5 rounded-[8px] border border-border text-[12px] disabled:opacity-50";
+
+  if (variant === "archive") {
+    return (
+      <div className="flex items-center justify-end gap-2">
+        <button
+          onClick={() => update({ archived: false }, "unarchive")}
+          disabled={busy !== null}
+          className={`${btn} bg-bg-elev-3`}
+        >
+          {busy === "unarchive" ? "…" : "Unarchive"}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-end gap-2">
+      <button
+        onClick={() => update({ done: !row.done }, "done")}
+        disabled={busy !== null}
+        className={`${btn} ${row.done ? "bg-[rgba(16,185,129,0.15)] text-[#34d399]" : "bg-bg-elev-3"}`}
+        title={row.done ? "Mark as not done" : "Mark as done"}
+      >
+        {busy === "done" ? "…" : row.done ? "✓ Done" : "Mark done"}
+      </button>
+      <button
+        onClick={() => update({ archived: true }, "archive")}
+        disabled={busy !== null}
+        className={`${btn} bg-bg-elev-3`}
+      >
+        {busy === "archive" ? "…" : "Archive"}
+      </button>
+    </div>
+  );
+}
+
+export function ProjectsTable({
+  rows,
+  variant = "active",
+}: {
+  rows: Row[];
+  variant?: "active" | "archive";
+}) {
   const [q, setQ] = useState("");
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -49,7 +125,9 @@ export function ProjectsTable({ rows }: { rows: Row[] }) {
   if (rows.length === 0) {
     return (
       <div className="bg-bg-elev border border-border rounded-lg p-12 text-center">
-        <p className="text-text-muted text-[13px]">No sessions in B2 yet.</p>
+        <p className="text-text-muted text-[13px]">
+          {variant === "archive" ? "No archived projects." : "No sessions in B2 yet."}
+        </p>
       </div>
     );
   }
@@ -68,7 +146,7 @@ export function ProjectsTable({ rows }: { rows: Row[] }) {
           Nothing matches &ldquo;{q}&rdquo;.
         </div>
       ) : (
-        <div className="bg-bg-elev border border-border rounded-[16px] overflow-hidden">
+        <div className="bg-bg-elev border border-border rounded-[16px] overflow-hidden overflow-x-auto">
           <table className="w-full text-[13px]">
             <thead>
               <tr className="text-text-muted text-[11px] uppercase tracking-wider border-b border-border">
@@ -80,6 +158,7 @@ export function ProjectsTable({ rows }: { rows: Row[] }) {
                 <th className="text-left p-4 font-medium">Size</th>
                 <th className="text-left p-4 font-medium">Modified</th>
                 <th className="text-right p-4 font-medium">Open</th>
+                <th className="text-right p-4 font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -89,7 +168,15 @@ export function ProjectsTable({ rows }: { rows: Row[] }) {
                   className="border-b border-border last:border-0 hover:bg-bg-elev-2"
                 >
                   <td className="p-4 font-medium">
-                    {r.parsedDate ? `${r.parsedDate} ${r.parsedTime ?? ""}` : r.folder}
+                    <span className="inline-flex items-center gap-2">
+                      {r.parsedDate ? `${r.parsedDate} ${r.parsedTime ?? ""}` : r.folder}
+                      {r.done ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-[rgba(16,185,129,0.15)] text-[#34d399]">
+                          <span className="w-[5px] h-[5px] rounded-full bg-current" />
+                          Done
+                        </span>
+                      ) : null}
+                    </span>
                   </td>
                   <td className="p-4">{r.studioLabel}</td>
                   <td className="p-4 text-text-muted">{r.bucketLabel}</td>
@@ -108,6 +195,9 @@ export function ProjectsTable({ rows }: { rows: Row[] }) {
                     >
                       Open
                     </Link>
+                  </td>
+                  <td className="p-4 text-right">
+                    <RowActions row={r} variant={variant} />
                   </td>
                 </tr>
               ))}

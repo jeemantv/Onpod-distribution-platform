@@ -460,6 +460,36 @@ export const fileStatuses = pgTable(
 export type FileStatusRow = typeof fileStatuses.$inferSelect;
 export type NewFileStatusRow = typeof fileStatuses.$inferInsert;
 
+// Editor/admin workflow state for a B2 session ("project"). Sessions
+// live as folders in B2 (n8n owns that layout), so their editor-facing
+// state — marked done, archived — is tracked here keyed by the session
+// identity (studio_slug + bucket + folder). A missing row means the
+// session is neither done nor archived. `done` and `archived` are
+// independent: a session can be done but still visible, or archived
+// without ever being marked done.
+export const sessionStates = pgTable(
+  "session_states",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    studioSlug: text("studio_slug").notNull(),
+    bucket: text("bucket").notNull(),
+    folder: text("folder").notNull(),
+    doneAt: timestamp("done_at", { withTimezone: true, mode: "date" }),
+    archivedAt: timestamp("archived_at", { withTimezone: true, mode: "date" }),
+    updatedBy: text("updated_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => ({
+    identityUnique: uniqueIndex("session_states_identity_unique").on(
+      t.studioSlug,
+      t.bucket,
+      t.folder,
+    ),
+  }),
+);
+export type SessionStateRow = typeof sessionStates.$inferSelect;
+export type NewSessionStateRow = typeof sessionStates.$inferInsert;
+
 // Per-file overrides (folder type + approval status) when the filename
 // alone can't carry the truth. Composite key on (owner_id, project_id,
 // file_key). `owner_id` is text, not a FK — for studio paths the owner

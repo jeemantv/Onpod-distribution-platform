@@ -1,6 +1,6 @@
-// Real sessions across every assigned studio, sorted by newest first.
-// Replaces the legacy mockProjects list — admins + editors now see only
-// what's actually in B2 under the studio path scheme.
+// Archived sessions across every assigned studio. Same B2-derived list
+// as /admin/projects, filtered to sessions an editor/admin has archived.
+// Unarchiving here sends them back to All projects.
 
 import { requireEditorOrAdmin } from "@/lib/session";
 import { listSessionsInBucket } from "@/lib/studio-store";
@@ -19,11 +19,11 @@ import {
   studioVisibleToEditor,
 } from "@/lib/editor-access";
 import { getSessionStateMap, sessionKey } from "@/lib/session-state-store";
-import { ProjectsTable } from "./_components/ProjectsTable";
+import { ProjectsTable } from "../projects/_components/ProjectsTable";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminProjectsPage() {
+export default async function AdminArchivePage() {
   const user = requireEditorOrAdmin();
   const scope = await loadEditorScope(user);
   const studios = (scope.studios ?? [...STUDIO_SLUGS]).filter((s) =>
@@ -39,6 +39,7 @@ export default async function AdminProjectsPage() {
     fileCount: number;
     sizeBytes: number;
     lastModified: string | null;
+    done: boolean;
   };
   const rows: Row[] = [];
   for (const slug of studios) {
@@ -46,8 +47,8 @@ export default async function AdminProjectsPage() {
       const list = await listSessionsInBucket(slug, bucket);
       for (const s of list) {
         if (!sessionVisibleToEditor(scope, slug, s.folder)) continue;
-        // Archived sessions live on the dedicated /admin/archive page.
-        if (stateMap.get(sessionKey(slug, bucket, s.folder))?.archived) continue;
+        const state = stateMap.get(sessionKey(slug, bucket, s.folder));
+        if (!state?.archived) continue;
         rows.push({
           studio: slug,
           bucket,
@@ -56,6 +57,7 @@ export default async function AdminProjectsPage() {
           fileCount: s.fileCount,
           sizeBytes: s.sizeBytes,
           lastModified: s.lastModified,
+          done: state.done,
         });
       }
     }
@@ -66,15 +68,15 @@ export default async function AdminProjectsPage() {
 
   return (
     <>
-      <h1 className="display text-[36px] mb-2">All projects</h1>
+      <h1 className="display text-[36px] mb-2">Archive</h1>
       <p className="text-text-muted text-[13px] mb-8">
-        Every session across all assigned studios, newest first.
+        Archived sessions. Unarchive to send a project back to All projects.
       </p>
 
       <ProjectsTable
+        variant="archive"
         rows={rows.map((r) => {
           const parsed = parseSessionFolder(r.folder);
-          const state = stateMap.get(sessionKey(r.studio, r.bucket, r.folder));
           return {
             studio: r.studio,
             studioLabel: STUDIO_LABEL[r.studio] ?? r.studio,
@@ -87,8 +89,8 @@ export default async function AdminProjectsPage() {
             fileCount: r.fileCount,
             sizeBytes: r.sizeBytes,
             lastModified: r.lastModified,
-            done: state?.done ?? false,
-            archived: state?.archived ?? false,
+            done: r.done,
+            archived: true,
           };
         })}
       />
