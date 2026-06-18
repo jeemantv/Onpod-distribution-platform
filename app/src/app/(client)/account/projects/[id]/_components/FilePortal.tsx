@@ -6,7 +6,6 @@ import type { FileItem, FileType } from "@/lib/types";
 import { formatBytes } from "@/lib/format";
 import { FileActionButtons } from "./FileActionButtons";
 import { StatusDropdown } from "./StatusDropdown";
-import { FileStatusBadges } from "./FileStatusBadges";
 import type { FileStatus } from "@/lib/file-statuses-store";
 import { VersionMenu } from "@/components/VersionMenu";
 import { AIStudioModal } from "./AIStudioModal";
@@ -956,9 +955,6 @@ export function FilePortal({
                         />
                       ) : null}
                     </div>
-                    <div className="mt-1 flex items-center gap-1 flex-wrap">
-                      <FileStatusBadges file={f} />
-                    </div>
                   </div>
                 </div>
                 {needsApproval(f) ? (
@@ -1038,7 +1034,6 @@ export function FilePortal({
                     {/(\.(mp4|mov|webm))$/i.test(f.name) ? (
                       <VersionMenu fileId={f.id} canManage={canMarkDone} showNewBadge={!canMarkDone && f.approvalStatus === "pending"} />
                     ) : null}
-                    <FileStatusBadges file={f} />
                   </div>
                 </div>
               </div>
