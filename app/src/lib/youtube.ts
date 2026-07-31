@@ -1,13 +1,17 @@
 // YouTube OAuth + Data API v3 helpers.
 // Spec §7. Uses fetch directly — no SDK dependency.
 
+// Keep this list MINIMAL. Google rejects the whole consent request with
+// "scopes that cannot be requested together" if force-ssl is bundled with the
+// wrong companions, so ask for exactly two:
+//   - youtube.upload   : publishing videos
+//   - youtube.force-ssl: full account read/write, and the ONLY scope that
+//     captions.download accepts — which is what lets AI YouTube read the
+//     transcript of an UNLISTED or PRIVATE video on a channel you own.
+// force-ssl is a superset of the old `youtube` and `youtube.readonly` scopes,
+// so channels.list, playlists and videos.insert all still work.
 export const YT_SCOPES = [
   "https://www.googleapis.com/auth/youtube.upload",
-  "https://www.googleapis.com/auth/youtube",
-  "https://www.googleapis.com/auth/youtube.readonly",
-  // captions.download refuses everything except force-ssl (or youtubepartner).
-  // This is what lets AI YouTube read the transcript of an UNLISTED or PRIVATE
-  // video on a channel you own — Gemini can only watch public videos.
   "https://www.googleapis.com/auth/youtube.force-ssl",
 ];
 
@@ -32,7 +36,10 @@ export function buildAuthUrl(state: string): string {
     // select_account + consent so the user can pick a DIFFERENT account/brand
     // channel each time (needed to connect more than one channel).
     prompt: "select_account consent",
-    include_granted_scopes: "true",
+    // Deliberately NOT include_granted_scopes. It silently merges every scope
+    // the Google account ever granted this client (drive.file, for one) into
+    // the request, and Google then refuses the combination outright with
+    // "This request contains scopes that cannot be requested together".
     state,
   });
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
