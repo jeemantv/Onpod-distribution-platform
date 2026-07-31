@@ -32,7 +32,7 @@ Constraints:
 - description: 200-300 words, multi-paragraph, ends with a CTA
 - tags: 12-15 short SEO terms (no hashes, no quotes)
 - hashtags: 8 short hashtags starting with #
-- chapters: Use real timestamps from the transcript paragraphs below if any are provided; otherwise infer from semantic breaks. First chapter MUST be 00:00.
+- chapters: Use real timestamps from the transcript paragraphs below if any are provided; otherwise infer from semantic breaks. First chapter MUST be 00:00. Each chapter must mark a genuine change of topic, so the gaps between them will be UNEVEN — never place chapters on a fixed interval. Aim for 5-10 chapters across the whole episode, spread to its full length.
 
 Reference chapter timestamps (use as anchors, refine titles):
 ${chaptersHint || "(none — derive from transcript)"}

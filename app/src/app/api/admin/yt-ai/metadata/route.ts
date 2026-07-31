@@ -25,25 +25,14 @@ export async function POST(req: Request) {
   }
 
   try {
-    // The transcript lines already carry [HH:MM:SS] stamps, so Claude has real
-    // anchors for chapters instead of having to guess.
-    const ai = await generateAIPackage(transcript, chapterAnchors(transcript));
+    // No anchor list. Every transcript line already starts with an absolute
+    // [HH:MM:SS] stamp, so Claude can pick the moments where the topic
+    // actually turns. Handing it a sampled list of stamps instead made it walk
+    // down that list in order and emit chapters on a mechanical fixed grid.
+    const ai = await generateAIPackage(transcript);
     const updated = await saveAI(job.id, ai);
     return NextResponse.json({ ai: updated?.ai ?? ai });
   } catch (err) {
     return errorJson(err);
   }
-}
-
-// Every ~5th timestamped line, capped — enough anchors to keep chapter times
-// honest without pushing the prompt over budget.
-function chapterAnchors(transcript: string): string {
-  const stamps = transcript
-    .split("\n")
-    .map((l) => l.match(/^\[(\d{2}:\d{2}:\d{2})\]/)?.[1])
-    .filter((s): s is string => !!s);
-  return stamps
-    .filter((_, i) => i % 5 === 0)
-    .slice(0, 120)
-    .join("\n");
 }
