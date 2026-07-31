@@ -73,6 +73,12 @@ export function YouTubeAIStudio({ initialJobs }: { initialJobs: JobSummary[] }) 
   // re-consent for the captions scope.
   const [source, setSource] = useState("");
   const [needsReconnect, setNeedsReconnect] = useState(false);
+  // Set when neither path can read the video, so the UI offers the manual
+  // transcript box instead of a dead end.
+  const [blocked, setBlocked] = useState("");
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+  const [pasteBusy, setPasteBusy] = useState(false);
 
   const refreshJobs = useCallback(async () => {
     const res = await fetch("/api/admin/yt-ai/jobs");
@@ -88,6 +94,10 @@ export function YouTubeAIStudio({ initialJobs }: { initialJobs: JobSummary[] }) 
     setError("");
     setStatus("");
     setThumbNote("");
+    setBlocked("");
+    setSource("");
+    setPasteOpen(false);
+    setPasteText("");
     const res = await fetch(`/api/admin/yt-ai/${id}`);
     if (!res.ok) {
       setError("Could not open that run.");
@@ -99,7 +109,9 @@ export function YouTubeAIStudio({ initialJobs }: { initialJobs: JobSummary[] }) 
   // Unlisted and private videos can only be read through the owner's YouTube
   // OAuth token, and even for public ones the caption track is far faster than
   // making Gemini watch the whole episode. So: try captions, fall back.
-  async function tryCaptions(jobId: string): Promise<{ imported: boolean; message?: string }> {
+  async function tryCaptions(
+    jobId: string,
+  ): Promise<{ imported: boolean; message?: string; geminiPossible: boolean }> {
     setStatus("Checking YouTube for a caption track…");
     const res = await fetch("/api/admin/yt-ai/captions", {
       method: "POST",
@@ -111,20 +123,25 @@ export function YouTubeAIStudio({ initialJobs }: { initialJobs: JobSummary[] }) 
       source?: string;
       chars?: number;
       privacyStatus?: string;
+      geminiPossible?: boolean;
       reason?: string;
       message?: string;
     };
-    if (!res.ok) return { imported: false, message: data.message };
+    if (!res.ok) return { imported: false, message: data.message, geminiPossible: true };
     if (data.imported) {
       setSource(
         `${data.source ?? "YouTube captions"}${
           data.privacyStatus ? ` · ${data.privacyStatus} video` : ""
         }`,
       );
-      return { imported: true };
+      return { imported: true, geminiPossible: false };
     }
     if (data.reason === "reconnect") setNeedsReconnect(true);
-    return { imported: false, message: data.message };
+    return {
+      imported: false,
+      message: data.message,
+      geminiPossible: data.geminiPossible !== false,
+    };
   }
 
   // Transcript runs one 20-minute window per request so a long episode never
@@ -174,6 +191,8 @@ export function YouTubeAIStudio({ initialJobs }: { initialJobs: JobSummary[] }) 
     setThumbNote("");
     setSource("");
     setNeedsReconnect(false);
+    setBlocked("");
+    setPasteOpen(false);
     setRunning(true);
     setStatus("Opening the video…");
     try {
@@ -188,9 +207,18 @@ export function YouTubeAIStudio({ initialJobs }: { initialJobs: JobSummary[] }) 
       void refreshJobs();
 
       const captions = await tryCaptions(data.job.id);
+      if (!captions.imported && !captions.geminiPossible) {
+        // The video isn't public, so Gemini can't watch it, and there was no
+        // caption track to read. Stop here with the real reason instead of
+        // letting Gemini return a 403 that explains nothing.
+        setJob((await refetchJob(data.job.id)) ?? data.job);
+        setBlocked(captions.message ?? "This video can't be read automatically.");
+        setStatus("");
+        setPasteOpen(true);
+        void refreshJobs();
+        return;
+      }
       if (!captions.imported) {
-        // Gemini is the fallback, and it can only watch public videos — if the
-        // link is unlisted the caption reason is the real explanation.
         setStatus(
           `${captions.message ?? "No caption track."} Falling back to Gemini (public videos only)…`,
         );
@@ -221,6 +249,12 @@ export function YouTubeAIStudio({ initialJobs }: { initialJobs: JobSummary[] }) 
       let updated: Job | null;
       if (step === "transcript") {
         const captions = await tryCaptions(job.id);
+        if (!captions.imported && !captions.geminiPossible) {
+          setBlocked(captions.message ?? "This video can't be read automatically.");
+          setPasteOpen(true);
+          setStatus("");
+          return;
+        }
         updated = captions.imported ? await refetchJob(job.id) : await runTranscript(job.id, true);
       } else {
         updated = await runMetadata(job.id);
@@ -231,6 +265,37 @@ export function YouTubeAIStudio({ initialJobs }: { initialJobs: JobSummary[] }) 
       setError((err as Error).message);
     } finally {
       setRunning(false);
+    }
+  }
+
+  // Manual transcript, then straight on to the metadata so the run finishes
+  // the same way an automatic one would.
+  async function handlePaste() {
+    if (!job) return;
+    setError("");
+    setPasteBusy(true);
+    try {
+      const res = await fetch("/api/admin/yt-ai/paste-transcript", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: job.id, text: pasteText }),
+      });
+      const data = (await res.json()) as { ok?: boolean; timed?: boolean; message?: string };
+      if (!res.ok || !data.ok) throw new Error(data.message || "Couldn't save that transcript.");
+      setSource(data.timed ? "a pasted subtitle file" : "a pasted transcript");
+      setBlocked("");
+      setPasteOpen(false);
+      setPasteText("");
+      setStatus("Transcript saved. Writing the metadata…");
+      const updated = await runMetadata(job.id);
+      if (updated) setJob(updated);
+      setStatus("Done. Copy what you need into YouTube.");
+      void refreshJobs();
+    } catch (err) {
+      setError((err as Error).message);
+      setStatus("");
+    } finally {
+      setPasteBusy(false);
     }
   }
 
@@ -334,6 +399,7 @@ export function YouTubeAIStudio({ initialJobs }: { initialJobs: JobSummary[] }) 
               to read unlisted and private videos.
             </p>
           ) : null}
+          {blocked ? <p className="text-[12px] text-warning mt-2">{blocked}</p> : null}
           {error ? <p className="text-[12px] text-danger mt-2">{error}</p> : null}
         </div>
 
@@ -371,6 +437,43 @@ export function YouTubeAIStudio({ initialJobs }: { initialJobs: JobSummary[] }) 
                 </div>
               </div>
             </div>
+
+            {/* Manual transcript: the way out when the video is unlisted AND
+                has no caption track, so neither automatic path can read it. */}
+            {!job.transcript || pasteOpen ? (
+              <div className="bg-bg-elev border border-border rounded-[16px] p-4 mb-4">
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <div className="text-[13px] text-text">Paste a transcript</div>
+                  {job.transcript ? (
+                    <button
+                      onClick={() => setPasteOpen(false)}
+                      className="text-[11px] text-text-muted hover:text-text"
+                    >
+                      Cancel
+                    </button>
+                  ) : null}
+                </div>
+                <p className="text-[11px] text-text-dim mb-2">
+                  Works with an .srt or .vtt from YouTube Studio (Subtitles → download),
+                  or any plain text. Subtitle files keep their timings, so chapters stay
+                  accurate.
+                </p>
+                <textarea
+                  value={pasteText}
+                  onChange={(e) => setPasteText(e.target.value)}
+                  rows={6}
+                  placeholder="00:00:01,000 --> 00:00:04,000&#10;Welcome back to the show…"
+                  className="w-full bg-bg-elev-2 border border-border rounded-[10px] px-3 py-2 text-[12px] font-mono text-text placeholder:text-text-dim focus:outline-none focus:border-border-strong"
+                />
+                <button
+                  onClick={() => void handlePaste()}
+                  disabled={pasteBusy || pasteText.trim().length < 40}
+                  className="mt-2 px-4 py-2 rounded-[10px] bg-brand-gradient text-white text-[13px] font-medium disabled:opacity-40"
+                >
+                  {pasteBusy ? "Working…" : "Use this transcript"}
+                </button>
+              </div>
+            ) : null}
 
             {ai ? (
               <>

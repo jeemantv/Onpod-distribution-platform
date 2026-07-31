@@ -16,6 +16,7 @@ const API = "https://www.googleapis.com/youtube/v3";
 
 export interface CaptionVideoInfo {
   title: string;
+  channelId: string;
   channelTitle: string;
   privacyStatus: string;
   thumbnailUrl: string | null;
@@ -41,6 +42,11 @@ export interface CaptionFailed {
   ok: false;
   reason: CaptionFailure;
   message: string;
+  // "public" | "unlisted" | "private" | "" when we couldn't tell. The caller
+  // uses this to decide whether falling back to Gemini is even possible —
+  // Gemini watches YouTube anonymously, so anything non-public is hopeless.
+  privacyStatus: string;
+  info: CaptionVideoInfo | null;
 }
 
 interface CaptionTrack {
@@ -66,6 +72,7 @@ async function getVideoInfo(
     items?: Array<{
       snippet?: {
         title?: string;
+        channelId?: string;
         channelTitle?: string;
         thumbnails?: Record<string, { url?: string }>;
       };
@@ -79,6 +86,7 @@ async function getVideoInfo(
     thumbs.maxres?.url ?? thumbs.standard?.url ?? thumbs.high?.url ?? thumbs.medium?.url ?? null;
   return {
     title: item.snippet?.title ?? "",
+    channelId: item.snippet?.channelId ?? "",
     channelTitle: item.snippet?.channelTitle ?? "",
     privacyStatus: item.status?.privacyStatus ?? "",
     thumbnailUrl: best,
@@ -237,6 +245,8 @@ export async function importCaptions(
     return {
       ok: false,
       reason: "not_connected",
+      privacyStatus: "",
+      info: null,
       message:
         "No YouTube channel is connected, so unlisted and private videos can't be read. Connect the channel that owns this video, or use a public link.",
     };
@@ -245,15 +255,38 @@ export async function importCaptions(
     return {
       ok: false,
       reason: "reconnect",
+      privacyStatus: "",
+      info: null,
       message:
         "Your YouTube connection predates the caption permission. Reconnect the channel to let OnPod read transcripts of unlisted and private videos.",
     };
   }
 
+  const usable = tokens.filter((t) => hasCaptionsScope(t.scope));
+  // videos.list resolves unlisted videos for any caller holding the ID, so the
+  // ownership test is comparing the video's channelId against the connected
+  // ones — not merely "did the lookup succeed".
+  let info: CaptionVideoInfo | null = null;
+  for (const t of usable) {
+    info = await getVideoInfo(videoId, t.accessToken);
+    if (info) break;
+  }
+  const owner = info ? usable.find((t) => t.channelId === info!.channelId) : undefined;
+  const privacyStatus = info?.privacyStatus ?? "";
+
+  if (info && !owner) {
+    return {
+      ok: false,
+      reason: "not_owner",
+      privacyStatus,
+      info,
+      message: `This video belongs to "${info.channelTitle}", which isn't one of your connected channels — so OnPod can't read its captions.`,
+    };
+  }
+
   let sawTracks = false;
   let refusal = "";
-  for (const t of tokens) {
-    if (!hasCaptionsScope(t.scope)) continue;
+  for (const t of owner ? [owner] : usable) {
     const { tracks } = await listTracks(videoId, t.accessToken);
     if (tracks.length === 0) continue;
     sawTracks = true;
@@ -269,11 +302,10 @@ export async function importCaptions(
         refusal = "the caption track came back empty";
         continue;
       }
-      const info = await getVideoInfo(videoId, t.accessToken);
       return {
         ok: true,
         transcript,
-        info,
+        info: info ?? (await getVideoInfo(videoId, t.accessToken)),
         channelTitle: t.title,
         trackKind: track.trackKind,
         language: track.language,
@@ -285,13 +317,20 @@ export async function importCaptions(
     return {
       ok: false,
       reason: "download_refused",
+      privacyStatus,
+      info,
       message: `YouTube would not hand over the caption track (${refusal || "no reason given"}). Auto-generated captions are sometimes locked; the reliable fix is to download the .srt from YouTube Studio and re-upload it as a regular caption track.`,
     };
   }
+  // captions.list answered 200 with an empty list: the video is yours, it just
+  // has no subtitles yet. This is the common case for a fresh upload.
   return {
     ok: false,
-    reason: "not_owner",
-    message:
-      "None of your connected channels owns this video, or it has no caption track yet. YouTube usually finishes auto-captioning within an hour of upload.",
+    reason: "no_tracks",
+    privacyStatus,
+    info,
+    message: owner
+      ? "This video has no caption track yet. YouTube auto-captions usually appear within a few hours of upload — check Subtitles in YouTube Studio. Until then, paste a transcript below."
+      : "No caption track was found for this video, and it doesn't appear to be on a connected channel.",
   };
 }

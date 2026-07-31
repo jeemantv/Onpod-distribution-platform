@@ -108,6 +108,22 @@ export async function setTranscript(
   return row ?? null;
 }
 
+/** Title/channel/cover only — used when we learn them without a transcript. */
+export async function setVideoInfo(
+  id: string,
+  info: { videoTitle?: string; channel?: string; coverUrl?: string },
+): Promise<void> {
+  await db
+    .update(ytAiJobs)
+    .set({
+      ...(info.videoTitle ? { videoTitle: info.videoTitle } : {}),
+      ...(info.channel ? { channel: info.channel } : {}),
+      ...(info.coverUrl ? { coverUrl: info.coverUrl } : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(ytAiJobs.id, id));
+}
+
 /** Wipe transcript progress so a run can start over. */
 export async function resetTranscript(id: string): Promise<void> {
   await db

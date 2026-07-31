@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { importCaptions } from "@/lib/youtube-captions";
-import { setTranscript } from "@/lib/yt-ai-store";
+import { setTranscript, setVideoInfo } from "@/lib/yt-ai-store";
 import { errorJson, isResponse, loadOwnedJob, requireAdminApi } from "../_shared";
 
 export const maxDuration = 120;
@@ -21,8 +21,26 @@ export async function POST(req: Request) {
   try {
     const result = await importCaptions(user.id, job.videoId);
     if (!result.ok) {
-      // Not an error the caller should stop on — Gemini is the fallback.
-      return NextResponse.json({ imported: false, reason: result.reason, message: result.message });
+      // Record whatever the Data API could tell us about the video even on a
+      // miss — for an unlisted video this is the only place a real title and
+      // cover come from, since oEmbed is thin and Gemini never runs.
+      if (result.info) {
+        await setVideoInfo(job.id, {
+          videoTitle: result.info.title,
+          channel: result.info.channelTitle,
+          coverUrl: result.info.thumbnailUrl ?? undefined,
+        });
+      }
+      return NextResponse.json({
+        imported: false,
+        reason: result.reason,
+        message: result.message,
+        privacyStatus: result.privacyStatus,
+        // Gemini fetches YouTube anonymously. If we know the video isn't
+        // public, the fallback cannot possibly work — don't let the client
+        // waste a call and surface a misleading 403.
+        geminiPossible: result.privacyStatus === "" || result.privacyStatus === "public",
+      });
     }
 
     const updated = await setTranscript(job.id, result.transcript, {
