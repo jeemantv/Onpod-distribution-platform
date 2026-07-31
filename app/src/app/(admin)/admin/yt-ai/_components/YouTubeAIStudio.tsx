@@ -258,8 +258,9 @@ export function YouTubeAIStudio({ initialJobs }: { initialJobs: JobSummary[] }) 
             </button>
           </div>
           <p className="text-[11px] text-text-dim mt-2">
-            The video has to be public — Gemini watches it on YouTube to build the
-            transcript. A one-hour episode takes a few minutes.
+            The video has to be <strong>public</strong> — Gemini watches it on YouTube
+            to build the transcript, so unlisted, private and members-only videos are
+            rejected. A one-hour episode takes a few minutes.
           </p>
           {status ? <p className="text-[12px] text-info mt-2">{status}</p> : null}
           {error ? <p className="text-[12px] text-danger mt-2">{error}</p> : null}

@@ -143,9 +143,20 @@ async function callWithRetry(
     if (!RETRY_STATUSES.has(res.status)) break;
   }
   if (!res || !res.ok) {
-    if (/is not available|PERMISSION_DENIED|not supported/i.test(lastBody) && lastStatus === 400) {
+    // 400 = Gemini reached YouTube and was turned away at the video.
+    if (/is not available|PERMISSION_DENIED|not supported|unavailable/i.test(lastBody) && lastStatus === 400) {
       throw new Error(
-        "Gemini could not open this video. It must be a PUBLIC YouTube video (not private, unlisted, or members-only).",
+        "Gemini could not open this video. It must be a PUBLIC YouTube video — unlisted, private, members-only and age-restricted videos are all rejected.",
+      );
+    }
+    // 403 is ambiguous: either the video isn't public, or the API key itself
+    // can't call this API. Say both, in the order worth checking.
+    if (lastStatus === 403) {
+      throw new Error(
+        "Gemini refused the request (403 PERMISSION_DENIED). Two possible causes: " +
+          "1) the video is not PUBLIC — unlisted, private and members-only videos cannot be read; " +
+          "2) GEMINI_API_KEY is restricted or its project doesn't have the Generative Language API enabled. " +
+          "Try a known-public video first: if that works, it was the video.",
       );
     }
     if (lastStatus === 429) {
