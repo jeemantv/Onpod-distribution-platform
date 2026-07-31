@@ -11,6 +11,9 @@ const ADMIN_NAV = [
   { href: "/admin/team", label: "Team" },
   { href: "/admin/projects", label: "All projects" },
   { href: "/admin/archive", label: "Archive" },
+  // Standalone AI tool: paste any public YouTube link, get the full content
+  // package back. Nothing is published from here — it's copy-and-paste.
+  { href: "/admin/yt-ai", label: "AI YouTube" },
   // Integrations is the super-admin hub for third-party tooling
   // (Vizard templates, Stripe billing links, future OpusClip + AI
   // provider config). Lives above Revenue/Settings since you'll

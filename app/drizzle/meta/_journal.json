@@ -134,6 +134,13 @@
       "when": 1781811124286,
       "tag": "0018_typical_gateway",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1785519784515,
+      "tag": "0019_milky_crusher_hogan",
+      "breakpoints": true
     }
   ]
 }

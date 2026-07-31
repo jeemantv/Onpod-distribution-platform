@@ -790,6 +790,50 @@ export const postBucketItems = pgTable(
   }),
 );
 
+// ---------- AI YouTube (admin tool) ----------
+// One row per YouTube link an admin runs through the AI YouTube tab. Holds the
+// transcript Gemini pulls off the video plus every generated artefact, so the
+// results survive a refresh and can be reopened later.
+
+export const ytAiJobs = pgTable(
+  "yt_ai_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    videoId: varchar("video_id", { length: 16 }).notNull(),
+    url: text("url").notNull(),
+    videoTitle: text("video_title"),
+    channel: text("channel"),
+    coverUrl: text("cover_url"),
+    transcript: text("transcript"),
+    // How many SEGMENT_MINUTES windows have been transcribed so far, and
+    // whether we reached the end of the video.
+    segmentsDone: integer("segments_done").notNull().default(0),
+    transcriptComplete: boolean("transcript_complete").notNull().default(false),
+    ai: jsonb("ai").$type<{
+      title: string;
+      description: string;
+      tags: string[];
+      hashtags: string[];
+      language: string;
+      chapters: string;
+      summary: string;
+    } | null>(),
+    articles: jsonb("articles").$type<Record<string, string>>(),
+    thumbnails: jsonb("thumbnails").$type<
+      Array<{ url: string; headline: string; reason: string; style: string; designed: boolean }>
+    >(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => ({
+    userIdx: index("yt_ai_jobs_user_idx").on(t.userId),
+    createdIdx: index("yt_ai_jobs_created_idx").on(t.createdAt),
+  }),
+);
+
 // ---------- Inferred type exports ----------
 // Pattern: `User` = select shape, `NewUser` = insert shape. Stores import these
 // instead of redefining interfaces by hand.
@@ -838,3 +882,5 @@ export type PodcastEpisode = typeof podcastEpisodes.$inferSelect;
 export type NewPodcastEpisode = typeof podcastEpisodes.$inferInsert;
 export type ResetTokenRow = typeof resetTokens.$inferSelect;
 export type NewResetToken = typeof resetTokens.$inferInsert;
+export type YtAiJob = typeof ytAiJobs.$inferSelect;
+export type NewYtAiJob = typeof ytAiJobs.$inferInsert;
