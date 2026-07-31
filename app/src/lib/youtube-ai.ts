@@ -95,9 +95,14 @@ export async function fetchYouTubeMeta(videoId: string): Promise<YouTubeMeta> {
   }
 }
 
-/** Best available still for the video, as a base64 JPEG (for thumbnails). */
-export async function fetchYouTubeStill(videoId: string): Promise<string> {
+/**
+ * Best available still for the video, as a base64 JPEG (for thumbnails).
+ * `preferUrl` is the cover the Data API reported — the only one that resolves
+ * for a private video, where the guessable i.ytimg paths 404.
+ */
+export async function fetchYouTubeStill(videoId: string, preferUrl?: string): Promise<string> {
   const candidates = [
+    ...(preferUrl ? [preferUrl] : []),
     `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`,
     `https://i.ytimg.com/vi/${videoId}/sddefault.jpg`,
     `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,

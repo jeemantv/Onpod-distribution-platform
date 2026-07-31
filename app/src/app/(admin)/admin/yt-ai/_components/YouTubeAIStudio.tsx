@@ -69,10 +69,19 @@ export function YouTubeAIStudio({ initialJobs }: { initialJobs: JobSummary[] }) 
   const [thumbBusy, setThumbBusy] = useState(false);
   const [thumbNote, setThumbNote] = useState("");
   const [stylePrompt, setStylePrompt] = useState("");
+  // Where this run's transcript came from, and whether the YouTube grant needs
+  // re-consent for the captions scope.
+  const [source, setSource] = useState("");
+  const [needsReconnect, setNeedsReconnect] = useState(false);
 
   const refreshJobs = useCallback(async () => {
     const res = await fetch("/api/admin/yt-ai/jobs");
     if (res.ok) setJobs(((await res.json()) as { jobs: JobSummary[] }).jobs);
+  }, []);
+
+  const refetchJob = useCallback(async (id: string): Promise<Job | null> => {
+    const res = await fetch(`/api/admin/yt-ai/${id}`);
+    return res.ok ? ((await res.json()) as { job: Job }).job : null;
   }, []);
 
   const loadJob = useCallback(async (id: string) => {
@@ -86,6 +95,37 @@ export function YouTubeAIStudio({ initialJobs }: { initialJobs: JobSummary[] }) 
     }
     setJob(((await res.json()) as { job: Job }).job);
   }, []);
+
+  // Unlisted and private videos can only be read through the owner's YouTube
+  // OAuth token, and even for public ones the caption track is far faster than
+  // making Gemini watch the whole episode. So: try captions, fall back.
+  async function tryCaptions(jobId: string): Promise<{ imported: boolean; message?: string }> {
+    setStatus("Checking YouTube for a caption track…");
+    const res = await fetch("/api/admin/yt-ai/captions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jobId }),
+    });
+    const data = (await res.json()) as {
+      imported?: boolean;
+      source?: string;
+      chars?: number;
+      privacyStatus?: string;
+      reason?: string;
+      message?: string;
+    };
+    if (!res.ok) return { imported: false, message: data.message };
+    if (data.imported) {
+      setSource(
+        `${data.source ?? "YouTube captions"}${
+          data.privacyStatus ? ` · ${data.privacyStatus} video` : ""
+        }`,
+      );
+      return { imported: true };
+    }
+    if (data.reason === "reconnect") setNeedsReconnect(true);
+    return { imported: false, message: data.message };
+  }
 
   // Transcript runs one 20-minute window per request so a long episode never
   // trips the function timeout — loop until the server says it hit the end.
@@ -132,6 +172,8 @@ export function YouTubeAIStudio({ initialJobs }: { initialJobs: JobSummary[] }) 
   async function handleGenerate() {
     setError("");
     setThumbNote("");
+    setSource("");
+    setNeedsReconnect(false);
     setRunning(true);
     setStatus("Opening the video…");
     try {
@@ -145,7 +187,17 @@ export function YouTubeAIStudio({ initialJobs }: { initialJobs: JobSummary[] }) 
       setJob(data.job);
       void refreshJobs();
 
-      const afterTranscript = await runTranscript(data.job.id);
+      const captions = await tryCaptions(data.job.id);
+      if (!captions.imported) {
+        // Gemini is the fallback, and it can only watch public videos — if the
+        // link is unlisted the caption reason is the real explanation.
+        setStatus(
+          `${captions.message ?? "No caption track."} Falling back to Gemini (public videos only)…`,
+        );
+      }
+      const afterTranscript = captions.imported
+        ? await refetchJob(data.job.id)
+        : await runTranscript(data.job.id);
       if (afterTranscript) setJob(afterTranscript);
 
       const afterMeta = await runMetadata(data.job.id);
@@ -166,8 +218,13 @@ export function YouTubeAIStudio({ initialJobs }: { initialJobs: JobSummary[] }) 
     setError("");
     setRunning(true);
     try {
-      const updated =
-        step === "transcript" ? await runTranscript(job.id, true) : await runMetadata(job.id);
+      let updated: Job | null;
+      if (step === "transcript") {
+        const captions = await tryCaptions(job.id);
+        updated = captions.imported ? await refetchJob(job.id) : await runTranscript(job.id, true);
+      } else {
+        updated = await runMetadata(job.id);
+      }
       if (updated) setJob(updated);
       setStatus("Done.");
     } catch (err) {
@@ -258,11 +315,25 @@ export function YouTubeAIStudio({ initialJobs }: { initialJobs: JobSummary[] }) 
             </button>
           </div>
           <p className="text-[11px] text-text-dim mt-2">
-            The video has to be <strong>public</strong> — Gemini watches it on YouTube
-            to build the transcript, so unlisted, private and members-only videos are
-            rejected. A one-hour episode takes a few minutes.
+            <strong>Unlisted and private videos work</strong> when they live on a
+            YouTube channel you&apos;ve connected — OnPod reads the caption track with
+            your own credentials. For anything else the video must be public, because
+            the fallback is Gemini watching it as an anonymous viewer.
           </p>
           {status ? <p className="text-[12px] text-info mt-2">{status}</p> : null}
+          {source ? <p className="text-[12px] text-success mt-2">Transcript from {source}</p> : null}
+          {needsReconnect ? (
+            <p className="text-[12px] text-warning mt-2">
+              Your YouTube connection was made before OnPod asked for caption access.{" "}
+              <a
+                href="/api/youtube/connect?returnTo=/admin/yt-ai"
+                className="underline font-medium"
+              >
+                Reconnect the channel
+              </a>{" "}
+              to read unlisted and private videos.
+            </p>
+          ) : null}
           {error ? <p className="text-[12px] text-danger mt-2">{error}</p> : null}
         </div>
 

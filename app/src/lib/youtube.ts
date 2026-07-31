@@ -5,7 +5,18 @@ export const YT_SCOPES = [
   "https://www.googleapis.com/auth/youtube.upload",
   "https://www.googleapis.com/auth/youtube",
   "https://www.googleapis.com/auth/youtube.readonly",
+  // captions.download refuses everything except force-ssl (or youtubepartner).
+  // This is what lets AI YouTube read the transcript of an UNLISTED or PRIVATE
+  // video on a channel you own — Gemini can only watch public videos.
+  "https://www.googleapis.com/auth/youtube.force-ssl",
 ];
+
+export const CAPTIONS_SCOPE = "https://www.googleapis.com/auth/youtube.force-ssl";
+
+/** Connections made before force-ssl was requested need a reconnect. */
+export function hasCaptionsScope(scope: string | undefined): boolean {
+  return (scope ?? "").split(/\s+/).includes(CAPTIONS_SCOPE);
+}
 
 export function isConfigured(): boolean {
   return !!(process.env.YOUTUBE_CLIENT_ID && process.env.YOUTUBE_CLIENT_SECRET);

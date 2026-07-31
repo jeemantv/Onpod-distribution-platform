@@ -40,7 +40,7 @@ export async function POST(req: Request) {
   const stamp = Date.now();
 
   try {
-    const still = await fetchYouTubeStill(job.videoId);
+    const still = await fetchYouTubeStill(job.videoId, job.coverUrl ?? undefined);
     const ideas = await thumbnailIdeas(
       transcript,
       job.ai?.title || job.videoTitle || "",

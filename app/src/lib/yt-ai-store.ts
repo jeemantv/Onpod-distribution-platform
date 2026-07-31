@@ -83,6 +83,31 @@ export async function appendTranscript(
   return row ?? null;
 }
 
+/**
+ * Replace the transcript wholesale — used by the caption import, which gets
+ * the entire thing in one shot instead of window by window.
+ */
+export async function setTranscript(
+  id: string,
+  transcript: string,
+  info?: { videoTitle?: string; channel?: string; coverUrl?: string },
+): Promise<YtAiJob | null> {
+  const [row] = await db
+    .update(ytAiJobs)
+    .set({
+      transcript,
+      segmentsDone: 0,
+      transcriptComplete: true,
+      ...(info?.videoTitle ? { videoTitle: info.videoTitle } : {}),
+      ...(info?.channel ? { channel: info.channel } : {}),
+      ...(info?.coverUrl ? { coverUrl: info.coverUrl } : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(ytAiJobs.id, id))
+    .returning();
+  return row ?? null;
+}
+
 /** Wipe transcript progress so a run can start over. */
 export async function resetTranscript(id: string): Promise<void> {
   await db

@@ -197,6 +197,56 @@ export async function clearConnection(userId: string): Promise<void> {
   await db.delete(youtubeCredentials).where(eq(youtubeCredentials.userId, userId));
 }
 
+export interface ChannelToken {
+  channelId: string;
+  title: string;
+  accessToken: string;
+  scope: string | undefined;
+}
+
+/**
+ * A usable token for EVERY connected channel, refreshing the expired ones.
+ * Callers that have to find which channel owns a given video (caption import)
+ * need to try them all, not just the active one.
+ */
+export async function getAllChannelTokens(userId: string): Promise<ChannelToken[]> {
+  const conn = await getConnection(userId);
+  if (!conn) return [];
+
+  const out: ChannelToken[] = [];
+  let channels = conn.channels;
+  let topLevel = conn.tokens;
+  let changed = false;
+
+  for (const c of conn.channels) {
+    // Channels connected before per-channel tokens existed fall back to the
+    // top-level (active) tokens.
+    const isActive = c.id === conn.activeChannelId;
+    const access = c.accessToken ?? (isActive ? conn.tokens.accessToken : undefined);
+    const refresh = c.refreshToken ?? (isActive ? conn.tokens.refreshToken : undefined);
+    const expiresAt = c.expiresAt ?? (isActive ? conn.tokens.expiresAt : 0);
+    const scope = c.scope ?? (isActive ? conn.tokens.scope : undefined);
+    if (!access || !refresh) continue;
+
+    if (expiresAt > Date.now() + 60_000) {
+      out.push({ channelId: c.id, title: c.title, accessToken: access, scope });
+      continue;
+    }
+    try {
+      const fresh = await refreshTokens(refresh);
+      changed = true;
+      channels = channels.map((x) => (x.id === c.id ? attachTokens(x, fresh) : x));
+      if (isActive) topLevel = fresh;
+      out.push({ channelId: c.id, title: c.title, accessToken: fresh.accessToken, scope: fresh.scope });
+    } catch {
+      // A dead refresh token shouldn't stop the other channels from being tried.
+    }
+  }
+
+  if (changed) await saveConnection({ ...conn, channels, tokens: topLevel });
+  return out;
+}
+
 export async function getFreshAccessToken(userId: string): Promise<string | null> {
   const conn = await getConnection(userId);
   if (!conn) return null;
