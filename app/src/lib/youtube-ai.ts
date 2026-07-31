@@ -207,9 +207,11 @@ export async function transcribeSegment(
           { text: segmentPrompt(startSeconds, endSeconds) },
           {
             file_data: { file_uri: watchUrl(videoId) },
+            // Durations go over REST in protobuf's canonical string form
+            // ("1200s") — the {seconds} object form is not accepted.
             video_metadata: {
-              start_offset: { seconds: startSeconds },
-              end_offset: { seconds: endSeconds },
+              start_offset: `${startSeconds}s`,
+              end_offset: `${endSeconds}s`,
             },
           },
         ],
